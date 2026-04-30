@@ -2,6 +2,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const uploadsDir = path.join(__dirname, '../../uploads');
+const isVercel = Boolean(process.env.VERCEL);
 
 function ensureUploadsDir() {
   if (!fs.existsSync(uploadsDir)) {
@@ -9,7 +10,9 @@ function ensureUploadsDir() {
   }
 }
 
-ensureUploadsDir();
+if (!isVercel) {
+  ensureUploadsDir();
+}
 
 const getUploadUrl = (req, filename) => {
   const baseUrl = `${req.protocol}://${req.get('host')}`;

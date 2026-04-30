@@ -1,30 +1,46 @@
 const { PrismaClient } = require('@prisma/client');
 const { PrismaPg } = require('@prisma/adapter-pg');
 
-const connectionString = process.env.DATABASE_URL;
-
-if (!connectionString) {
-  throw new Error('DATABASE_URL is not set.');
-}
-
-const adapter = new PrismaPg({ connectionString });
 const globalForPrisma = globalThis;
+let prisma;
 
-const prisma =
-  globalForPrisma.__marvellaPrisma ||
-  new PrismaClient({
+const createPrismaClient = () => {
+  const connectionString = process.env.DATABASE_URL;
+
+  if (!connectionString) {
+    throw new Error(
+      'DATABASE_URL is not set. Configure it in Vercel or your .env file.'
+    );
+  }
+
+  const adapter = new PrismaPg({ connectionString });
+
+  return new PrismaClient({
     adapter,
     log: process.env.NODE_ENV === 'development' ? ['warn', 'error'] : ['error'],
   });
+};
 
-if (process.env.NODE_ENV !== 'production') {
-  globalForPrisma.__marvellaPrisma = prisma;
-}
+const getPrisma = async () => {
+  if (globalForPrisma.__marvellaPrisma) {
+    return globalForPrisma.__marvellaPrisma;
+  }
 
-const getPrisma = async () => prisma;
+  if (!prisma) {
+    prisma = createPrismaClient();
+
+    if (process.env.NODE_ENV !== 'production') {
+      globalForPrisma.__marvellaPrisma = prisma;
+    }
+  }
+
+  return prisma;
+};
 
 const disconnect = async () => {
-  await prisma.$disconnect();
+  if (prisma) {
+    await prisma.$disconnect();
+  }
 };
 
 module.exports = {
