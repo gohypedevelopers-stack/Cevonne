@@ -7,6 +7,9 @@ import ProductDetails from './components/pages/ProductDetails'
 import CartPage from './components/pages/CartPage'
 import CheckoutPage from './components/pages/CheckoutPage'
 import WishlistPage from './components/pages/WishlistPage'
+import PrivacyPolicy from '@/components/pages/PrivacyPolicy'
+import Terms from '@/components/pages/Terms'
+import Contact from '@/components/pages/Contact'
 import ShopDrawer from './components/ShopDrawer'
 import ScrollToTop from './components/ScrollToTop'
 import SearchPage from './components/pages/SearchPage'
@@ -109,6 +112,9 @@ const App = () => {
         <Route path="/cart" element={<CartPage />} />
         <Route path="/checkout" element={<CheckoutPage />} />
         <Route path="/wishlist" element={<WishlistPage />} />
+        <Route path="/privacy-policy" element={<PrivacyPolicy />} />
+        <Route path="/terms" element={<Terms />} />
+        <Route path="/contact" element={<Contact />} />
         <Route path='/signup' element={<Signup />} />
         <Route path='/login' element={<Login />} />
         <Route path='/dashboard' element={<AdminRoute element={<Dashboard />} />} />
