@@ -38,7 +38,7 @@ const sections = [
   },
 ];
 
-export default function PrivacyPolicy() {
+export default function PolicyPage() {
   return (
     <LegalPageLayout
       eyebrow="Privacy Policy"
