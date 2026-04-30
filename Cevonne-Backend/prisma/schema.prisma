@@ -1,0 +1,168 @@
+generator client {
+  provider = "prisma-client-js"
+  engineType = "client"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model User {
+  id           String              @id @default(cuid())
+  email        String              @unique
+  name         String?
+  passwordHash String?
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  role         String              @default("CUSTOMER")
+  resetTokens  PasswordResetToken?
+  reviews      Review[]
+  orders       Order[]
+}
+
+model Collection {
+  id          String    @id @default(cuid())
+  name        String
+  slug        String    @unique
+  description String?
+  imageUrl    String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  products    Product[]
+}
+
+model Product {
+  id           String         @id @default(cuid())
+  name         String
+  slug         String         @unique
+  description  String?
+  finish       String?
+  basePrice    Decimal        @db.Decimal(10, 2)
+  brand        String?
+  productType  String?
+  tags         Json?
+  badges       Json?
+  media        Json?
+  pricing      Json?
+  ingredients  Json?
+  size         Json?
+  setContents  Json?
+  experience   Json?
+  collectionId String?
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  collection   Collection?    @relation(fields: [collectionId], references: [id])
+  images       ProductImage[]
+  reviews      Review[]
+  shades       Shade[]
+
+  @@index([name])
+  @@index([collectionId])
+}
+
+model ProductImage {
+  id        String   @id @default(cuid())
+  url       String
+  productId String
+  createdAt DateTime @default(now())
+  alt       String?
+  product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+model Shade {
+  id        String     @id @default(cuid())
+  name      String
+  hexColor  String
+  sku       String?    @unique
+  price     Decimal?   @db.Decimal(10, 2)
+  productId String
+  arAssetUrl String?
+  arPreviewUrl String?
+  arCode    String?
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  inventory Inventory?
+  product   Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@index([productId])
+}
+
+model Inventory {
+  id        String   @id @default(cuid())
+  quantity  Int      @default(0)
+  shadeId   String   @unique
+  updatedAt DateTime @updatedAt
+  shade     Shade    @relation(fields: [shadeId], references: [id], onDelete: Cascade)
+}
+
+model Review {
+  id        String        @id @default(cuid())
+  rating    Int
+  title     String?
+  comment   String?
+  status    ReviewStatus  @default(PENDING)
+  productId String
+  userId    String
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  product   Product       @relation(fields: [productId], references: [id], onDelete: Cascade)
+  user      User          @relation(fields: [userId], references: [id])
+  media     ReviewMedia[]
+
+  @@index([productId, status])
+  @@index([userId])
+}
+
+model ReviewMedia {
+  id        String   @id @default(cuid())
+  url       String
+  reviewId  String
+  createdAt DateTime @default(now())
+  review    Review   @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+
+  @@index([reviewId])
+}
+
+model PasswordResetToken {
+  id        String   @id @default(cuid())
+  token     String   @unique
+  expiresAt DateTime
+  userId    String   @unique
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])
+}
+
+model Order {
+  id            String      @id @default(cuid())
+  number        String      @unique
+  userId        String?
+  status        OrderStatus @default(PENDING)
+  paymentMethod String?
+  totals        Json
+  shipping      Json
+  items         Json
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  user          User?       @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+enum Role {
+  ADMIN
+  CUSTOMER
+}
+
+enum ReviewStatus {
+  PENDING
+  PUBLISHED
+  REJECTED
+}
+
+enum OrderStatus {
+  PENDING
+  PAID
+  FULFILLED
+}

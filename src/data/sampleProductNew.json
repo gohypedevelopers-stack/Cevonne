@@ -1,0 +1,144 @@
+[
+  {
+    "id": "velvet-power-cevonne-crush",
+    "slug": "velvet-power-cevonne-crush",
+    "name": "Cevonne Crush – Velvet Power™ Bullet Lipstick",
+    "brand": "CEVONNE",
+    "type": "single",
+    "tags": [
+      "lipstick",
+      "bullet",
+      "velvet matte",
+      "mauve rose",
+      "everyday shade",
+      "indian undertones",
+      "cruelty-free",
+      "paraben-free",
+      "talc-free"
+    ],
+    "badges": [
+      { "type": "marketing", "label": "Velvet Power™" },
+      { "type": "feature", "label": "Dermat Tested" }
+    ],
+    "description": {
+      "headline": "A soft mauve-rose that looks effortless, feels weightless, and adapts beautifully to Indian undertones.",
+      "body": "Cevonne Crush is a soft mauve-rose in the Velvet Power™ bullet lipstick range — a mauve that doesn’t fall flat and a rose that doesn’t turn grey. It’s designed as an everyday-soft shade with quiet depth and universal charm, offering velvet-matte comfort with zero dryness while staying true on Indian skin tones."
+    },
+    "finish": "Velvet Matte",
+    "coverage": "Full Pigment",
+    "fragrance": "Fragrance-Free",
+    "pricing": {
+      "currency": "?",
+      "price": 899,
+      "originalValue": 1299
+    },
+    "size": {
+      "unitCount": 1,
+      "sizePerUnit": { "ml": 0, "flOz": 0 }
+    },
+    "setContents": [],
+    "ingredients": {
+      "keyActives": [
+        { "name": "Shea Butter", "description": "Nourishes and softens lips for comfortable velvet-matte wear." },
+        { "name": "Squalane", "description": "Helps maintain moisture and a smooth, cushiony texture on the lips." },
+        { "name": "Hyaluronic Acid", "description": "Attracts and retains moisture to keep lips looking plump and reduce the appearance of fine lines." }
+      ],
+      "supportingIngredients": [
+        "Ricinus Communis (Castor) Seed Oil",
+        "Caprylic/Capric Triglyceride",
+        "Euphorbia Cerifera (Candelilla) Wax",
+        "Copernicia Cerifera (Carnauba) Wax",
+        "Simmondsia Chinensis (Jojoba) Seed Oil",
+        "Cera Alba (Beeswax)",
+        "Hydrogenated Castor Oil",
+        "Ozokerite",
+        "Tocopheryl Acetate",
+        "Silica",
+        "Phenoxyethanol",
+        "Ethylhexylglycerin",
+        "+/- CI Pigments"
+      ]
+    },
+    "media": {
+      "heroImage": "product8.png",
+      "gallery": [
+        { "id": "velvet-power-cevonne-crush-packshot", "alt": "Cevonne Crush packshot", "role": "hero", "url": "product8.png" },
+        { "id": "velvet-power-cevonne-crush-lip-swatch", "alt": "Lip swatch mauve-rose", "role": "swatch", "url": "product1.png" },
+        { "id": "velvet-power-cevonne-crush-arm-swatch", "alt": "Arm swatch on skin tones", "role": "swatch", "url": "product3.png" },
+        { "id": "velvet-power-cevonne-crush-texture", "alt": "Velvet-soft smear texture", "role": "texture", "url": "product4.png" }
+      ]
+    },
+    "gallery": ["product1.png", "product8.png", "product3.png", "product4.png"],
+    "benefits": [
+      "12-hour comfortable velvet-matte finish",
+      "Blurs the look of lines & texture",
+      "Non-drying, weightless feel",
+      "Transfer-minimized formula"
+    ],
+    "ingredients_highlight": [
+      { "name": "Squalane", "why": "locks in moisture for comfort" },
+      { "name": "Vitamin E", "why": "antioxidant protection & care" },
+      { "name": "Hyaluronic Filling Spheres", "why": "plush, pillowy feel" }
+    ],
+    "how_to_use": [
+      "Exfoliate lips gently and wipe clean.",
+      "Outline with the bullet tip and fill in the center.",
+      "Blot once with tissue; reapply for richer payoff."
+    ],
+    "claims": [
+      "93% agreed lips felt soft after 8 hours*",
+      "88% agreed the color looked even*",
+      "81% saw minimal transfer*"
+    ],
+    "disclaimer": "* consumer study, n=60, after 1 week of use",
+    "faqs": [
+      { "q": "Is it drying?", "a": "No. The formula includes emollients like squalane to keep lips comfortable." },
+      { "q": "Is it vegan?", "a": "Yes, it’s 100% vegan and cruelty-free." },
+      { "q": "Will it suit my skin tone?", "a": "Use the shade finder—each shade lists undertone suggestions." }
+    ],
+    "reviews": 328,
+    "rating": 4.7,
+    "reviewsList": [
+      { "author": "Priya S.", "rating": 5, "title": "Finally, a matte that isn't drying!", "comment": "Comfortable velvet-matte; Rosewood is my new favorite.", "date": "September 15, 2025" },
+      { "author": "Anjali K.", "rating": 4, "title": "Beautiful color", "comment": "Soft Peach is stunning and comfy. Needs a touch-up after meals.", "date": "September 12, 2025" },
+      { "author": "Rohan M.", "rating": 5, "title": "Best lipstick I've ever bought", "comment": "Gifted Classic Mauve—texture and look are incredible.", "date": "September 10, 2025" }
+    ],
+    "shipping": "Free shipping on orders above ?499",
+    "returns": "Easy 7-day returns on unopened items.",
+    "videoUrl": "intro1.mp4",
+    "videoTitle": "Cevonne",
+    "videoDescription": "Velvet matte color and intense longwear adorn lips with immediate moisture and rich tones in 28 irresistible shades.",
+    "ingredientsTitle": "Powered by Science",
+    "theme": {
+      "defaultBg": "radial-gradient(80% 60% at 50% 0%, #faf7f2 0%, #f4efe9 45%, #efe9e2 100%)",
+      "bgScenes": {
+        "hero": "radial-gradient(80% 60% at 50% 10%, #fff7f3 0%, #ffe9e0 45%, #ffe1d4 100%)",
+        "features": "radial-gradient(80% 60% at 50% 10%, #f8f1ff 0%, #f3ecff 45%, #ece6ff 100%)",
+        "ingredients": "radial-gradient(80% 60% at 50% 10%, #f2fbff 0%, #e9f7ff 45%, #e6f4ff 100%)",
+        "video": "radial-gradient(80% 60% at 50% 10%, #0b0b0b 0%, #121212 65%, #171717 100%)",
+        "shades": "radial-gradient(80% 60% at 50% 10%, #fff8f1 0%, #fff2e5 45%, #ffecd9 100%)",
+        "reviews": "radial-gradient(80% 60% at 50% 10%, #f6f7ff 0%, #f0f2ff 45%, #eaecff 100%)"
+      },
+      "bgTone": {
+        "hero": "light",
+        "features": "light",
+        "ingredients": "light",
+        "video": "dark",
+        "shades": "light",
+        "reviews": "light"
+      }
+    },
+    "hero": {
+      "image": "product8.png",
+      "objectPosition": "68% 34%",
+      "bg": "#fff7f3",
+      "overlay": "linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,.06) 100%)",
+      "wheelScrollSwitch": true
+    },
+    "shades": [
+      { "key": "rosewood", "name": "Rosewood 01", "hex": "#8a4040", "thumb": "product8.png", "desc": "A deep and elegant rosewood for medium to deep skin tones with warm/neutral undertones." },
+      { "key": "peach", "name": "Soft Peach 02", "hex": "#e7a28d", "thumb": "product2.png", "desc": "Delicate peach that brightens fair to medium skin tones." },
+      { "key": "mauve", "name": "Classic Mauve 03", "hex": "#7c4a66", "thumb": "product7.png", "desc": "Timeless mauve with cool undertones; universally flattering." }
+    ]
+  }
+]
