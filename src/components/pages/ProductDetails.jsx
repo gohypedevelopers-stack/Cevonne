@@ -1,4 +1,4 @@
-﻿// src/components/pages/ProductDetails.jsx
+// src/components/pages/ProductDetails.jsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import {
@@ -104,13 +104,21 @@ const FALLBACK_IMAGE =
 
 function resolveAsset(pth = "") {
   if (!pth) return "";
-  let clean = String(pth).split("?")[0].split("#")[0].trim();
-  if (clean.startsWith("/assets/")) clean = "/src" + clean;
-  if (!clean.includes("/assets/images/")) clean = "/src/assets/images/" + clean.replace(/^\/+/, "");
-  if (IMG[clean]) return IMG[clean];
-  const fname = clean.split("/").pop();
+  const clean = String(pth).trim();
+  
+  // If it's an absolute URL (e.g. from database/cloud storage), return it as is
+  if (clean.startsWith("http")) return clean;
+
+  // Handle local assets
+  let p = clean.split("?")[0].split("#")[0];
+  if (p.startsWith("/assets/")) p = "/src" + p;
+  if (!p.includes("/assets/images/")) p = "/src/assets/images/" + p.replace(/^\/+/, "");
+  
+  if (IMG[p]) return IMG[p];
+  const fname = p.split("/").pop();
   const kv = Object.entries(IMG).find(([k]) => k.endsWith("/" + fname));
   if (kv) return kv[1];
+  
   return FALLBACK_IMAGE || pth;
 }
 
@@ -148,7 +156,6 @@ const RatingStars = ({ value = 0 }) => {
     </div>
   );
 };
-
 
 
 
@@ -297,11 +304,13 @@ const buildProductView = (source = {}, { useFallbackContent = true } = {}) => {
   const media = source.media || {};
   const desc = source.description && typeof source.description === "object" ? source.description : {};
   const descriptionText = typeof source.description === "string" ? source.description : undefined;
-  const ingredientsData = source.ingredients || {};
   const fallbackProduct = useFallbackContent ? BASE_PRODUCT : {};
   const fallbackContent = useFallbackContent ? SAMPLE_CONTENT : {};
   const fallbackGallery = useFallbackContent ? BASE_GALLERY : [];
+
+  const ingredientsData = source.ingredients || {};
   const basePricing = fallbackProduct.pricing || {};
+  
   const fallbackBenefits = cleanList(fallbackProduct.benefits, cleanList(fallbackContent.benefits, []));
   const fallbackClaims = cleanList(fallbackProduct.claims, cleanList(fallbackContent.claims, []));
   const fallbackFaqs = Array.isArray(fallbackProduct.faqs) && fallbackProduct.faqs.length
@@ -317,11 +326,14 @@ const buildProductView = (source = {}, { useFallbackContent = true } = {}) => {
       ? fallbackContent.ingredients.supportingIngredients
       : [];
 
+  // Extract all possible image sources from the database object
   const galleryFromImages = Array.isArray(source.images)
     ? source.images.map((img) => img.url || img.id || img.src).filter(Boolean)
     : source.image
       ? [source.image]
-      : [];
+      : source.cardHero
+        ? [source.cardHero]
+        : [];
 
   const pickGallery = (candidate) =>
     Array.isArray(candidate) && candidate.length ? candidate : null;
@@ -331,40 +343,45 @@ const buildProductView = (source = {}, { useFallbackContent = true } = {}) => {
     pickGallery(experience.gallery) ??
     pickGallery(source.gallery) ??
     pickGallery(galleryFromImages) ??
-    pickGallery(fallbackContent.gallery) ??
+    (useFallbackContent ? pickGallery(fallbackContent.gallery) : null) ??
     fallbackGallery;
 
   const theme = {
-    ...(fallbackContent.theme || {}),
-    ...(fallbackProduct.theme || {}),
+    ...(useFallbackContent ? fallbackContent.theme || {} : {}),
+    ...(useFallbackContent ? fallbackProduct.theme || {} : {}),
     ...(source.theme || {}),
     ...(experience.theme || {}),
   };
+  
   const hero = {
-    ...(fallbackContent.hero || {}),
-    ...(fallbackProduct.hero || {}),
+    ...(useFallbackContent ? fallbackContent.hero || {} : {}),
+    ...(useFallbackContent ? fallbackProduct.hero || {} : {}),
     ...(source.hero || {}),
     ...(experience.hero || {}),
     image:
       media.heroImage ??
       source.hero?.image ??
       experience.hero?.image ??
-      fallbackProduct.media?.heroImage ??
-      fallbackContent.hero?.image ??
+      (useFallbackContent ? fallbackProduct.media?.heroImage : undefined) ??
+      (useFallbackContent ? fallbackContent.hero?.image : undefined) ??
       galleryFromImages[0] ??
+      source.image ??
+      source.cardHero ??
       ""
   };
 
   const sourceBadges = Array.isArray(source.badges)
     ? source.badges.map(b => b.label ?? b)
     : source.badges;
+    
   const badges = cleanList(
     sourceBadges ?? experience.badges,
-    cleanList(fallbackProduct.badges, cleanList(fallbackContent.badges, []))
+    useFallbackContent ? cleanList(fallbackProduct.badges, cleanList(fallbackContent.badges, [])) : []
   );
+  
   const benefits = cleanList(
     experience.benefits ?? source.benefits,
-    fallbackBenefits
+    useFallbackContent ? fallbackBenefits : []
   );
 
   const ingredients =
@@ -374,8 +391,8 @@ const buildProductView = (source = {}, { useFallbackContent = true } = {}) => {
         experience.ingredientsHighlight ??
         experience.ingredients_highlight ??
         source.ingredients_highlight ??
-        fallbackProduct.ingredients_highlight ??
-        fallbackIngredientsHighlight
+        (useFallbackContent ? fallbackProduct.ingredients_highlight : undefined) ??
+        (useFallbackContent ? fallbackIngredientsHighlight : [])
       );
 
   const supportingIngredients =
@@ -385,21 +402,24 @@ const buildProductView = (source = {}, { useFallbackContent = true } = {}) => {
         ? source.ingredients_supporting
         : Array.isArray(experience.ingredients_supporting)
           ? experience.ingredients_supporting
-          : fallbackSupportingIngredients;
+          : (useFallbackContent ? fallbackSupportingIngredients : []);
 
-  const ingredientsNote = ingredientsData.note ?? source.ingredientsNote ?? experience.ingredientsNote ?? fallbackContent.ingredientsNote ?? "";
+  const ingredientsNote = ingredientsData.note ?? source.ingredientsNote ?? experience.ingredientsNote ?? (useFallbackContent ? fallbackContent.ingredientsNote : "") ?? "";
 
   const howToUse = cleanList(
     experience.howToUse ?? experience.how_to_use ?? source.how_to_use ?? source.howToUse,
-    fallbackHowToUse
+    useFallbackContent ? fallbackHowToUse : []
   );
-  const claims = cleanList(experience.claims ?? source.claims, fallbackClaims);
+  
+  const claims = cleanList(experience.claims ?? source.claims, useFallbackContent ? fallbackClaims : []);
+  
   const faqs = Array.isArray(experience.faqs ?? source.faqs)
     ? experience.faqs ?? source.faqs
-    : fallbackFaqs;
-  const tags = Array.isArray(source.tags) ? source.tags : Array.isArray(fallbackContent.tags) ? fallbackContent.tags : [];
-  const brand = source.brand ?? fallbackProduct.brand ?? fallbackContent.brand ?? "";
-  const productType = source.productType ?? source.type ?? fallbackProduct.productType ?? fallbackContent.productType ?? "";
+    : (useFallbackContent ? fallbackFaqs : []);
+    
+  const tags = Array.isArray(source.tags) ? source.tags : (useFallbackContent ? Array.isArray(fallbackContent.tags) ? fallbackContent.tags : [] : []);
+  const brand = source.brand ?? (useFallbackContent ? fallbackProduct.brand ?? fallbackContent.brand : "") ?? "";
+  const productType = source.productType ?? source.type ?? (useFallbackContent ? fallbackProduct.productType ?? fallbackContent.productType : "") ?? "";
 
   const reviewsList = Array.isArray(source?.reviewsList)
     ? source.reviewsList
@@ -408,28 +428,25 @@ const buildProductView = (source = {}, { useFallbackContent = true } = {}) => {
       : useFallbackContent && Array.isArray(fallbackContent.reviewsList)
         ? fallbackContent.reviewsList
         : [];
+        
   const reviewCount = Array.isArray(source?.reviews)
     ? source.reviews.length
-    : (source.reviewCount ?? (useFallbackContent ? experience.reviewCount ?? source.reviews ?? fallbackProduct.reviews ?? fallbackContent.reviews : 0));
+    : (source.reviewCount ?? (useFallbackContent ? experience.reviewCount ?? source.reviews ?? fallbackProduct.reviews ?? fallbackContent.reviews : source.reviews?.length ?? 0));
 
   return {
     ...(useFallbackContent ? BASE_PRODUCT : {}),
     ...source,
     ...experience,
-    title: source.name ?? experience.title ?? source.title ?? fallbackProduct.title ?? fallbackProduct.name ?? "",
-    name: source.name ?? experience.name ?? fallbackProduct.title ?? fallbackProduct.name ?? "",
-    subtitle: desc.headline ?? experience.subtitle ?? source.subtitle ?? fallbackProduct.subtitle ?? fallbackProduct.description?.headline ?? fallbackContent.subtitle ?? fallbackContent.description?.headline ?? "",
-    categoryPath: experience.categoryPath ?? source.categoryPath ?? fallbackProduct.categoryPath ?? fallbackContent.categoryPath ?? [],
+    title: source.name ?? experience.title ?? source.title ?? (useFallbackContent ? fallbackProduct.title ?? fallbackProduct.name : ""),
+    name: source.name ?? experience.name ?? (useFallbackContent ? fallbackProduct.title ?? fallbackProduct.name : ""),
+    subtitle: desc.headline ?? experience.subtitle ?? source.subtitle ?? (useFallbackContent ? fallbackProduct.subtitle ?? fallbackProduct.description?.headline ?? fallbackContent.subtitle ?? fallbackContent.description?.headline : ""),
+    categoryPath: experience.categoryPath ?? source.categoryPath ?? (useFallbackContent ? fallbackProduct.categoryPath ?? fallbackContent.categoryPath : []),
     longDescription:
       desc.body ??
       experience.longDescription ??
       source.longDescription ??
       descriptionText ??
-      fallbackProduct.longDescription ??
-      fallbackProduct.description?.body ??
-      fallbackContent.longDescription ??
-      fallbackContent.description?.body ??
-      "",
+      (useFallbackContent ? fallbackProduct.longDescription ?? fallbackProduct.description?.body ?? fallbackContent.longDescription ?? fallbackContent.description?.body : ""),
     hero,
     theme,
     gallery,
@@ -445,24 +462,24 @@ const buildProductView = (source = {}, { useFallbackContent = true } = {}) => {
     brand,
     type: productType,
     productType,
-    shipping: experience.shipping ?? source.shipping ?? fallbackProduct.shipping ?? fallbackContent.shipping ?? (useFallbackContent ? "Free shipping on prepaid orders" : ""),
-    returns: experience.returns ?? source.returns ?? fallbackProduct.returns ?? fallbackContent.returns ?? (useFallbackContent ? "Easy 7-day returns on unopened items." : ""),
+    shipping: experience.shipping ?? source.shipping ?? (useFallbackContent ? fallbackProduct.shipping ?? fallbackContent.shipping ?? "Free shipping on prepaid orders" : ""),
+    returns: experience.returns ?? source.returns ?? (useFallbackContent ? fallbackProduct.returns ?? fallbackContent.returns ?? "Easy 7-day returns on unopened items." : ""),
     reviews: Number.isFinite(reviewCount) ? reviewCount : Number(reviewCount) || reviewsList.length || 0,
     rating:
       Number.isFinite(source.averageRating) ? source.averageRating
         : Number.isFinite(experience.rating) && useFallbackContent ? experience.rating
           : Number.isFinite(source.rating) ? source.rating
-            : Number(fallbackProduct.rating ?? fallbackProduct.averageRating ?? fallbackContent.rating ?? fallbackContent.averageRating ?? 0) || 0,
-    mrp: pricing.originalValue ?? source.mrp ?? source.compareAtPrice ?? basePricing.originalValue ?? fallbackProduct.mrp ?? fallbackProduct.price ?? fallbackContent.mrp ?? fallbackContent.price ?? null,
-    price: pricing.price ?? source.price ?? source.basePrice ?? basePricing.price ?? fallbackProduct.price ?? fallbackContent.price ?? 0,
-    currency: pricing.currency ?? source.currency ?? basePricing.currency ?? fallbackProduct.currency ?? fallbackContent.currency ?? "INR",
+            : Number(useFallbackContent ? (fallbackProduct.rating ?? fallbackProduct.averageRating ?? fallbackContent.rating ?? fallbackContent.averageRating ?? 0) : 0) || 0,
+    mrp: pricing.originalValue ?? source.mrp ?? source.compareAtPrice ?? (useFallbackContent ? basePricing.originalValue ?? fallbackProduct.mrp ?? fallbackProduct.price ?? fallbackContent.mrp ?? fallbackContent.price : null),
+    price: pricing.price ?? source.price ?? source.basePrice ?? (useFallbackContent ? basePricing.price ?? fallbackProduct.price ?? fallbackContent.price : 0),
+    currency: pricing.currency ?? source.currency ?? (useFallbackContent ? basePricing.currency ?? fallbackProduct.currency ?? fallbackContent.currency : "INR"),
     reviewsList,
-    finish: source?.finish ?? experience.finish ?? fallbackProduct.finish ?? fallbackContent.finish ?? "",
-    coverage: source?.coverage ?? experience.coverage ?? fallbackProduct.coverage ?? fallbackContent.coverage ?? "",
-    fragrance: source?.fragrance ?? experience.fragrance ?? fallbackProduct.fragrance ?? fallbackContent.fragrance ?? "",
-    videoTitle: experience.videoTitle ?? source.videoTitle ?? fallbackProduct.experience?.videoTitle ?? fallbackContent.videoTitle ?? source.name ?? "Cevonne",
-    videoDescription: experience.videoDescription ?? source.videoDescription ?? fallbackProduct.experience?.videoDescription ?? fallbackContent.videoDescription ?? "",
-    ingredientsTitle: experience.ingredientsTitle ?? fallbackProduct.experience?.ingredientsTitle ?? fallbackContent.ingredientsTitle ?? "Ingredients",
+    finish: source?.finish ?? experience.finish ?? (useFallbackContent ? fallbackProduct.finish ?? fallbackContent.finish : ""),
+    coverage: source?.coverage ?? experience.coverage ?? (useFallbackContent ? fallbackProduct.coverage ?? fallbackContent.coverage : ""),
+    fragrance: source?.fragrance ?? experience.fragrance ?? (useFallbackContent ? fallbackProduct.fragrance ?? fallbackContent.fragrance : ""),
+    videoTitle: experience.videoTitle ?? source.videoTitle ?? (useFallbackContent ? fallbackProduct.experience?.videoTitle ?? fallbackContent.videoTitle : source.name ?? "Cevonne"),
+    videoDescription: experience.videoDescription ?? source.videoDescription ?? (useFallbackContent ? fallbackProduct.experience?.videoDescription ?? fallbackContent.videoDescription : ""),
+    ingredientsTitle: experience.ingredientsTitle ?? (useFallbackContent ? fallbackProduct.experience?.ingredientsTitle ?? fallbackContent.ingredientsTitle : "Ingredients"),
     videoUrl: experience.videoUrl ?? source.videoUrl ?? (useFallbackContent ? fallbackProduct.videoUrl ?? fallbackContent.videoUrl : undefined),
     shades: normalizeShades(source.shades, experience.shades, gallery, source, {
       allowFallbackSingle: useFallbackContent,
