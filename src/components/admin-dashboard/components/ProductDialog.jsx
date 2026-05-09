@@ -28,7 +28,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { API_BASE, slugify } from "../utils";
@@ -41,11 +40,11 @@ const FORMAT_ACTIONS = [
 
 const SECTIONS = [
   { value: "details", label: "Details", description: "Core product information" },
-  { value: "story", label: "Story", description: "Product page content & theme" },
+  { value: "story", label: "Story", description: "Product page content" },
   { value: "inventory", label: "Inventory", description: "Stock levels and availability" },
   { value: "media", label: "Media", description: "Images and visual assets" },
-  { value: "shipping", label: "Shipping", description: "Packaging and fulfilment" },
-  { value: "pricing", label: "Pricing", description: "Retail and compare-at pricing" },
+  { value: "size", label: "Size", description: "Displayed product size" },
+  { value: "pricing", label: "Pricing", description: "Retail and original pricing" },
 ];
 
 const defaultRequest = (url, options) => fetch(url, options);
@@ -99,39 +98,15 @@ function ProductFormBase({
     currency: "INR",
     originalValue: "",
     collectionId: "",
-    compareAtPrice: "", // Keep for backward compat or map to originalValue
-    shippingWeight: "",
-    shippingLength: "",
-    shippingWidth: "",
-    shippingHeight: "",
     unitCount: "1",
     sizeMl: "",
     sizeFlOz: "",
-    inventoryQuantity: "",
-    inventorySku: "",
-    onlineSelling: true,
-    inStoreSelling: false,
     experienceSubtitle: "",
     experienceCategoryPath: "",
     experienceLongDescription: "",
     experienceVideoUrl: "",
     experienceHeroImage: "",
     experienceHeroObjectPosition: "",
-    experienceHeroBg: "",
-    experienceHeroOverlay: "",
-    experienceThemeDefaultBg: "",
-    experienceSceneBgHero: "",
-    experienceSceneBgFeatures: "",
-    experienceSceneBgIngredients: "",
-    experienceSceneBgVideo: "",
-    experienceSceneBgShades: "",
-    experienceSceneBgReviews: "",
-    experienceToneHero: "",
-    experienceToneFeatures: "",
-    experienceToneIngredients: "",
-    experienceToneVideo: "",
-    experienceToneShades: "",
-    experienceToneReviews: "",
     experienceGallery: "",
     experienceBadges: "",
     experienceBenefits: "",
@@ -140,9 +115,6 @@ function ProductFormBase({
     experienceDisclaimer: "",
     experienceShipping: "",
     experienceReturns: "",
-    experienceRating: "",
-    experienceReviewCount: "",
-    experienceReviewCount: "",
     supportingIngredients: "",
     coverage: "",
     fragrance: "",
@@ -157,7 +129,6 @@ function ProductFormBase({
       shades: [createEmptyShade()],
       experienceIngredients: [{ name: "", why: "" }],
       experienceFaqs: [{ q: "", a: "" }],
-      reviewsList: [{ author: "", date: "", rating: "5", title: "", comment: "" }],
     },
   });
 
@@ -196,16 +167,6 @@ function ProductFormBase({
     control,
     name: "experienceFaqs",
   });
-  const {
-    fields: reviewFields,
-    append: appendReview,
-    remove: removeReview,
-    replace: replaceReviews,
-  } = useFieldArray({
-    control,
-    name: "reviewsList",
-  });
-
   // NOTE: no TS generics here; this is .jsx
   const editorRef = useRef(null);
   const textFileInputRef = useRef(null);
@@ -260,15 +221,13 @@ function ProductFormBase({
       name: prod?.name ?? "",
       slug: prod?.slug ?? "",
       brand: prod?.brand ?? "CEVONNE",
-      type: prod?.type ?? "single",
+      type: prod?.productType ?? prod?.type ?? "single",
       tags: Array.isArray(prod?.tags) ? prod.tags.join(", ") : "",
       headline: prod?.description?.headline ?? "",
       description: prod?.description?.body ?? prod?.description ?? "",
-      headline: prod?.description?.headline ?? "",
-      description: prod?.description?.body ?? prod?.description ?? "",
       finish: prod?.finish ?? "",
-      coverage: prod?.coverage ?? "",
-      fragrance: prod?.fragrance ?? "",
+      coverage: prod?.coverage ?? experience.coverage ?? "",
+      fragrance: prod?.fragrance ?? experience.fragrance ?? "",
       videoTitle: experience.videoTitle ?? "",
       videoDescription: experience.videoDescription ?? "",
       ingredientsTitle: experience.ingredientsTitle ?? "",
@@ -276,7 +235,6 @@ function ProductFormBase({
       currency: prod?.pricing?.currency ?? "INR",
       originalValue: prod?.pricing?.originalValue != null ? String(prod.pricing.originalValue) : "",
       collectionId: prod?.collectionId ?? "",
-      compareAtPrice: prod?.compareAtPrice != null ? String(prod.compareAtPrice) : "",
       unitCount: prod?.size?.unitCount != null ? String(prod.size.unitCount) : "1",
       sizeMl: prod?.size?.sizePerUnit?.ml != null ? String(prod.size.sizePerUnit.ml) : "",
       sizeFlOz: prod?.size?.sizePerUnit?.flOz != null ? String(prod.size.sizePerUnit.flOz) : "",
@@ -288,21 +246,6 @@ function ProductFormBase({
       experienceVideoUrl: experience.videoUrl ?? "",
       experienceHeroImage: prod?.media?.heroImage ?? experience.hero?.image ?? prod?.images?.[0]?.url ?? "",
       experienceHeroObjectPosition: experience.hero?.objectPosition ?? "",
-      experienceHeroBg: experience.hero?.bg ?? "",
-      experienceHeroOverlay: experience.hero?.overlay ?? "",
-      experienceThemeDefaultBg: experience.theme?.defaultBg ?? "",
-      experienceSceneBgHero: experience.theme?.bgScenes?.hero ?? "",
-      experienceSceneBgFeatures: experience.theme?.bgScenes?.features ?? "",
-      experienceSceneBgIngredients: experience.theme?.bgScenes?.ingredients ?? "",
-      experienceSceneBgVideo: experience.theme?.bgScenes?.video ?? "",
-      experienceSceneBgShades: experience.theme?.bgScenes?.shades ?? "",
-      experienceSceneBgReviews: experience.theme?.bgScenes?.reviews ?? "",
-      experienceToneHero: experience.theme?.bgTone?.hero ?? "",
-      experienceToneFeatures: experience.theme?.bgTone?.features ?? "",
-      experienceToneIngredients: experience.theme?.bgTone?.ingredients ?? "",
-      experienceToneVideo: experience.theme?.bgTone?.video ?? "",
-      experienceToneShades: experience.theme?.bgTone?.shades ?? "",
-      experienceToneReviews: experience.theme?.bgTone?.reviews ?? "",
       experienceGallery: joinLines(prod?.media?.gallery?.map(g => g.id || g.url) ?? experience.gallery ?? galleryFromImages),
       experienceBadges: joinLines(prod?.badges?.map(b => b.label) ?? experience.badges),
       experienceBenefits: joinLines(experience.benefits),
@@ -311,15 +254,6 @@ function ProductFormBase({
       experienceDisclaimer: experience.disclaimer ?? "",
       experienceShipping: experience.shipping ?? prod?.shipping ?? "",
       experienceReturns: experience.returns ?? prod?.returns ?? "",
-      experienceRating: experience.rating != null ? String(experience.rating) : "",
-      experienceReviewCount:
-        experience.reviewCount != null
-          ? String(experience.reviewCount)
-          : prod?.reviewCount != null
-            ? String(prod.reviewCount)
-            : prod?.reviews != null
-              ? String(prod.reviews)
-              : "",
       supportingIngredients: Array.isArray(prod?.ingredients?.supportingIngredients)
         ? prod.ingredients.supportingIngredients.join("\n")
         : "",
@@ -345,16 +279,6 @@ function ProductFormBase({
             id: faq.id ?? `${index}`,
           }))
           : [{ q: "", a: "" }],
-      reviewsList:
-        Array.isArray(prod?.reviewsList) && prod.reviewsList.length
-          ? prod.reviewsList.map((r, index) => ({
-            author: r.author ?? "",
-            date: r.date ?? "",
-            rating: r.rating != null ? String(r.rating) : "5",
-            title: r.title ?? "",
-            comment: r.comment ?? "",
-          }))
-          : [{ author: "", date: "", rating: "5", title: "", comment: "" }],
       shades: Array.isArray(prod?.shades)
         ? prod.shades.map((shade) => ({
           id: shade.id ?? generateShadeKey(),
@@ -547,30 +471,6 @@ function ProductFormBase({
       const hero = compactObject({
         image: asOptionalString(heroImage),
         objectPosition: asOptionalString(values.experienceHeroObjectPosition),
-        bg: asOptionalString(values.experienceHeroBg),
-        overlay: asOptionalString(values.experienceHeroOverlay),
-      });
-
-      const themeScenes = compactObject({
-        hero: asOptionalString(values.experienceSceneBgHero),
-        features: asOptionalString(values.experienceSceneBgFeatures),
-        ingredients: asOptionalString(values.experienceSceneBgIngredients),
-        video: asOptionalString(values.experienceSceneBgVideo),
-        shades: asOptionalString(values.experienceSceneBgShades),
-        reviews: asOptionalString(values.experienceSceneBgReviews),
-      });
-      const themeTone = compactObject({
-        hero: asOptionalString(values.experienceToneHero),
-        features: asOptionalString(values.experienceToneFeatures),
-        ingredients: asOptionalString(values.experienceToneIngredients),
-        video: asOptionalString(values.experienceToneVideo),
-        shades: asOptionalString(values.experienceToneShades),
-        reviews: asOptionalString(values.experienceToneReviews),
-      });
-      const theme = compactObject({
-        defaultBg: asOptionalString(values.experienceThemeDefaultBg),
-        bgScenes: themeScenes,
-        bgTone: themeTone,
       });
 
       const ingredientsPayload = (values.experienceIngredients || [])
@@ -595,8 +495,9 @@ function ProductFormBase({
         videoTitle: asOptionalString(values.videoTitle),
         videoDescription: asOptionalString(values.videoDescription),
         ingredientsTitle: asOptionalString(values.ingredientsTitle),
+        coverage: asOptionalString(values.coverage),
+        fragrance: asOptionalString(values.fragrance),
         hero,
-        theme,
         gallery: galleryList,
         badges: parseList(values.experienceBadges),
         benefits: parseList(values.experienceBenefits),
@@ -605,8 +506,6 @@ function ProductFormBase({
         disclaimer: asOptionalString(values.experienceDisclaimer),
         shipping: asOptionalString(values.experienceShipping),
         returns: asOptionalString(values.experienceReturns),
-        rating: asOptionalNumber(values.experienceRating),
-        reviewCount: asOptionalNumber(values.experienceReviewCount),
         ingredientsHighlight: ingredientsPayload.length ? ingredientsPayload : undefined,
         faqs: faqPayload.length ? faqPayload : undefined,
       });
@@ -619,7 +518,6 @@ function ProductFormBase({
         method: isEdit ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          id: slugSafe, // Use slug as ID for now as per sample
           slug: slugSafe,
           name: values.name,
           brand: values.brand,
@@ -646,10 +544,6 @@ function ProductFormBase({
             keyActives: ingredientsPayload.map(i => ({ name: i.name, description: i.why })),
             supportingIngredients: parseList(values.supportingIngredients),
           },
-          reviewsList: values.reviewsList.map(r => ({
-            ...r,
-            rating: Number(r.rating) || 5
-          })),
           media: {
             heroImage,
             gallery: galleryList.map((url, i) => ({
@@ -659,10 +553,7 @@ function ProductFormBase({
               url: url // assuming url is stored here, though schema implies objects
             }))
           },
-          // Keep old fields for backward compatibility if needed, or just rely on new structure
           finish: asOptionalString(values.finish),
-          coverage: asOptionalString(values.coverage),
-          fragrance: asOptionalString(values.fragrance),
           basePrice,
           collectionId: values.collectionId || undefined,
           images: payloadImages.length ? payloadImages : undefined,
@@ -1050,8 +941,8 @@ function ProductFormBase({
 
                   <Card className="border-none shadow-sm">
                     <CardHeader className="pb-4">
-                      <CardTitle>Visual theme & media</CardTitle>
-                      <CardDescription>Hero media, gallery, background gradients, and video.</CardDescription>
+                      <CardTitle>Media</CardTitle>
+                      <CardDescription>Hero image, gallery, and optional product video.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
                       <div className="grid gap-4 md:grid-cols-2">
@@ -1092,17 +983,6 @@ function ProductFormBase({
                         </div>
                       </div>
 
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div className="space-y-2">
-                          <Label htmlFor="experience-hero-bg">Hero background</Label>
-                          <Input id="experience-hero-bg" placeholder="linear-gradient(...)" {...register("experienceHeroBg")} />
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="experience-hero-overlay">Hero overlay</Label>
-                          <Input id="experience-hero-overlay" placeholder="rgba(0,0,0,.05)" {...register("experienceHeroOverlay")} />
-                        </div>
-                      </div>
-
                       <div className="space-y-2">
                         <Label htmlFor="experience-gallery">Gallery (one URL per line)</Label>
                         <Textarea id="experience-gallery" rows={3} placeholder="https://.../image-1.jpg" {...register("experienceGallery")} />
@@ -1123,23 +1003,6 @@ function ProductFormBase({
                             <Textarea id="video-description" rows={2} placeholder="Velvet matte color..." {...register("videoDescription")} />
                           </div>
                         </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="experience-theme-default">Default gradient / background</Label>
-                          <Input id="experience-theme-default" placeholder="radial-gradient(...)" {...register("experienceThemeDefaultBg")} />
-                        </div>
-                      </div>
-
-                      <div className="space-y-3">
-                        <Label className="text-sm font-semibold">Section backgrounds</Label>
-                        <div className="grid gap-3 md:grid-cols-3">
-                          <Input placeholder="Hero bg" {...register("experienceSceneBgHero")} />
-                          <Input placeholder="Features bg" {...register("experienceSceneBgFeatures")} />
-                          <Input placeholder="Ingredients bg" {...register("experienceSceneBgIngredients")} />
-                          <Input placeholder="Video bg" {...register("experienceSceneBgVideo")} />
-                          <Input placeholder="Shades bg" {...register("experienceSceneBgShades")} />
-                          <Input placeholder="Reviews bg" {...register("experienceSceneBgReviews")} />
-                        </div>
-                        <p className="text-xs text-muted-foreground">Optional: helps replicate the gradients used on the product page sections.</p>
                       </div>
                     </CardContent>
                   </Card>
@@ -1178,16 +1041,6 @@ function ProductFormBase({
                         <div className="space-y-2">
                           <Label htmlFor="supporting-ingredients">Supporting Ingredients (comma or newline separated)</Label>
                           <Textarea id="supporting-ingredients" rows={4} placeholder="Ricinus Communis (Castor) Seed Oil..." {...register("supportingIngredients")} />
-                        </div>
-                        <div className="grid gap-3 sm:grid-cols-2">
-                          <div className="space-y-2">
-                            <Label htmlFor="experience-rating">Avg. rating</Label>
-                            <Input id="experience-rating" type="number" step="0.1" min="0" max="5" {...register("experienceRating")} />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="experience-reviews">Reviews count</Label>
-                            <Input id="experience-reviews" type="number" min="0" {...register("experienceReviewCount")} />
-                          </div>
                         </div>
                         <div className="grid gap-3 sm:grid-cols-2">
                           <div className="space-y-2">
@@ -1277,53 +1130,6 @@ function ProductFormBase({
                         )}
                       </div>
 
-                      <div className="space-y-3">
-                        <div className="flex items-center justify-between">
-                          <Label className="text-sm font-semibold">Reviews</Label>
-                          <Button type="button" variant="outline" size="sm" className="rounded-full" onClick={() => appendReview({ author: "", date: "", rating: "5", title: "", comment: "" })}>
-                            Add Review
-                          </Button>
-                        </div>
-                        {reviewFields.length ? (
-                          <div className="space-y-3">
-                            {reviewFields.map((field, index) => (
-                              <div key={field.id ?? index} className="space-y-2 rounded-2xl border border-border/60 bg-muted/10 p-3">
-                                <div className="grid gap-3 sm:grid-cols-2">
-                                  <div className="space-y-1.5">
-                                    <Label htmlFor={`review-${index}-author`}>Author</Label>
-                                    <Input id={`review-${index}-author`} placeholder="Jane Doe" {...register(`reviewsList.${index}.author`)} />
-                                  </div>
-                                  <div className="space-y-1.5">
-                                    <Label htmlFor={`review-${index}-date`}>Date</Label>
-                                    <Input id={`review-${index}-date`} placeholder="Oct 12, 2023" {...register(`reviewsList.${index}.date`)} />
-                                  </div>
-                                </div>
-                                <div className="grid gap-3 sm:grid-cols-[1fr,3fr]">
-                                  <div className="space-y-1.5">
-                                    <Label htmlFor={`review-${index}-rating`}>Rating</Label>
-                                    <Input id={`review-${index}-rating`} type="number" min="1" max="5" step="0.1" {...register(`reviewsList.${index}.rating`)} />
-                                  </div>
-                                  <div className="space-y-1.5">
-                                    <Label htmlFor={`review-${index}-title`}>Title</Label>
-                                    <Input id={`review-${index}-title`} placeholder="Great product!" {...register(`reviewsList.${index}.title`)} />
-                                  </div>
-                                </div>
-                                <div className="space-y-1.5">
-                                  <Label htmlFor={`review-${index}-comment`}>Comment</Label>
-                                  <Textarea id={`review-${index}-comment`} rows={2} placeholder="I loved the texture..." {...register(`reviewsList.${index}.comment`)} />
-                                </div>
-                                <div className="flex justify-end">
-                                  <Button type="button" variant="ghost" size="sm" className="text-destructive" onClick={() => removeReview(index)}>
-                                    Remove
-                                  </Button>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        ) : (
-                          <p className="text-sm text-muted-foreground">No reviews added manually.</p>
-                        )}
-                      </div>
                     </CardContent>
                   </Card>
                 </ScrollContainer>
@@ -1333,56 +1139,6 @@ function ProductFormBase({
               <Section value="inventory">
                 <ScrollContainer className={`space-y-6 ${showAllSections ? "" : "pb-4"}`} allowScroll>
                   <div className="space-y-6 pb-4">
-                    <Card className="border-none shadow-sm">
-                      <CardHeader className="pb-4">
-                        <CardTitle>Inventory & variants</CardTitle>
-                        <CardDescription>Record stock information and SKU identifiers.</CardDescription>
-                      </CardHeader>
-                      <CardContent className="space-y-4">
-                        <div className="grid gap-4 md:grid-cols-2">
-                          <div className="space-y-2">
-                            <Label htmlFor="inventory-quantity">Quantity (optional)</Label>
-                            <Input id="inventory-quantity" type="number" min="0" placeholder="e.g. 120" {...register("inventoryQuantity")} />
-                          </div>
-                          <div className="space-y-2">
-                            <Label htmlFor="inventory-sku">SKU (optional)</Label>
-                            <Input id="inventory-sku" placeholder="UGG-BB-PUR-06" {...register("inventorySku")} />
-                          </div>
-                        </div>
-
-                        {/* Selling type */}
-                        <div className="space-y-3">
-                          <span id="selling-type-label" className="text-sm font-medium">Selling type</span>
-                          <div className="grid gap-3 md:grid-cols-3" role="group" aria-labelledby="selling-type-label">
-                            <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-white px-3 py-2 shadow-sm">
-                              <Checkbox
-                                id="selling-instore"
-                                checked={watch("inStoreSelling")}
-                                onCheckedChange={(checked) => setValue("inStoreSelling", Boolean(checked))}
-                              />
-                              <Label htmlFor="selling-instore" className="text-sm font-medium">In-store selling only</Label>
-                            </div>
-                            <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-white px-3 py-2 shadow-sm">
-                              <Checkbox
-                                id="selling-online"
-                                checked={watch("onlineSelling")}
-                                onCheckedChange={(checked) => setValue("onlineSelling", Boolean(checked))}
-                              />
-                              <Label htmlFor="selling-online" className="text-sm font-medium">Online selling only</Label>
-                            </div>
-                            <div className="flex items-center gap-2 rounded-xl border border-border/60 bg-white px-3 py-2 shadow-sm">
-                              <Checkbox id="selling-both" disabled />
-                              <Label htmlFor="selling-both" className="text-sm font-medium text-muted-foreground">Both in-store and online</Label>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="rounded-xl border border-dashed border-border/60 bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
-                          Product variants like shade or finish can be added once the product is created.
-                        </div>
-                      </CardContent>
-                    </Card>
-
                     <Card className="border-none shadow-sm">
                       <CardHeader className="pb-4">
                         <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
@@ -1578,53 +1334,16 @@ function ProductFormBase({
                 </ScrollContainer>
               </Section>
 
-              {/* SHIPPING */}
-              <Section value="shipping">
+              {/* SIZE */}
+              <Section value="size">
                 <ScrollContainer className={`space-y-5 ${showAllSections ? "" : "pb-5"}`} allowScroll>
                   <div className="space-y-6 pb-4">
                     <Card className="border-none shadow-sm">
                       <CardHeader className="pb-4">
-                        <CardTitle>Shipping & delivery</CardTitle>
-                        <CardDescription>Provide optional measurements to streamline fulfilment.</CardDescription>
+                        <CardTitle>Displayed size</CardTitle>
+                        <CardDescription>These values appear in the product information area.</CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="shipping-weight">Item weight</Label>
-                          <div className="flex items-center gap-3">
-                            <Input id="shipping-weight" type="number" min="0" step="0.01" placeholder="12" {...register("shippingWeight")} className="flex-1" />
-                            <div className="flex items-center gap-2">
-                              <span id="shipping-weight-unit-label" className="sr-only">Weight unit</span>
-                              <Select defaultValue="kg">
-                                <SelectTrigger id="shipping-weight-unit" aria-labelledby="shipping-weight-unit-label" name="shippingWeightUnit" className="w-24">
-                                  <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="kg">kg</SelectItem>
-                                  <SelectItem value="lb">lb</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div className="space-y-2">
-                          <span id="package-size-label" className="text-sm font-medium">Package size (cm)</span>
-                          <div className="grid gap-3 md:grid-cols-3" role="group" aria-labelledby="package-size-label">
-                            <div className="space-y-1.5">
-                              <Label htmlFor="package-length">Length</Label>
-                              <Input id="package-length" placeholder="Length" type="number" min="0" step="0.1" autoComplete="off" {...register("shippingLength")} />
-                            </div>
-                            <div className="space-y-1.5">
-                              <Label htmlFor="package-width">Width</Label>
-                              <Input id="package-width" placeholder="Width" type="number" min="0" step="0.1" autoComplete="off" {...register("shippingWidth")} />
-                            </div>
-                            <div className="space-y-1.5">
-                              <Label htmlFor="package-height">Height</Label>
-                              <Input id="package-height" placeholder="Height" type="number" min="0" step="0.1" autoComplete="off" {...register("shippingHeight")} />
-                            </div>
-                          </div>
-                        </div>
-
                         <div className="grid gap-4 md:grid-cols-3">
                           <div className="space-y-2">
                             <Label htmlFor="unit-count">Unit Count</Label>
@@ -1652,7 +1371,7 @@ function ProductFormBase({
                     <Card className="border-none shadow-sm">
                       <CardHeader className="pb-4">
                         <CardTitle>Pricing</CardTitle>
-                        <CardDescription>Define retail pricing and optional compare-at pricing.</CardDescription>
+                        <CardDescription>Define retail pricing and optional original value.</CardDescription>
                       </CardHeader>
                       <CardContent className="space-y-4">
                         <div className="space-y-2">
@@ -1668,10 +1387,6 @@ function ProductFormBase({
                             <Label htmlFor="product-original-value">Original Value</Label>
                             <Input id="product-original-value" type="number" min="0" step="0.01" placeholder="0.00" {...register("originalValue")} />
                           </div>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="compare-price">Compare at price</Label>
-                          <Input id="compare-price" type="number" min="0" step="0.01" placeholder="Optional" {...register("compareAtPrice")} />
                         </div>
                       </CardContent>
                     </Card>

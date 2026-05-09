@@ -4,6 +4,8 @@ const { z } = require('zod');
 
 const { getPrisma } = require('../db/prismaClient');
 const { signToken } = require('../utils/jwt');
+const { sendOTP } = require('../utils/email');
+
 
 const authSchema = z.object({
   email: z.string().email(),
@@ -22,6 +24,12 @@ const forgotSchema = z.object({
 const resetSchema = z.object({
   password: z.string().min(6, 'Password must be at least 6 characters'),
 });
+
+const verifyOTPSchema = z.object({
+  email: z.string().email(),
+  otp: z.string().length(6, 'OTP must be 6 digits'),
+});
+
 
 const updateProfileSchema = z
   .object({
@@ -58,15 +66,31 @@ exports.signup = async (req, res, next) => {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
     const user = await prisma.user.create({
       data: {
         email,
         name,
         passwordHash,
+        otp,
+        otpExpiresAt,
       },
     });
 
-    return res.status(201).json(buildAuthResponse(user));
+    try {
+      await sendOTP(email, otp);
+    } catch (emailError) {
+      console.error('Failed to send OTP email:', emailError);
+      return res.status(500).json({ message: 'Failed to send OTP email. Please try again.' });
+    }
+
+    return res.status(201).json({
+      message: 'Account created. OTP sent to your email. Please verify to continue.',
+      otpRequired: true,
+    });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: error.errors[0]?.message || 'Invalid payload' });
@@ -90,6 +114,85 @@ exports.signin = async (req, res, next) => {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+
+    await prisma.user.update({
+      where: { email },
+      data: { otp, otpExpiresAt },
+    });
+
+    try {
+      await sendOTP(email, otp);
+    } catch (emailError) {
+      console.error('Failed to send OTP email:', emailError);
+      return res.status(500).json({ message: 'Failed to send OTP email. Please try again.' });
+    }
+
+    return res.status(200).json({
+      message: 'OTP sent to your email. Please verify to continue.',
+      otpRequired: true,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ message: error.errors[0]?.message || 'Invalid payload' });
+    }
+    return next(error);
+  }
+};
+
+exports.verifyOTP = async (req, res, next) => {
+  try {
+    const { email, otp } = verifyOTPSchema.parse(req.body);
+    const prisma = await getPrisma();
+
+    const user = await prisma.user.findUnique({ where: { email } });
+
+    if (!user || user.otp !== otp || !user.otpExpiresAt || user.otpExpiresAt < new Date()) {
+      return res.status(401).json({ message: 'Invalid or expired OTP' });
+    }
+
+    // Clear OTP after successful verification
+    const updatedUser = await prisma.user.update({
+      where: { email },
+      data: { otp: null, otpExpiresAt: null },
+    });
+
+    return res.status(200).json(buildAuthResponse(updatedUser));
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      return res.status(400).json({ message: error.errors[0]?.message || 'Invalid payload' });
+    }
+    return next(error);
+  }
+};
+
+const googleAuthSchema = z.object({
+  email: z.string().email(),
+  name: z.string().trim().optional(),
+});
+
+exports.googleAuth = async (req, res, next) => {
+  try {
+    const { email, name } = googleAuthSchema.parse(req.body);
+    const prisma = await getPrisma();
+
+    let user = await prisma.user.findUnique({ where: { email } });
+
+    if (!user) {
+      // Create user if they don't exist
+      user = await prisma.user.create({
+        data: {
+          email,
+          name: name || 'Google User',
+          // Random password hash since they use Google to login
+          passwordHash: await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 10),
+        },
+      });
+    }
+
+    // Google login bypasses OTP since Google is already a verified provider
     return res.status(200).json(buildAuthResponse(user));
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -98,6 +201,8 @@ exports.signin = async (req, res, next) => {
     return next(error);
   }
 };
+
+
 
 exports.getProfile = async (req, res, next) => {
   try {

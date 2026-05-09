@@ -253,6 +253,8 @@ const normalizeExperiencePayload = (raw = {}) => {
   setIfDefined('claims', raw.claims);
   setIfDefined('disclaimer', raw.disclaimer);
   setIfDefined('faqs', raw.faqs);
+  setIfDefined('coverage', raw.coverage);
+  setIfDefined('fragrance', raw.fragrance);
   setIfDefined('shipping', raw.shipping);
   setIfDefined('returns', raw.returns);
   setIfDefined('reviewsList', raw.reviewsList);
@@ -493,8 +495,10 @@ exports.listProducts = async (req, res, next) => {
 exports.getProduct = async (req, res, next) => {
   try {
     const prisma = await getPrisma();
-    const product = await prisma.product.findUnique({
-      where: { id: req.params.id },
+    const product = await prisma.product.findFirst({
+      where: {
+        OR: [{ id: req.params.id }, { slug: req.params.id }],
+      },
       include: productInclude,
     });
     if (!product) {

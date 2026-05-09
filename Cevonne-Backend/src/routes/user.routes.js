@@ -7,7 +7,10 @@ const router = express.Router();
 
 router.post('/signup', userController.signup);
 router.post('/signin', userController.signin);
+router.post('/verify-otp', userController.verifyOTP);
+router.post('/google', userController.googleAuth);
 router.post('/forgot-password', userController.forgotPassword);
+
 router.post('/reset-password/:token', userController.resetPassword);
 
 router.get('/me', protect, userController.getProfile);

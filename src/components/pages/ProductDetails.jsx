@@ -25,6 +25,7 @@ import { Progress } from "@/components/ui/progress";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useShop } from "@/context/ShopContext";
 import { useAuth } from "@/context/AuthContext";
+import { useProductsCatalog } from "@/hooks/useProductsCatalog";
 import sampleProduct from "@/data/sampleProduct.json";
 
 const BASE_PRODUCT = cevonneProducts?.[0] || {};
@@ -49,7 +50,46 @@ const findSampleProduct = (slug = "") => {
 };
 
 const API_BASE = (import.meta.env.VITE_APP_BACKEND_URL || "").trim().replace(/\/+$/, "");
-const REMOTE_PRODUCTS_ENABLED = Boolean(API_BASE) && import.meta.env.VITE_ENABLE_REMOTE_PRODUCTS === "true";
+const HAS_API_BASE = Boolean(API_BASE);
+const EMPTY_PRODUCT_VIEW = {
+  id: "",
+  slug: "",
+  title: "",
+  name: "",
+  subtitle: "",
+  longDescription: "",
+  hero: {},
+  theme: {},
+  gallery: [],
+  badges: [],
+  benefits: [],
+  ingredients_highlight: [],
+  ingredients_supporting: [],
+  ingredientsNote: "",
+  how_to_use: [],
+  claims: [],
+  faqs: [],
+  tags: [],
+  brand: "",
+  type: "",
+  productType: "",
+  shipping: "",
+  returns: "",
+  reviews: 0,
+  rating: 0,
+  mrp: null,
+  price: 0,
+  currency: "INR",
+  reviewsList: [],
+  finish: "",
+  coverage: "",
+  fragrance: "",
+  videoTitle: "",
+  videoDescription: "",
+  ingredientsTitle: "",
+  videoUrl: "",
+  shades: [],
+};
 
 /* ---------- Asset resolvers (images) ---------- */
 const IMG = import.meta.glob("/src/assets/images/**/*", {
@@ -220,7 +260,13 @@ const cleanList = (value, fallback = []) => {
   return fallback;
 };
 
-const normalizeShades = (sourceShades = [], experienceShades = [], gallery = [], source = {}) => {
+const normalizeShades = (
+  sourceShades = [],
+  experienceShades = [],
+  gallery = [],
+  source = {},
+  { allowFallbackSingle = true } = {}
+) => {
   const preferred = Array.isArray(experienceShades) ? experienceShades : [];
   if (preferred.length) return preferred;
 
@@ -233,7 +279,7 @@ const normalizeShades = (sourceShades = [], experienceShades = [], gallery = [],
       thumb: shade.thumb ?? shade.image ?? shade.url ?? gallery[index],
       desc: shade.desc ?? shade.description ?? "",
     }));
-  } else if (source.type === 'single' || !sourceShades?.length) {
+  } else if (allowFallbackSingle && (source.type === 'single' || !sourceShades?.length)) {
     mapped = [{
       key: source.slug ?? source.id ?? 'default',
       name: source.name ?? 'Standard',
@@ -245,60 +291,76 @@ const normalizeShades = (sourceShades = [], experienceShades = [], gallery = [],
   return mapped;
 };
 
-const buildProductView = (source = {}) => {
+const buildProductView = (source = {}, { useFallbackContent = true } = {}) => {
   const experience = source.experience ?? {};
   const pricing = source.pricing || {};
   const media = source.media || {};
-  const desc = source.description || {};
+  const desc = source.description && typeof source.description === "object" ? source.description : {};
+  const descriptionText = typeof source.description === "string" ? source.description : undefined;
   const ingredientsData = source.ingredients || {};
-  const basePricing = BASE_PRODUCT.pricing || {};
-  const fallbackBenefits = cleanList(BASE_PRODUCT.benefits, cleanList(SAMPLE_CONTENT.benefits, []));
-  const fallbackClaims = cleanList(BASE_PRODUCT.claims, cleanList(SAMPLE_CONTENT.claims, []));
-  const fallbackFaqs = Array.isArray(BASE_PRODUCT.faqs) && BASE_PRODUCT.faqs.length
-    ? BASE_PRODUCT.faqs
-    : Array.isArray(SAMPLE_CONTENT.faqs)
-      ? SAMPLE_CONTENT.faqs
+  const fallbackProduct = useFallbackContent ? BASE_PRODUCT : {};
+  const fallbackContent = useFallbackContent ? SAMPLE_CONTENT : {};
+  const fallbackGallery = useFallbackContent ? BASE_GALLERY : [];
+  const basePricing = fallbackProduct.pricing || {};
+  const fallbackBenefits = cleanList(fallbackProduct.benefits, cleanList(fallbackContent.benefits, []));
+  const fallbackClaims = cleanList(fallbackProduct.claims, cleanList(fallbackContent.claims, []));
+  const fallbackFaqs = Array.isArray(fallbackProduct.faqs) && fallbackProduct.faqs.length
+    ? fallbackProduct.faqs
+    : Array.isArray(fallbackContent.faqs)
+      ? fallbackContent.faqs
       : [];
-  const fallbackHowToUse = cleanList(BASE_PRODUCT.how_to_use, cleanList(SAMPLE_CONTENT.how_to_use, []));
-  const fallbackIngredientsHighlight = SAMPLE_CONTENT.ingredients_highlight ?? [];
-  const fallbackSupportingIngredients = Array.isArray(SAMPLE_CONTENT.ingredients_supporting)
-    ? SAMPLE_CONTENT.ingredients_supporting
-    : Array.isArray(SAMPLE_CONTENT.ingredients?.supportingIngredients)
-      ? SAMPLE_CONTENT.ingredients.supportingIngredients
+  const fallbackHowToUse = cleanList(fallbackProduct.how_to_use, cleanList(fallbackContent.how_to_use, []));
+  const fallbackIngredientsHighlight = fallbackContent.ingredients_highlight ?? [];
+  const fallbackSupportingIngredients = Array.isArray(fallbackContent.ingredients_supporting)
+    ? fallbackContent.ingredients_supporting
+    : Array.isArray(fallbackContent.ingredients?.supportingIngredients)
+      ? fallbackContent.ingredients.supportingIngredients
       : [];
 
   const galleryFromImages = Array.isArray(source.images)
     ? source.images.map((img) => img.url || img.id || img.src).filter(Boolean)
-    : [];
+    : source.image
+      ? [source.image]
+      : [];
 
   const pickGallery = (candidate) =>
     Array.isArray(candidate) && candidate.length ? candidate : null;
 
   const gallery =
-    (media.gallery ? media.gallery.map(g => g.url || g.id) : null) ??
+    pickGallery(Array.isArray(media.gallery) ? media.gallery.map(g => g.url || g.id).filter(Boolean) : null) ??
     pickGallery(experience.gallery) ??
     pickGallery(source.gallery) ??
     pickGallery(galleryFromImages) ??
-    pickGallery(SAMPLE_CONTENT.gallery) ??
-    BASE_GALLERY;
+    pickGallery(fallbackContent.gallery) ??
+    fallbackGallery;
 
   const theme = {
-    ...SAMPLE_CONTENT.theme,
-    ...BASE_PRODUCT.theme,
+    ...(fallbackContent.theme || {}),
+    ...(fallbackProduct.theme || {}),
     ...(source.theme || {}),
     ...(experience.theme || {}),
   };
   const hero = {
-    ...SAMPLE_CONTENT.hero,
-    ...BASE_PRODUCT.hero,
+    ...(fallbackContent.hero || {}),
+    ...(fallbackProduct.hero || {}),
     ...(source.hero || {}),
     ...(experience.hero || {}),
-    image: media.heroImage ?? source.hero?.image ?? experience.hero?.image ?? BASE_PRODUCT.media?.heroImage ?? SAMPLE_CONTENT.hero?.image
+    image:
+      media.heroImage ??
+      source.hero?.image ??
+      experience.hero?.image ??
+      fallbackProduct.media?.heroImage ??
+      fallbackContent.hero?.image ??
+      galleryFromImages[0] ??
+      ""
   };
 
+  const sourceBadges = Array.isArray(source.badges)
+    ? source.badges.map(b => b.label ?? b)
+    : source.badges;
   const badges = cleanList(
-    source.badges?.map(b => b.label ?? b) ?? experience.badges ?? source.badges,
-    cleanList(BASE_PRODUCT.badges, cleanList(SAMPLE_CONTENT.badges, []))
+    sourceBadges ?? experience.badges,
+    cleanList(fallbackProduct.badges, cleanList(fallbackContent.badges, []))
   );
   const benefits = cleanList(
     experience.benefits ?? source.benefits,
@@ -312,7 +374,7 @@ const buildProductView = (source = {}) => {
         experience.ingredientsHighlight ??
         experience.ingredients_highlight ??
         source.ingredients_highlight ??
-        BASE_PRODUCT.ingredients_highlight ??
+        fallbackProduct.ingredients_highlight ??
         fallbackIngredientsHighlight
       );
 
@@ -325,7 +387,7 @@ const buildProductView = (source = {}) => {
           ? experience.ingredients_supporting
           : fallbackSupportingIngredients;
 
-  const ingredientsNote = ingredientsData.note ?? source.ingredientsNote ?? experience.ingredientsNote ?? SAMPLE_CONTENT.ingredientsNote ?? "";
+  const ingredientsNote = ingredientsData.note ?? source.ingredientsNote ?? experience.ingredientsNote ?? fallbackContent.ingredientsNote ?? "";
 
   const howToUse = cleanList(
     experience.howToUse ?? experience.how_to_use ?? source.how_to_use ?? source.howToUse,
@@ -335,38 +397,39 @@ const buildProductView = (source = {}) => {
   const faqs = Array.isArray(experience.faqs ?? source.faqs)
     ? experience.faqs ?? source.faqs
     : fallbackFaqs;
-  const tags = Array.isArray(source.tags) ? source.tags : Array.isArray(SAMPLE_CONTENT.tags) ? SAMPLE_CONTENT.tags : [];
-  const brand = source.brand ?? BASE_PRODUCT.brand ?? SAMPLE_CONTENT.brand;
-  const productType = source.type ?? source.productType ?? BASE_PRODUCT.productType ?? SAMPLE_CONTENT.productType;
+  const tags = Array.isArray(source.tags) ? source.tags : Array.isArray(fallbackContent.tags) ? fallbackContent.tags : [];
+  const brand = source.brand ?? fallbackProduct.brand ?? fallbackContent.brand ?? "";
+  const productType = source.productType ?? source.type ?? fallbackProduct.productType ?? fallbackContent.productType ?? "";
 
   const reviewsList = Array.isArray(source?.reviewsList)
     ? source.reviewsList
     : Array.isArray(source?.reviews)
       ? source.reviews
-      : Array.isArray(SAMPLE_CONTENT.reviewsList)
-        ? SAMPLE_CONTENT.reviewsList
+      : useFallbackContent && Array.isArray(fallbackContent.reviewsList)
+        ? fallbackContent.reviewsList
         : [];
   const reviewCount = Array.isArray(source?.reviews)
     ? source.reviews.length
-    : (experience.reviewCount ?? source.reviewCount ?? source.reviews ?? BASE_PRODUCT.reviews ?? SAMPLE_CONTENT.reviews);
+    : (source.reviewCount ?? (useFallbackContent ? experience.reviewCount ?? source.reviews ?? fallbackProduct.reviews ?? fallbackContent.reviews : 0));
 
   return {
-    ...BASE_PRODUCT,
+    ...(useFallbackContent ? BASE_PRODUCT : {}),
     ...source,
     ...experience,
-    title: source.name ?? experience.title ?? source.title ?? BASE_PRODUCT.title ?? BASE_PRODUCT.name,
-    name: source.name ?? experience.name ?? BASE_PRODUCT.title ?? BASE_PRODUCT.name,
-    subtitle: desc.headline ?? experience.subtitle ?? source.subtitle ?? BASE_PRODUCT.subtitle ?? BASE_PRODUCT.description?.headline ?? SAMPLE_CONTENT.subtitle ?? SAMPLE_CONTENT.description?.headline,
-    categoryPath: experience.categoryPath ?? source.categoryPath ?? BASE_PRODUCT.categoryPath ?? SAMPLE_CONTENT.categoryPath,
+    title: source.name ?? experience.title ?? source.title ?? fallbackProduct.title ?? fallbackProduct.name ?? "",
+    name: source.name ?? experience.name ?? fallbackProduct.title ?? fallbackProduct.name ?? "",
+    subtitle: desc.headline ?? experience.subtitle ?? source.subtitle ?? fallbackProduct.subtitle ?? fallbackProduct.description?.headline ?? fallbackContent.subtitle ?? fallbackContent.description?.headline ?? "",
+    categoryPath: experience.categoryPath ?? source.categoryPath ?? fallbackProduct.categoryPath ?? fallbackContent.categoryPath ?? [],
     longDescription:
       desc.body ??
       experience.longDescription ??
       source.longDescription ??
-      source.description ??
-      BASE_PRODUCT.longDescription ??
-      BASE_PRODUCT.description?.body ??
-      SAMPLE_CONTENT.longDescription ??
-      SAMPLE_CONTENT.description?.body,
+      descriptionText ??
+      fallbackProduct.longDescription ??
+      fallbackProduct.description?.body ??
+      fallbackContent.longDescription ??
+      fallbackContent.description?.body ??
+      "",
     hero,
     theme,
     gallery,
@@ -380,27 +443,30 @@ const buildProductView = (source = {}) => {
     faqs,
     tags,
     brand,
+    type: productType,
     productType,
-    shipping: experience.shipping ?? source.shipping ?? BASE_PRODUCT.shipping ?? SAMPLE_CONTENT.shipping ?? "Free shipping on prepaid orders",
-    returns: experience.returns ?? source.returns ?? BASE_PRODUCT.returns ?? SAMPLE_CONTENT.returns ?? "Easy 7-day returns on unopened items.",
+    shipping: experience.shipping ?? source.shipping ?? fallbackProduct.shipping ?? fallbackContent.shipping ?? (useFallbackContent ? "Free shipping on prepaid orders" : ""),
+    returns: experience.returns ?? source.returns ?? fallbackProduct.returns ?? fallbackContent.returns ?? (useFallbackContent ? "Easy 7-day returns on unopened items." : ""),
     reviews: Number.isFinite(reviewCount) ? reviewCount : Number(reviewCount) || reviewsList.length || 0,
     rating:
-      Number.isFinite(experience.rating) ? experience.rating
-        : Number.isFinite(source.averageRating) ? source.averageRating
+      Number.isFinite(source.averageRating) ? source.averageRating
+        : Number.isFinite(experience.rating) && useFallbackContent ? experience.rating
           : Number.isFinite(source.rating) ? source.rating
-            : Number(BASE_PRODUCT.rating ?? BASE_PRODUCT.averageRating ?? SAMPLE_CONTENT.rating ?? SAMPLE_CONTENT.averageRating ?? 0) || 0,
-    mrp: pricing.originalValue ?? source.mrp ?? source.compareAtPrice ?? basePricing.originalValue ?? BASE_PRODUCT.mrp ?? BASE_PRODUCT.price ?? SAMPLE_CONTENT.mrp ?? SAMPLE_CONTENT.price,
-    price: pricing.price ?? source.price ?? source.basePrice ?? basePricing.price ?? BASE_PRODUCT.price ?? SAMPLE_CONTENT.price,
-    currency: pricing.currency ?? source.currency ?? basePricing.currency ?? BASE_PRODUCT.currency ?? SAMPLE_CONTENT.currency ?? "â‚¹",
+            : Number(fallbackProduct.rating ?? fallbackProduct.averageRating ?? fallbackContent.rating ?? fallbackContent.averageRating ?? 0) || 0,
+    mrp: pricing.originalValue ?? source.mrp ?? source.compareAtPrice ?? basePricing.originalValue ?? fallbackProduct.mrp ?? fallbackProduct.price ?? fallbackContent.mrp ?? fallbackContent.price ?? null,
+    price: pricing.price ?? source.price ?? source.basePrice ?? basePricing.price ?? fallbackProduct.price ?? fallbackContent.price ?? 0,
+    currency: pricing.currency ?? source.currency ?? basePricing.currency ?? fallbackProduct.currency ?? fallbackContent.currency ?? "INR",
     reviewsList,
-    finish: source?.finish ?? BASE_PRODUCT.finish ?? SAMPLE_CONTENT.finish ?? "soft-matte",
-    coverage: source?.coverage ?? BASE_PRODUCT.coverage ?? SAMPLE_CONTENT.coverage ?? "full-pigment",
-    fragrance: source?.fragrance ?? BASE_PRODUCT.fragrance ?? SAMPLE_CONTENT.fragrance ?? "Fragrance-free",
-    videoTitle: experience.videoTitle ?? BASE_PRODUCT.experience?.videoTitle ?? SAMPLE_CONTENT.videoTitle ?? "Cevonne",
-    videoDescription: experience.videoDescription ?? BASE_PRODUCT.experience?.videoDescription ?? SAMPLE_CONTENT.videoDescription ?? "Velvet matte color and intense longwear adorn lips with immediate moisture and rich tones in 28 irresistible shades.",
-    ingredientsTitle: experience.ingredientsTitle ?? BASE_PRODUCT.experience?.ingredientsTitle ?? SAMPLE_CONTENT.ingredientsTitle ?? "Powered by Science",
-    videoUrl: experience.videoUrl ?? source.videoUrl ?? BASE_PRODUCT.videoUrl ?? SAMPLE_CONTENT.videoUrl,
-    shades: normalizeShades(source.shades, experience.shades, gallery, source),
+    finish: source?.finish ?? experience.finish ?? fallbackProduct.finish ?? fallbackContent.finish ?? "",
+    coverage: source?.coverage ?? experience.coverage ?? fallbackProduct.coverage ?? fallbackContent.coverage ?? "",
+    fragrance: source?.fragrance ?? experience.fragrance ?? fallbackProduct.fragrance ?? fallbackContent.fragrance ?? "",
+    videoTitle: experience.videoTitle ?? source.videoTitle ?? fallbackProduct.experience?.videoTitle ?? fallbackContent.videoTitle ?? source.name ?? "Cevonne",
+    videoDescription: experience.videoDescription ?? source.videoDescription ?? fallbackProduct.experience?.videoDescription ?? fallbackContent.videoDescription ?? "",
+    ingredientsTitle: experience.ingredientsTitle ?? fallbackProduct.experience?.ingredientsTitle ?? fallbackContent.ingredientsTitle ?? "Ingredients",
+    videoUrl: experience.videoUrl ?? source.videoUrl ?? (useFallbackContent ? fallbackProduct.videoUrl ?? fallbackContent.videoUrl : undefined),
+    shades: normalizeShades(source.shades, experience.shades, gallery, source, {
+      allowFallbackSingle: useFallbackContent,
+    }),
   };
 };
 
@@ -410,7 +476,7 @@ export default function ProductDetails({ data }) {
   const { state } = useLocation();
   const preloadedProduct = state?.product || data || null;
   const [remoteProduct, setRemoteProduct] = useState(preloadedProduct);
-  const [loadingProduct, setLoadingProduct] = useState(Boolean(id && !preloadedProduct));
+  const [loadingProduct, setLoadingProduct] = useState(Boolean(id && HAS_API_BASE && !preloadedProduct));
   const [productError, setProductError] = useState(null);
 
   /* Sticky Bar Logic */
@@ -440,7 +506,7 @@ export default function ProductDetails({ data }) {
 
   useEffect(() => {
     let cancelled = false;
-    if (!id || !REMOTE_PRODUCTS_ENABLED) {
+    if (!id || !HAS_API_BASE) {
       setLoadingProduct(false);
       return undefined;
     }
@@ -451,7 +517,7 @@ export default function ProductDetails({ data }) {
         const response = await fetch(`${API_BASE}/products/${id}`);
         if (!response.ok) {
           const localFallback = findSampleProduct(id);
-          if (response.status === 404 && localFallback && !cancelled) {
+          if (!HAS_API_BASE && response.status === 404 && localFallback && !cancelled) {
             setRemoteProduct(localFallback);
             setProductError(null);
             return;
@@ -471,14 +537,19 @@ export default function ProductDetails({ data }) {
     return () => {
       cancelled = true;
     };
-  }, [id, API_BASE, REMOTE_PRODUCTS_ENABLED]);
+  }, [id]);
 
-  const fallbackProduct = findSampleProduct(id) || SAMPLE_CONTENT || BASE_PRODUCT;
+  const fallbackProduct = HAS_API_BASE ? null : findSampleProduct(id) || SAMPLE_CONTENT || BASE_PRODUCT;
   const sourceProduct = remoteProduct || preloadedProduct || fallbackProduct;
-  const p = useMemo(() => buildProductView(sourceProduct), [sourceProduct]);
+  const useFallbackContent = !HAS_API_BASE;
+  const p = useMemo(
+    () => (sourceProduct ? buildProductView(sourceProduct, { useFallbackContent }) : EMPTY_PRODUCT_VIEW),
+    [sourceProduct, useFallbackContent]
+  );
   const crumbs = Array.isArray(p.categoryPath) ? p.categoryPath : p.category ? [p.category] : [];
   const { cartItems, wishlist, addToCart, toggleWishlist, openDrawer } = useShop();
   const { user, isAuthenticated, authFetch } = useAuth();
+  const { products: catalogProducts } = useProductsCatalog();
 
   const [reviewsData, setReviewsData] = useState(() =>
     Array.isArray(p.reviewsList) ? p.reviewsList : []
@@ -491,24 +562,6 @@ export default function ProductDetails({ data }) {
   const [checkingPurchase, setCheckingPurchase] = useState(false);
   const [hasPurchased, setHasPurchased] = useState(false);
 
-  if (loadingProduct && !sourceProduct) {
-    return (
-      <div className="min-h-[60vh] flex items-center justify-center text-neutral-500">
-        Loading product...
-      </div>
-    );
-  }
-
-  if (!sourceProduct) {
-    return (
-      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-2 text-center text-neutral-600 px-4">
-        <p className="text-lg font-semibold text-neutral-800">Product not found</p>
-        <p className="text-sm text-neutral-500">Try reloading or go back to browse other products.</p>
-        <Link to="/" className="text-primary underline">Back to home</Link>
-      </div>
-    );
-  }
-
   useEffect(() => {
     setReviewsData(Array.isArray(p.reviewsList) ? p.reviewsList : []);
     setEditingReviewId(null);
@@ -518,17 +571,30 @@ export default function ProductDetails({ data }) {
   /* Tone & backgrounds */
   const WHITE_BG = "#ffffff";
   const defaultBg = p?.theme?.defaultBg || WHITE_BG;
-  const bgScenes = p?.theme?.bgScenes || SAMPLE_CONTENT.theme?.bgScenes || {
-    hero: defaultBg,
-    features: defaultBg,
-    ingredients: defaultBg,
-    video: defaultBg,
-    shades: defaultBg,
-    reviews: defaultBg,
-  };
-  const bgTone = p?.theme?.bgTone || {
-    hero: "light", features: "light", ingredients: "light", video: "dark", shades: "light", reviews: "light"
-  };
+  const bgScenes = useMemo(
+    () =>
+      p?.theme?.bgScenes || (useFallbackContent ? SAMPLE_CONTENT.theme?.bgScenes : null) || {
+        hero: defaultBg,
+        features: defaultBg,
+        ingredients: defaultBg,
+        video: defaultBg,
+        shades: defaultBg,
+        reviews: defaultBg,
+      },
+    [defaultBg, p?.theme?.bgScenes, useFallbackContent]
+  );
+  const bgTone = useMemo(
+    () =>
+      p?.theme?.bgTone || {
+        hero: "light",
+        features: "light",
+        ingredients: "light",
+        video: "dark",
+        shades: "light",
+        reviews: "light",
+      },
+    [p?.theme?.bgTone]
+  );
   const [tone, setTone] = useState(bgTone.hero || "light");
   const [pageBg, setPageBg] = useState(bgScenes.hero || defaultBg);
   const toneVars = useMemo(() => {
@@ -668,8 +734,9 @@ export default function ProductDetails({ data }) {
     const ingredientLabels = Array.isArray(p.ingredients_highlight)
       ? p.ingredients_highlight.slice(0, 3).map((ing) => ing?.name).filter(Boolean)
       : [];
-    const labels = (benefitLabels.length ? benefitLabels : ingredientLabels.length ? ingredientLabels : ["Hydrates", "Nourishes", "Replenishes"])
+    const labels = (benefitLabels.length ? benefitLabels : ingredientLabels)
       .map((label) => (typeof label === "string" ? label : `${label}`));
+    if (!labels.length) return [];
 
     const images = [
       p.shades?.[0]?.thumb,
@@ -677,13 +744,11 @@ export default function ProductDetails({ data }) {
       p.shades?.[2]?.thumb,
       p.hero?.image,
       gallery[0],
-      SAMPLE_CONTENT.gallery?.[0],
-      "product1.png",
-      "product2.png",
-      "product3.png",
+      ...(useFallbackContent ? [SAMPLE_CONTENT.gallery?.[0], "product1.png", "product2.png", "product3.png"] : []),
     ]
       .map(resolveAsset)
       .filter(Boolean);
+    if (!images.length) return [];
 
     const palette = ["text-[#3f6212]", "text-[#14532d]", "text-[#166534]", "text-[#1d4ed8]"];
 
@@ -692,7 +757,7 @@ export default function ProductDetails({ data }) {
       img: images[idx % images.length] || resolveAsset("product1.png"),
       color: palette[idx % palette.length],
     }));
-  }, [gallery, p.benefits, p.hero?.image, p.ingredients_highlight, p.shades]);
+  }, [gallery, p.benefits, p.hero?.image, p.ingredients_highlight, p.shades, useFallbackContent]);
 
   useEffect(() => {
     if (featureList.length && activeFeatureIndex >= featureList.length) {
@@ -884,7 +949,7 @@ export default function ProductDetails({ data }) {
           })
         );
         if (!cancelled) setHasPurchased(purchased);
-      } catch (_err) {
+      } catch {
         if (!cancelled) setHasPurchased(false);
       } finally {
         if (!cancelled) setCheckingPurchase(false);
@@ -914,6 +979,7 @@ export default function ProductDetails({ data }) {
         status: r.status || "PUBLISHED",
         userId: r.userId || r.user?.id,
         verified: Boolean(r.verified || r.isVerified || r.verifiedBuyer),
+        helpfulCount: Number(r.helpfulCount ?? r.helpful ?? 0) || 0,
       };
     });
   }, [reviewsData]);
@@ -1142,15 +1208,24 @@ export default function ProductDetails({ data }) {
   };
 
   const videoSrc = useMemo(
-    () => (p.videoUrl ? resolveMedia(p.videoUrl) : introVideoFallback),
-    [p.videoUrl]
+    () => (p.videoUrl ? resolveMedia(p.videoUrl) : useFallbackContent ? introVideoFallback : ""),
+    [p.videoUrl, useFallbackContent]
   );
 
   const relatedProducts = useMemo(() => {
-    const pool = Array.isArray(cevonneProducts) ? cevonneProducts.filter((item) => item.id !== p.id) : [];
+    const catalogPool = Array.isArray(catalogProducts) && catalogProducts.length
+      ? catalogProducts
+      : useFallbackContent && Array.isArray(cevonneProducts)
+        ? cevonneProducts
+        : [];
+    const pool = catalogPool.filter((item) => {
+      const sameId = p.id && item.id === p.id;
+      const sameSlug = p.slug && item.slug === p.slug;
+      return !sameId && !sameSlug;
+    });
     if (!pool.length) return [];
-    return [...pool].sort(() => 0.5 - Math.random()).slice(0, 4);
-  }, [p.id]);
+    return pool.slice(0, 4);
+  }, [catalogProducts, p.id, p.slug, useFallbackContent]);
 
   const pickProductImage = (item) => {
     const candidates = [
@@ -1162,6 +1237,34 @@ export default function ProductDetails({ data }) {
     ].filter(Boolean);
     return resolveAsset(candidates[0] || p.hero?.image || gallery[0]);
   };
+
+  const productSpecs = useMemo(
+    () =>
+      [
+        p.finish ? `Finish: ${p.finish}` : null,
+        p.coverage ? `Coverage: ${p.coverage}` : null,
+        p.fragrance ? `Fragrance: ${p.fragrance}` : null,
+      ].filter(Boolean),
+    [p.coverage, p.finish, p.fragrance]
+  );
+
+  if (loadingProduct && !sourceProduct) {
+    return (
+      <div className="min-h-[60vh] flex items-center justify-center text-neutral-500">
+        Loading product...
+      </div>
+    );
+  }
+
+  if (!sourceProduct) {
+    return (
+      <div className="min-h-[60vh] flex flex-col items-center justify-center gap-2 text-center text-neutral-600 px-4">
+        <p className="text-lg font-semibold text-neutral-800">Product not found</p>
+        <p className="text-sm text-neutral-500">{productError || "Try reloading or go back to browse other products."}</p>
+        <Link to="/" className="text-primary underline">Back to home</Link>
+      </div>
+    );
+  }
 
   return (
     <div ref={pageRef} className="relative" style={toneVars}>
@@ -1493,7 +1596,7 @@ export default function ProductDetails({ data }) {
               <section className="grid md:grid-cols-2 gap-6 pt-6">
                 <div>
                   <h2 className="text-lg font-semibold mb-4 text-[var(--fg)] flex items-center gap-2">
-                    <Heart className="h-5 w-5 text-rose-400" /> Why you'll love it
+                    <Heart className="h-5 w-5 text-rose-400" /> Why you will love it
                   </h2>
                   <div className="grid grid-cols-1 gap-3">
                     {p.benefits?.map((b, i) => (
@@ -1521,7 +1624,7 @@ export default function ProductDetails({ data }) {
 
               <section className="mt-8">
                 <Tabs defaultValue="details" className="w-full">
-                  <TabsList className="grid grid-cols-3 w-full bg-[var(--chip-bg)] p-1">
+                  <TabsList className="grid grid-cols-4 w-full bg-[var(--chip-bg)] p-1">
                     <TabsTrigger
                       value="details"
                       className="data-[state=active]:bg-[var(--fg)] data-[state=active]:text-[var(--card-bg)] transition-all"
@@ -1535,6 +1638,12 @@ export default function ProductDetails({ data }) {
                       Claims
                     </TabsTrigger>
                     <TabsTrigger
+                      value="how-to-use"
+                      className="data-[state=active]:bg-[var(--fg)] data-[state=active]:text-[var(--card-bg)] transition-all"
+                    >
+                      How To Use
+                    </TabsTrigger>
+                    <TabsTrigger
                       value="faqs"
                       className="data-[state=active]:bg-[var(--fg)] data-[state=active]:text-[var(--card-bg)] transition-all"
                     >
@@ -1542,22 +1651,43 @@ export default function ProductDetails({ data }) {
                     </TabsTrigger>
                   </TabsList>
                   <TabsContent value="details" className="mt-4 text-[var(--fg-muted)]">
-                    <p className="text-[var(--fg)]">{p.subtitle}</p>
-                    <p>Finish: {p.finish} â€¢ Coverage: {p.coverage} â€¢ Fragrance: {p.fragrance}.</p>
+                    {p.subtitle && <p className="text-[var(--fg)]">{p.subtitle}</p>}
+                    {productSpecs.length ? (
+                      <p>{productSpecs.join(" / ")}.</p>
+                    ) : (
+                      <p>Product details will be added soon.</p>
+                    )}
                   </TabsContent>
                   <TabsContent value="claims" className="mt-4 text-[var(--fg-muted)]">
-                    <ul className="list-disc pl-5 space-y-1">{p.claims?.map((c, i) => (<li key={i}>{c}</li>))}</ul>
+                    {p.claims?.length ? (
+                      <ul className="list-disc pl-5 space-y-1">{p.claims.map((c, i) => (<li key={i}>{c}</li>))}</ul>
+                    ) : (
+                      <p>Claims will be added soon.</p>
+                    )}
                     {p.disclaimer && <div className="text-xs opacity-70 mt-2">{p.disclaimer}</div>}
                   </TabsContent>
+                  <TabsContent value="how-to-use" className="mt-4 text-[var(--fg-muted)]">
+                    {p.how_to_use?.length ? (
+                      <ol className="list-decimal pl-5 space-y-1">
+                        {p.how_to_use.map((step, i) => (<li key={i}>{step}</li>))}
+                      </ol>
+                    ) : (
+                      <p>Directions will be added soon.</p>
+                    )}
+                  </TabsContent>
                   <TabsContent value="faqs" className="mt-4 text-[var(--fg-muted)]">
-                    <Accordion type="single" collapsible className="w-full">
-                      {p.faqs?.map((f, i) => (
-                        <AccordionItem key={i} value={`faq-${i}`}>
-                          <AccordionTrigger className="text-[var(--fg)]">{f.q}</AccordionTrigger>
-                          <AccordionContent>{f.a}</AccordionContent>
-                        </AccordionItem>
-                      ))}
-                    </Accordion>
+                    {p.faqs?.length ? (
+                      <Accordion type="single" collapsible className="w-full">
+                        {p.faqs.map((f, i) => (
+                          <AccordionItem key={i} value={`faq-${i}`}>
+                            <AccordionTrigger className="text-[var(--fg)]">{f.q}</AccordionTrigger>
+                            <AccordionContent>{f.a}</AccordionContent>
+                          </AccordionItem>
+                        ))}
+                      </Accordion>
+                    ) : (
+                      <p>FAQs will be added soon.</p>
+                    )}
                   </TabsContent>
                 </Tabs>
               </section>
@@ -1575,7 +1705,7 @@ export default function ProductDetails({ data }) {
                   className="absolute left-3 top-4 text-[11px] font-semibold tracking-[0.32em] text-neutral-500 hidden sm:block"
                   style={{ writingMode: "vertical-rl", transform: "rotate(180deg)" }}
                 >
-                  what's inside
+                  what is inside
                 </span>
 
                 <div className="space-y-6 pr-3 sm:pr-8">
@@ -1652,34 +1782,39 @@ export default function ProductDetails({ data }) {
         </section>
 
         {/* ===== VIDEO ===== */}
-        <section className="w-full px-0 py-0" data-bg-key="video">
-          <div className="relative overflow-hidden shadow-2xl">
-            <VideoHero
-              src={videoSrc}
-              poster={resolveAsset(p.hero?.image) || heroSrc}
-              heightClass="h-[80svh] md:h-[90svh]"
-              overlayClass="bg-gradient-to-t from-black/80 via-black/20 to-transparent"
-              startMuted
-              loop
-              autoPauseOffscreen
-              showControls
-            >
-              <div className="absolute bottom-0 left-0 w-full p-8 md:p-16 text-white">
-                <div className="pointer-events-none absolute bottom-6 sm:bottom-8 left-4 sm:left-6 z-10 max-w-xl text-white md:bottom-12">
-                  <h3 className="text-4xl font-bold md:text-6xl mb-6 tracking-tight text-white">
-                    {p.videoTitle}
-                  </h3>
-                  <p className="text-lg md:text-xl text-white/90 leading-relaxed max-w-2xl">
-                    {p.videoDescription}
-                  </p>
+        {videoSrc && (
+          <section className="w-full px-0 py-0" data-bg-key="video">
+            <div className="relative overflow-hidden shadow-2xl">
+              <VideoHero
+                src={videoSrc}
+                poster={resolveAsset(p.hero?.image) || heroSrc}
+                heightClass="h-[80svh] md:h-[90svh]"
+                overlayClass="bg-gradient-to-t from-black/80 via-black/20 to-transparent"
+                startMuted
+                loop
+                autoPauseOffscreen
+                showControls
+              >
+                <div className="absolute bottom-0 left-0 w-full p-8 md:p-16 text-white">
+                  <div className="pointer-events-none absolute bottom-6 sm:bottom-8 left-4 sm:left-6 z-10 max-w-xl text-white md:bottom-12">
+                    <h3 className="text-4xl font-bold md:text-6xl mb-6 tracking-tight text-white">
+                      {p.videoTitle}
+                    </h3>
+                    {p.videoDescription && (
+                      <p className="text-lg md:text-xl text-white/90 leading-relaxed max-w-2xl">
+                        {p.videoDescription}
+                      </p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            </VideoHero>
-          </div>
-        </section>
+              </VideoHero>
+            </div>
+          </section>
+        )}
       </div >
 
       {/* ===== NEW HOVER REVEAL SECTION (MOVED HERE) ===== */}
+      {!!featureList.length && (
       <section className="w-full max-w-screen-2xl mx-auto px-4 sm:px-6 lg:px-8 mt-14 md:mt-20 mb-16" data-bg-key="features">
         <div className="bg-neutral-50 rounded-2xl p-5 sm:p-8 lg:p-12 border border-neutral-200">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 lg:gap-12 items-center">
@@ -1716,14 +1851,12 @@ export default function ProductDetails({ data }) {
                     {feature.label}
                   </h3>
                 ))}
-                {!featureList.length && (
-                  <p className="text-sm text-neutral-500">Hydrating, nourishing, replenishing care.</p>
-                )}
               </div>
             </div>
           </div>
         </div>
       </section>
+      )}
 
       {/* ===== EXPLORE SHADES ===== */}
       {
@@ -1826,7 +1959,7 @@ export default function ProductDetails({ data }) {
             </div>
 
             <div className="space-y-3">
-              {ratingDistribution.map(({ stars, count, percent }) => (
+              {ratingDistribution.map(({ stars, percent }) => (
                 <div key={stars} className="flex items-center gap-3 text-sm">
                   <span className="w-3 font-medium text-[var(--fg)]">{stars}</span>
                   <Star className="h-3 w-3 fill-current text-[var(--fg-muted)]" />
@@ -1950,7 +2083,7 @@ export default function ProductDetails({ data }) {
                 )
               ) : (
                 <p className="text-sm text-[var(--fg-muted)]">
-                  Live reviews are unavailable for this sample product.
+                  Live reviews are unavailable for this product.
                 </p>
               )}
             </div>
@@ -2003,7 +2136,7 @@ export default function ProductDetails({ data }) {
 
                     <div className="flex items-center gap-4 pt-2">
                       <button className="flex items-center gap-1.5 text-xs font-medium text-[var(--fg-muted)] hover:text-[var(--fg)] transition-colors">
-                        <ThumbsUp className="h-3.5 w-3.5" /> Helpful ({Math.floor(Math.random() * 10)})
+                        <ThumbsUp className="h-3.5 w-3.5" /> Helpful ({r.helpfulCount})
                       </button>
                       <button className="flex items-center gap-1.5 text-xs font-medium text-[var(--fg-muted)] hover:text-[var(--fg)] transition-colors">
                         <MessageSquare className="h-3.5 w-3.5" /> Comment
