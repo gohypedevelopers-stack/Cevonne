@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { useShop } from "@/context/ShopContext";
 import { useAuth } from "@/context/AuthContext";
 import { readAddresses } from "@/lib/addressStorage";
+import { API_BASE } from "@/lib/api";
 
 const shippingFields = [
   { label: "Full name", name: "fullName", placeholder: "Priya Kapoor" },
@@ -41,7 +42,6 @@ const paymentOptions = [
 ];
 
 const formatMoney = (value) => (Number.isFinite(value) ? value.toLocaleString("en-IN") : "0");
-const API_BASE = (import.meta.env.VITE_APP_BACKEND_URL || "").trim().replace(/\/+$/, "");
 
 export default function CheckoutPage() {
   const { cartItems, clearCart } = useShop();

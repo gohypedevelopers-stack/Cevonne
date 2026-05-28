@@ -17,6 +17,16 @@ const roleSchema = z.object({
   role: z.enum(['ADMIN', 'CUSTOMER']),
 });
 
+const hasOtpMailConfig =
+  Boolean(process.env.SMTP_HOST) &&
+  Boolean(process.env.SMTP_PORT) &&
+  Boolean(process.env.SMTP_USER) &&
+  Boolean(process.env.EMAIL_FROM);
+
+// Keep the existing OTP flow for production, but avoid blocking local dev
+// when SMTP is not configured yet.
+const otpFlowEnabled = process.env.NODE_ENV === 'production' && hasOtpMailConfig;
+
 const forgotSchema = z.object({
   email: z.string().email(),
 });
@@ -66,9 +76,10 @@ exports.signup = async (req, res, next) => {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
-    // Generate 6-digit OTP
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+    const otp = otpFlowEnabled
+      ? Math.floor(100000 + Math.random() * 900000).toString()
+      : null;
+    const otpExpiresAt = otpFlowEnabled ? new Date(Date.now() + 10 * 60 * 1000) : null;
 
     const user = await prisma.user.create({
       data: {
@@ -79,6 +90,19 @@ exports.signup = async (req, res, next) => {
         otpExpiresAt,
       },
     });
+
+    if (process.env.NODE_ENV === 'production' && !hasOtpMailConfig) {
+      return res.status(500).json({
+        message: 'OTP login is not configured on the server.',
+      });
+    }
+
+    if (!otpFlowEnabled) {
+      return res.status(201).json({
+        message: 'Account created successfully.',
+        ...buildAuthResponse(user),
+      });
+    }
 
     try {
       await sendOTP(email, otp);
@@ -114,7 +138,16 @@ exports.signin = async (req, res, next) => {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
-    // Generate 6-digit OTP
+    if (process.env.NODE_ENV === 'production' && !hasOtpMailConfig) {
+      return res.status(500).json({
+        message: 'OTP login is not configured on the server.',
+      });
+    }
+
+    if (!otpFlowEnabled) {
+      return res.status(200).json(buildAuthResponse(user));
+    }
+
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 

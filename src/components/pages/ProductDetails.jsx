@@ -26,6 +26,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useShop } from "@/context/ShopContext";
 import { useAuth } from "@/context/AuthContext";
 import { useProductsCatalog } from "@/hooks/useProductsCatalog";
+import { API_BASE, HAS_API_BASE } from "@/lib/api";
 import sampleProduct from "@/data/sampleProduct.json";
 
 const BASE_PRODUCT = cevonneProducts?.[0] || {};
@@ -49,8 +50,6 @@ const findSampleProduct = (slug = "") => {
   );
 };
 
-const API_BASE = (import.meta.env.VITE_APP_BACKEND_URL || "").trim().replace(/\/+$/, "");
-const HAS_API_BASE = Boolean(API_BASE);
 const EMPTY_PRODUCT_VIEW = {
   id: "",
   slug: "",
@@ -897,7 +896,7 @@ export default function ProductDetails({ data }) {
   };
 
   /* reviews */
-  const reviewsApiEnabled = Boolean(API_BASE && p.id);
+  const reviewsApiEnabled = Boolean(HAS_API_BASE && p.id);
 
   const fetchReviews = useCallback(async () => {
     if (!reviewsApiEnabled) return [];

@@ -1,5 +1,6 @@
-export const API_BASE =
-  import.meta.env.VITE_APP_BACKEND_URL || "http://localhost:5000/api";
+import { API_BASE as SHARED_API_BASE } from "@/lib/api";
+
+export const API_BASE = SHARED_API_BASE;
 
 export const monthFormatter = new Intl.DateTimeFormat("en-IN", { month: "short" });
 

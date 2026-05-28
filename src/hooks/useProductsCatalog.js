@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 import fallbackProducts from "@/data/cevonneProducts";
-
-const API_BASE = (import.meta.env.VITE_APP_BACKEND_URL || "").trim().replace(/\/+$/, "");
-const HAS_API_BASE = Boolean(API_BASE);
+import { API_BASE, HAS_API_BASE } from "@/lib/api";
 
 const cache = {
   data: HAS_API_BASE ? null : fallbackProducts || null,

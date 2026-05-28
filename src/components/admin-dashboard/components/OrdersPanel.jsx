@@ -8,8 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency } from "@/components/admin-dashboard/utils";
 import { useAuth } from "@/context/AuthContext";
-
-const API_BASE = (import.meta.env.VITE_APP_BACKEND_URL || "").trim().replace(/\/+$/, "");
+import { API_BASE } from "@/lib/api";
 
 const statusStyles = {
   pending: "border-amber-200 bg-amber-50 text-amber-800",

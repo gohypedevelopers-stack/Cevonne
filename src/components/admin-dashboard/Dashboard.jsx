@@ -23,6 +23,7 @@ import { useSidebar } from "@/hooks/use-sidebar";
 
 import { formatCurrency } from "./utils";
 import { OrdersPanel } from "./components/OrdersPanel";
+import { CustomersCard, LatestReviewsCard } from "./components/EngagementOverview";
 
 const defaultRequest = (url, options) => fetch(url, options);
 
@@ -61,7 +62,19 @@ export default function Dashboard() {
     );
   };
 
-  const { products, collections, shades, inventory, lowInventory, orders, stats, loading, refresh } =
+  const {
+    products,
+    collections,
+    shades,
+    inventory,
+    lowInventory,
+    orders,
+    reviews,
+    users,
+    stats,
+    loading,
+    refresh,
+  } =
     useDashboardData(true, request, isAdmin);
 
   const goToNewProduct = () => navigate("/dashboard/products/new");
@@ -92,6 +105,30 @@ export default function Dashboard() {
       .sort((a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0))
       .slice(0, 6);
   }, [products]);
+
+  const customerBreakdown = useMemo(() => {
+    if (!Array.isArray(users) || !users.length) return [];
+
+    const counts = users.reduce((acc, user) => {
+      const domain = String(user?.email || "")
+        .split("@")
+        .pop()
+        ?.toLowerCase()
+        .trim() || "unknown";
+      acc[domain] = (acc[domain] || 0) + 1;
+      return acc;
+    }, {});
+
+    const total = users.length || 1;
+
+    return Object.entries(counts)
+      .map(([domain, count]) => ({
+        domain,
+        count,
+        percentage: Math.round((count / total) * 100),
+      }))
+      .sort((a, b) => b.count - a.count);
+  }, [users]);
 
   const statCards = [
     {
@@ -188,6 +225,19 @@ export default function Dashboard() {
                       </Card>
                     ))}
                 </div>
+
+                <section id="customers" className="scroll-mt-24 space-y-4">
+                  <div className="flex flex-col gap-1">
+                    <p className="text-2xl font-semibold text-primary">Customers</p>
+                    <p className="text-sm text-muted-foreground">
+                      Customer distribution and the latest feedback from your storefront.
+                    </p>
+                  </div>
+                  <div className="grid gap-6 xl:grid-cols-[1fr,1fr]">
+                    <CustomersCard data={customerBreakdown} loading={loading} />
+                    <LatestReviewsCard reviews={reviews} loading={loading} />
+                  </div>
+                </section>
 
                 <div className="grid gap-6 lg:grid-cols-[1.6fr,1fr]">
                   {/* Low stock / borrow requests analogue */}

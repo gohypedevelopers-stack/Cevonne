@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Search, X, TrendingUp, ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
-
-const API_BASE = (import.meta.env.VITE_APP_BACKEND_URL || "").trim().replace(/\/+$/, "");
+import { API_BASE, HAS_API_BASE } from "@/lib/api";
 
 const POPULAR_KEYWORDS = [
     "Matte Lipstick",
@@ -42,12 +41,12 @@ export default function SearchPage() {
     const [results, setResults] = useState([]);
     const [isSearching, setIsSearching] = useState(false);
     const [catalog, setCatalog] = useState([]);
-    const [loadingCatalog, setLoadingCatalog] = useState(Boolean(API_BASE));
+    const [loadingCatalog, setLoadingCatalog] = useState(Boolean(HAS_API_BASE));
 
     useEffect(() => {
         let cancelled = false;
         const load = async () => {
-            if (!API_BASE) {
+            if (!HAS_API_BASE) {
                 setLoadingCatalog(false);
                 return;
             }

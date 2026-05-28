@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
-
-const API_BASE = (import.meta.env.VITE_APP_BACKEND_URL || "").trim().replace(/\/+$/, "");
+import { API_BASE } from "@/lib/api";
 
 export function useUserOrders() {
   const { authFetch, isAuthenticated } = useAuth();

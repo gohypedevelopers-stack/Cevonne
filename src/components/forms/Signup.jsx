@@ -15,10 +15,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { Eye, EyeOff } from "lucide-react";
-
-// Base API URL (e.g., http://localhost:5000/api)
-const API_BASE =
-  import.meta.env.VITE_APP_BACKEND_URL || "http://localhost:5000/api";
+import { API_BASE } from "@/lib/api";
 
 // Axios instance
 const api = axios.create({

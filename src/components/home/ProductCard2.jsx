@@ -5,8 +5,6 @@ import { Link } from "react-router-dom";
 import bg from "@/assets/background/card-bg.svg";
 import { useProductsCatalog } from "@/hooks/useProductsCatalog";
 
-const API_BASE = (import.meta.env.VITE_APP_BACKEND_URL || "").trim().replace(/\/+$/, "");
-
 // Resolve images from backend-provided media to local asset URLs
 const IMG = import.meta.glob("/src/assets/images/**/*", {
   eager: true,

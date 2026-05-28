@@ -8,9 +8,9 @@ import React, {
 } from "react";
 import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import { API_BASE } from "@/lib/api";
 
 const AuthContext = createContext(null);
-const API_URL = import.meta.env.VITE_APP_BACKEND_URL || "http://localhost:5000/api";
 
 export const AuthProvider = ({ children }) => {
   const navigate = useNavigate();
@@ -89,7 +89,7 @@ export const AuthProvider = ({ children }) => {
       return;
     }
     try {
-      const response = await authFetch(`${API_URL}/users/me`);
+      const response = await authFetch(`${API_BASE}/users/me`);
       if (!response.ok) throw new Error("Token verification failed");
       const userData = await response.json();
       saveUser(userData); // update localStorage user

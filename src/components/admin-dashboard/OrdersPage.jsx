@@ -11,8 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { useAuth } from "@/context/AuthContext";
 import { formatCurrency } from "@/components/admin-dashboard/utils";
-
-const API_BASE = (import.meta.env.VITE_APP_BACKEND_URL || "").trim().replace(/\/+$/, "");
+import { API_BASE } from "@/lib/api";
 const statusLabels = { PENDING: "Awaiting payment", PAID: "Paid", FULFILLED: "Shipped" };
 const statusColors = {
   PENDING: "bg-amber-100 text-amber-800 border-amber-200",

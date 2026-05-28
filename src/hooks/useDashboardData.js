@@ -1,7 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-
-const API_BASE =
-  import.meta.env.VITE_APP_BACKEND_URL || "http://localhost:5000/api";
+import { API_BASE } from "@/lib/api";
 
 const emptyState = {
   products: [],
