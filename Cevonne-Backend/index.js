@@ -17,7 +17,7 @@ const orderRoutes = require('./src/routes/order.routes');
 const app = express();
 
 const allowedOrigins = [
-  env.frontendUrl,
+  ...(env.frontendOrigins || []),
   'http://localhost:5173',
   'http://127.0.0.1:5173',
 ].filter(Boolean);
