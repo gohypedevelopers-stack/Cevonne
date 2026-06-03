@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { Eye, EyeOff } from "lucide-react";
 import { API_BASE } from "@/lib/api";
+import { resolvePostAuthPath } from "@/lib/auth";
 
 // Axios instance
 const api = axios.create({
@@ -65,7 +66,12 @@ export default function SignupForm({ className, ...props }: React.HTMLAttributes
       toast.success("Account created successfully!");
       // Save auth in context
       login?.(data.user, data.token);
-      navigate(redirectTo || (data?.user?.role === "ADMIN" ? "/dashboard" : "/"));
+      navigate(
+        resolvePostAuthPath({
+          role: data?.user?.role,
+          redirectTo,
+        })
+      );
     } catch (err) {
       console.error("Signup error:", err);
       const message =

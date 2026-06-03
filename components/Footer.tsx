@@ -48,7 +48,17 @@ export default function Footer() {
               </li>
               <li>
                 <Link to="/terms" className="hover:underline underline-offset-2">
-                  Terms
+                  Terms &amp; Conditions
+                </Link>
+              </li>
+              <li>
+                <Link to="/shipping-delivery" className="hover:underline underline-offset-2">
+                  Shipping &amp; Delivery
+                </Link>
+              </li>
+              <li>
+                <Link to="/cancellation-return" className="hover:underline underline-offset-2">
+                  Cancellation &amp; Return
                 </Link>
               </li>
               <li>
@@ -149,7 +159,13 @@ export default function Footer() {
                 Privacy Policy
               </Link>
               <Link to="/terms" className="hover:underline underline-offset-2">
-                Terms
+                Terms &amp; Conditions
+              </Link>
+              <Link to="/shipping-delivery" className="hover:underline underline-offset-2">
+                Shipping &amp; Delivery
+              </Link>
+              <Link to="/cancellation-return" className="hover:underline underline-offset-2">
+                Cancellation &amp; Return
               </Link>
               <Link to="/contact" className="hover:underline underline-offset-2">
                 Contact

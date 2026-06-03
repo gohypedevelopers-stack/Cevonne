@@ -1,8 +1,4 @@
-"use client";
-
-import dynamic from "next/dynamic";
-
-const ProfileOverview = dynamic(() => import("@/components/profile/ProfileOverview"), { ssr: false });
+import ProfileOverview from "@/components/profile/ProfileOverview";
 
 export default function Page() {
   return <ProfileOverview />;

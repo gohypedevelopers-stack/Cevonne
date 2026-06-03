@@ -55,7 +55,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [token, setToken] = useState<string | null>(() => readStorage("token"));
   const [isLoading, setIsLoading] = useState(true);
 
-  const saveToken = (authToken: string | null) => {
+  const saveToken = useCallback((authToken: string | null) => {
     if (typeof window !== "undefined") {
       if (authToken) {
         window.localStorage.setItem("token", authToken);
@@ -64,9 +64,9 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     }
     setToken(authToken);
-  };
+  }, []);
 
-  const saveUser = (userData: PublicUser | null) => {
+  const saveUser = useCallback((userData: PublicUser | null) => {
     if (typeof window !== "undefined") {
       if (userData) {
         window.localStorage.setItem("user", JSON.stringify(userData));
@@ -75,14 +75,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       }
     }
     setUser(userData);
-  };
+  }, []);
 
   const logout = useCallback(() => {
     saveToken(null);
     saveUser(null);
     toast.success("You have been logged out.");
     navigate("/login");
-  }, [navigate]);
+  }, [navigate, saveToken, saveUser]);
 
   const authFetch = useCallback(
     async (url: string, options: AuthFetchOptions = {}) => {
@@ -140,16 +140,19 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     } finally {
       setIsLoading(false);
     }
-  }, [token, authFetch]);
+  }, [token, authFetch, saveUser]);
 
   useEffect(() => {
     void verifyUser();
   }, [verifyUser]);
 
-  const login = (userData: PublicUser | null, authToken: string | null) => {
-    saveToken(authToken);
-    saveUser(userData);
-  };
+  const login = useCallback(
+    (userData: PublicUser | null, authToken: string | null) => {
+      saveToken(authToken);
+      saveUser(userData);
+    },
+    [saveToken, saveUser]
+  );
 
   const authValue = useMemo<AuthContextValue>(
     () => ({
@@ -163,7 +166,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       isAuthenticated: !!user,
       isLoading,
     }),
-    [user, token, logout, authFetch, verifyUser, isLoading]
+    [user, token, login, logout, authFetch, verifyUser, isLoading]
   );
 
   return (

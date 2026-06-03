@@ -1,10 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { API_BASE } from "@/lib/api";
-<<<<<<< HEAD:hooks/useUserOrders.ts
 import type { Order } from "@/types/order";
-=======
->>>>>>> 71ee5d17b965c62353c3f9d0c0cda5e799399f01:src/hooks/useUserOrders.js
 
 export function useUserOrders() {
   const { authFetch, isAuthenticated } = useAuth();

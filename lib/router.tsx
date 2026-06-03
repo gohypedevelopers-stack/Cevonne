@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, type ReactNode } from "react";
+import React, { useCallback, useEffect, type ReactNode } from "react";
 import NextLink from "next/link";
 import {
   usePathname,
@@ -66,20 +66,23 @@ export function Link({ to, href, replace, scroll, prefetch, children, ...props }
 export function useNavigate() {
   const router = useRouter();
 
-  return (to: ToLocation | number, options: NavigateOptions = {}) => {
-    if (typeof to === "number") {
-      if (to < 0) router.back();
-      else if (to > 0) router.forward();
-      return;
-    }
+  return useCallback(
+    (to: ToLocation | number, options: NavigateOptions = {}) => {
+      if (typeof to === "number") {
+        if (to < 0) router.back();
+        else if (to > 0) router.forward();
+        return;
+      }
 
-    const href = asHref(to);
-    if (options.replace) {
-      router.replace(href, { scroll: options.scroll });
-    } else {
-      router.push(href, { scroll: options.scroll });
-    }
-  };
+      const href = asHref(to);
+      if (options.replace) {
+        router.replace(href, { scroll: options.scroll });
+      } else {
+        router.push(href, { scroll: options.scroll });
+      }
+    },
+    [router]
+  );
 }
 
 export function useLocation() {

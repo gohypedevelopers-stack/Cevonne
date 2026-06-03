@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
   Boxes,
+  Sparkles,
   LayoutDashboard,
   Layers3,
   LifeBuoy,
@@ -10,15 +11,12 @@ import {
   Palette,
   Truck,
   Settings,
-  Sparkles,
   Users2,
-  GalleryVerticalEnd,
 } from "lucide-react";
 
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupLabel,
   SidebarHeader,
@@ -27,7 +25,6 @@ import {
   SidebarMenuItem,
   SidebarRail,
 } from "@/components/ui/sidebar";
-import { Badge } from "@/components/ui/badge";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useSidebar } from "@/hooks/use-sidebar";
 
@@ -42,6 +39,7 @@ const primaryNav = [
 ];
 
 const secondaryNav = [
+  { title: "AI Automation", icon: Sparkles, href: "/dashboard/ai-automation" },
   { title: "Settings", icon: Settings, href: "/dashboard#settings" },
   { title: "Support", icon: LifeBuoy, href: "mailto:support@marvelle.com" },
 ];
@@ -148,17 +146,13 @@ export function AppSidebar({ className = "", style, ...props }: AppSidebarProps)
         {...props}
       >
         <SidebarHeader className="flex-shrink-0 border-b border-border/60 px-4 pb-4 pt-6 group-data-[collapsible=icon]:px-2 group-data-[collapsible=icon]:pb-3 group-data-[collapsible=icon]:pt-4">
-          <div className="flex items-center gap-3 rounded-2xl bg-muted/40 px-4 py-3 text-foreground shadow-sm transition-all duration-200 group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:h-11 group-data-[collapsible=icon]:w-11 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:p-0">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-              <GalleryVerticalEnd className="size-4" />
-            </div>
-            <div className="grid flex-1 text-left text-sm leading-tight">
-              <span className="truncate font-semibold">Cevonne Admin</span>
-              <span className="truncate text-xs">Enterprise</span>
-            </div>
-            <Badge className="ml-auto hidden rounded-full border border-border/80 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-wide text-primary group-data-[collapsible=icon]:hidden sm:flex">
-              Live
-            </Badge>
+          <div className="space-y-1 px-1 group-data-[collapsible=icon]:hidden">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-primary/60">
+              Admin Panel
+            </p>
+            <p className="text-sm text-muted-foreground">
+              Manage products, orders, inventory, and customers.
+            </p>
           </div>
         </SidebarHeader>
 
@@ -216,26 +210,6 @@ export function AppSidebar({ className = "", style, ...props }: AppSidebarProps)
             </SidebarMenu>
           </SidebarGroup>
         </SidebarContent>
-
-        <SidebarFooter className="flex-shrink-0 px-3 pb-6 group-data-[collapsible=icon]:hidden">
-          <div className="rounded-3xl border border-[var(--secondary-200)] bg-white/95 p-4 text-xs text-primary/80 shadow-sm">
-            <div className="flex items-center justify-between">
-              <p className="text-sm font-semibold text-primary">Storage usage</p>
-              <span className="text-[11px] text-muted-foreground">67%</span>
-            </div>
-            <div className="mt-2 h-2 w-full rounded-full bg-[var(--primary-100)]">
-              <div className="h-full w-2/3 rounded-full bg-gradient-to-r from-primary via-primary-400 to-primary-200" />
-            </div>
-            <p className="mt-2 text-primary/70">6.7 GB of 10 GB</p>
-            <a
-              href="mailto:support@marvelle.com"
-              className="mt-3 inline-flex items-center gap-2 text-sm font-medium text-primary transition hover:text-primary/80"
-            >
-              <LifeBuoy className="h-4 w-4" />
-              Contact support
-            </a>
-          </div>
-        </SidebarFooter>
 
         {/* Hide the clickable rail on desktop (prevents accidental collapse while resizing) */}
         <SidebarRail className="md:hidden" />

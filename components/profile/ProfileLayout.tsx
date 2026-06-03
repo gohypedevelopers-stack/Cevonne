@@ -7,14 +7,14 @@ import {
 import { useAuth } from "@/context/AuthContext";
 import { useProfileUser } from "@/hooks/useProfileUser";
 import { useLanguage } from "@/context/LanguageContext";
-import { Link, useLocation, useNavigate } from "@/lib/router";
+import { Link, Navigate, useLocation, useNavigate } from "@/lib/router";
 
 export default function ProfileLayout({ children }) {
     const location = useLocation();
     const navigate = useNavigate();
     const currentPath = location.pathname;
-    const { isAuthenticated, isLoading, logout } = useAuth();
-    const { profile, loading: profileLoading } = useProfileUser();
+    const { isAuthenticated, isLoading, isAdmin, logout } = useAuth();
+    const { profile } = useProfileUser();
     const { t } = useLanguage();
 
     // Menu items with translation keys
@@ -33,6 +33,10 @@ export default function ProfileLayout({ children }) {
         }
     }, [isAuthenticated, isLoading, navigate, location.pathname]);
 
+    if (!isLoading && isAuthenticated && isAdmin) {
+        return <Navigate to="/dashboard" replace />;
+    }
+
     const initials = profile?.name
         ? profile.name
             .split(" ")
@@ -44,7 +48,7 @@ export default function ProfileLayout({ children }) {
     const displayName = profile?.name || "Guest";
     const displayEmail = profile?.email || t("profile.notSignedIn");
 
-    if (isLoading || profileLoading) {
+    if (isLoading) {
         return (
             <div className="min-h-screen flex items-center justify-center text-[var(--muted-foreground)]">
                 <div className="flex flex-col items-center gap-4">

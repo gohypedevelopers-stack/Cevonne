@@ -109,11 +109,7 @@ export default function Dashboard() {
   const customerBreakdown = useMemo(() => {
     if (!Array.isArray(users) || !users.length) return [];
 
-<<<<<<< HEAD:components/admin-dashboard/Dashboard.tsx
     const counts = users.reduce<Record<string, number>>((acc, user) => {
-=======
-    const counts = users.reduce((acc, user) => {
->>>>>>> 71ee5d17b965c62353c3f9d0c0cda5e799399f01:src/components/admin-dashboard/Dashboard.jsx
       const domain = String(user?.email || "")
         .split("@")
         .pop()

@@ -2,15 +2,10 @@
 
 import React, { useState, useEffect } from "react";
 import { Search, X, TrendingUp, ArrowRight } from "lucide-react";
-<<<<<<< HEAD:components/pages/SearchPage.tsx
 import { Link } from "@/lib/router";
 import { API_BASE, HAS_API_BASE } from "@/lib/api";
 import { DEFAULT_PRODUCT_IMAGE, resolveProductAsset } from "@/lib/assets";
 import type { Product } from "@/types/product";
-=======
-import { Link } from "react-router-dom";
-import { API_BASE, HAS_API_BASE } from "@/lib/api";
->>>>>>> 71ee5d17b965c62353c3f9d0c0cda5e799399f01:src/components/pages/SearchPage.jsx
 
 const POPULAR_KEYWORDS = [
   "Matte Lipstick",
@@ -47,11 +42,7 @@ export default function SearchPage() {
     const [query, setQuery] = useState("");
     const [results, setResults] = useState<SearchProduct[]>([]);
     const [isSearching, setIsSearching] = useState(false);
-<<<<<<< HEAD:components/pages/SearchPage.tsx
     const [catalog, setCatalog] = useState<SearchProduct[]>([]);
-=======
-    const [catalog, setCatalog] = useState([]);
->>>>>>> 71ee5d17b965c62353c3f9d0c0cda5e799399f01:src/components/pages/SearchPage.jsx
     const [loadingCatalog, setLoadingCatalog] = useState(Boolean(HAS_API_BASE));
 
     useEffect(() => {

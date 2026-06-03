@@ -11,6 +11,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { useAuth } from "@/context/AuthContext";
+import { resolvePostAuthPath } from "@/lib/auth";
 
 export default function VerifyOtp() {
   const params = useSearchParams();
@@ -52,7 +53,12 @@ export default function VerifyOtp() {
       }
 
       toast.success(payload?.message || "OTP verified.");
-      navigate(nextHref || (payload?.user?.role === "ADMIN" ? "/dashboard" : "/"));
+      navigate(
+        resolvePostAuthPath({
+          role: payload?.user?.role,
+          redirectTo: nextHref,
+        })
+      );
     } catch (err) {
       toast.error(err?.message || "Unable to verify the OTP.");
     } finally {

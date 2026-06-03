@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { API_BASE } from "@/lib/api";
-<<<<<<< HEAD:hooks/useProfileUser.ts
 import type { PublicUser } from "@/types/user";
-=======
->>>>>>> 71ee5d17b965c62353c3f9d0c0cda5e799399f01:src/hooks/useProfileUser.js
+
+type FetchProfileOptions = {
+  background?: boolean;
+};
 
 export function useProfileUser() {
   const { user, refreshUser, authFetch, isAuthenticated, isLoading: authLoading } = useAuth();
@@ -16,12 +17,14 @@ export function useProfileUser() {
     setProfile(user);
   }, [user]);
 
-  const fetchProfile = useCallback(async () => {
+  const fetchProfile = useCallback(async ({ background = false }: FetchProfileOptions = {}) => {
     if (!isAuthenticated) {
       setProfile(null);
       return null;
     }
-    setLoading(true);
+    if (!background) {
+      setLoading(true);
+    }
     setError("");
     try {
       const res = await authFetch(`${API_BASE}/users/me`);
@@ -45,7 +48,9 @@ export function useProfileUser() {
       setError(err?.message || "Failed to load profile");
       throw err;
     } finally {
-      setLoading(false);
+      if (!background) {
+        setLoading(false);
+      }
     }
   }, [authFetch, isAuthenticated]);
 
@@ -91,11 +96,15 @@ export function useProfileUser() {
   useEffect(() => {
     if (authLoading) return;
     if (!isAuthenticated) {
+      setProfile(null);
       setLoading(false);
       return;
     }
-    fetchProfile().catch(() => { });
-  }, [authLoading, isAuthenticated, fetchProfile]);
+
+    setProfile(user);
+    setLoading(false);
+    void fetchProfile({ background: true }).catch(() => { });
+  }, [authLoading, isAuthenticated, user, fetchProfile]);
 
   return {
     profile,

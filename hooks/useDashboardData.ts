@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
 import { API_BASE } from "@/lib/api";
-<<<<<<< HEAD:hooks/useDashboardData.ts
 import type { Order } from "@/types/order";
 import type { Product } from "@/types/product";
 import type { Review } from "@/types/review";
@@ -11,8 +10,6 @@ type DashboardReviewMeta = {
   publishedCount: number;
   pendingCount: number;
 };
-=======
->>>>>>> 71ee5d17b965c62353c3f9d0c0cda5e799399f01:src/hooks/useDashboardData.js
 
 type DashboardOrderSummary = {
   total: number;

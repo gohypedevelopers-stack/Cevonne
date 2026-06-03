@@ -8,6 +8,7 @@ import { Eye, EyeOff } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { API_BASE } from "@/lib/api";
+import { resolvePostAuthPath } from "@/lib/auth";
 import { useAuth } from "@/context/AuthContext";
 
 import { Button } from "@/components/ui/button";
@@ -74,7 +75,12 @@ export default function Login({ className, ...props }: React.HTMLAttributes<HTML
       // Persist to AuthContext (token + user)
       login?.(data.user, data.token);
 
-      navigate(redirectTo || (data?.user?.role === "ADMIN" ? "/dashboard" : "/"));
+      navigate(
+        resolvePostAuthPath({
+          role: data?.user?.role,
+          redirectTo,
+        })
+      );
     } catch (err) {
       console.error("Login error:", err);
       const message =
