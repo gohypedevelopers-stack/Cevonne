@@ -63,6 +63,8 @@ export const resolveProductAsset = (value, fallback = PRODUCT_ASSETS["product1.p
   if (isAbsoluteAsset(clean)) return clean;
 
   const basename = clean.split("/").pop();
+  if (!basename) return fallback;
+
   return PRODUCT_ASSETS[basename] || PRODUCT_ALIASES[basename] || fallback;
 };
 
@@ -73,6 +75,8 @@ export const resolveMediaAsset = (value, fallback = STATIC_ASSETS.introVideo1) =
   if (isAbsoluteAsset(clean)) return clean;
 
   const basename = clean.split("/").pop();
+  if (!basename) return fallback;
+
   return MEDIA_ASSETS[basename] || fallback;
 };
 

@@ -8,12 +8,18 @@ import { Label } from "@/components/ui/label"
 
 const Form = FormProvider
 
-const FormFieldContext = React.createContext({})
+type FormFieldContextValue = {
+  name: string;
+};
+
+type FormItemContextValue = {
+  id: string;
+};
+
+const FormFieldContext = React.createContext<FormFieldContextValue | null>(null)
 
 const FormField = (
-  {
-    ...props
-  }
+  props: React.ComponentProps<typeof Controller>
 ) => {
   return (
     <FormFieldContext.Provider value={{ name: props.name }}>
@@ -25,13 +31,18 @@ const FormField = (
 const useFormField = () => {
   const fieldContext = React.useContext(FormFieldContext)
   const itemContext = React.useContext(FormItemContext)
-  const { getFieldState } = useFormContext()
-  const formState = useFormState({ name: fieldContext.name })
-  const fieldState = getFieldState(fieldContext.name, formState)
 
   if (!fieldContext) {
     throw new Error("useFormField should be used within <FormField>")
   }
+
+  if (!itemContext) {
+    throw new Error("useFormField should be used within <FormItem>")
+  }
+
+  const { getFieldState } = useFormContext()
+  const formState = useFormState({ name: fieldContext.name })
+  const fieldState = getFieldState(fieldContext.name, formState)
 
   const { id } = itemContext
 
@@ -45,7 +56,7 @@ const useFormField = () => {
   }
 }
 
-const FormItemContext = React.createContext({})
+const FormItemContext = React.createContext<FormItemContextValue | null>(null)
 
 function FormItem({
   className,

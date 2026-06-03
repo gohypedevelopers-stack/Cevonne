@@ -64,6 +64,11 @@ function MenubarContent({
   alignOffset = -4,
   sideOffset = 8,
   ...props
+}: React.ComponentPropsWithoutRef<typeof MenubarPrimitive.Content> & {
+  className?: string;
+  align?: "start" | "center" | "end";
+  alignOffset?: number;
+  sideOffset?: number;
 }) {
   return (
     <MenubarPortal>
@@ -130,7 +135,7 @@ function MenubarRadioItem({
   className,
   children,
   ...props
-}) {
+}: React.ComponentPropsWithoutRef<typeof MenubarPrimitive.RadioItem>) {
   return (
     <MenubarPrimitive.RadioItem
       data-slot="menubar-radio-item"

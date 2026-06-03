@@ -6,7 +6,23 @@ import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { useCarousel } from "@/hooks/use-carousel"
 
-export const CarouselContext = React.createContext(null)
+type CarouselContextValue = {
+  carouselRef: ReturnType<typeof useEmblaCarousel>[0];
+  api: ReturnType<typeof useEmblaCarousel>[1];
+  opts?: Record<string, unknown>;
+  orientation: "horizontal" | "vertical";
+  scrollPrev: () => void;
+  scrollNext: () => void;
+  canScrollPrev: boolean;
+  canScrollNext: boolean;
+};
+
+export const CarouselContext = React.createContext<CarouselContextValue | null>(null)
+
+type CarouselControlProps = Omit<React.ComponentProps<typeof Button>, "variant" | "size"> & {
+  variant?: React.ComponentProps<typeof Button>["variant"];
+  size?: React.ComponentProps<typeof Button>["size"];
+};
 
 function Carousel({
   orientation = "horizontal",
@@ -23,6 +39,8 @@ function Carousel({
   }, plugins)
   const [canScrollPrev, setCanScrollPrev] = React.useState(false)
   const [canScrollNext, setCanScrollNext] = React.useState(false)
+  const resolvedOrientation: "horizontal" | "vertical" =
+    orientation === "vertical" || opts?.axis === "y" ? "vertical" : "horizontal";
 
   const onSelect = React.useCallback((api) => {
     if (!api) return
@@ -64,19 +82,20 @@ function Carousel({
     };
   }, [api, onSelect])
 
+  const contextValue: CarouselContextValue = {
+    carouselRef,
+    api,
+    opts,
+    orientation: resolvedOrientation,
+    scrollPrev,
+    scrollNext,
+    canScrollPrev,
+    canScrollNext,
+  };
+
   return (
     <CarouselContext.Provider
-      value={{
-        carouselRef,
-        api: api,
-        opts,
-        orientation:
-          orientation || (opts?.axis === "y" ? "vertical" : "horizontal"),
-        scrollPrev,
-        scrollNext,
-        canScrollPrev,
-        canScrollNext,
-      }}>
+      value={contextValue}>
       <div
         onKeyDownCapture={handleKeyDown}
         className={cn("relative", className)}
@@ -137,7 +156,7 @@ function CarouselPrevious({
   variant = "outline",
   size = "icon",
   ...props
-}) {
+}: CarouselControlProps) {
   const { orientation, scrollPrev, canScrollPrev } = useCarousel()
 
   return (
@@ -162,7 +181,7 @@ function CarouselNext({
   variant = "outline",
   size = "icon",
   ...props
-}) {
+}: CarouselControlProps) {
   const { orientation, scrollNext, canScrollNext } = useCarousel()
 
   return (

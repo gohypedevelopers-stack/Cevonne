@@ -32,6 +32,12 @@ const SIDEBAR_WIDTH_MOBILE = "18rem"
 const SIDEBAR_WIDTH_ICON = "3rem"
 const SIDEBAR_KEYBOARD_SHORTCUT = "b"
 
+type SidebarStyle = React.CSSProperties & {
+  "--sidebar-width"?: string
+  "--sidebar-width-icon"?: string
+  "--skeleton-width"?: string
+}
+
 export type SidebarContextValue = {
   state: "expanded" | "collapsed"
   open: boolean
@@ -114,7 +120,7 @@ function SidebarProvider({
   // We use openProp and setOpenProp for control from outside the component.
   const [_open, _setOpen] = React.useState(defaultOpen)
   const open = openProp ?? _open
-  const setOpen = React.useCallback((value) => {
+  const setOpen = React.useCallback((value: React.SetStateAction<boolean>) => {
     const openState = typeof value === "function" ? value(open) : value
     if (setOpenProp) {
       setOpenProp(openState)
@@ -149,9 +155,9 @@ function SidebarProvider({
 
   // We add a state so that we can do data-state="expanded" or "collapsed".
   // This makes it easier to style the sidebar with Tailwind classes.
-  const state = open ? "expanded" : "collapsed"
+  const state: SidebarContextValue["state"] = open ? "expanded" : "collapsed"
 
-  const contextValue = React.useMemo(() => ({
+  const contextValue = React.useMemo<SidebarContextValue>(() => ({
     state,
     open,
     setOpen,
@@ -164,15 +170,17 @@ function SidebarProvider({
   return (
     <SidebarContext.Provider value={contextValue}>
       <TooltipProvider delayDuration={0}>
+        {(() => {
+          const sidebarStyle: SidebarStyle = {
+            "--sidebar-width": SIDEBAR_WIDTH,
+            "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
+            ...style,
+          }
+
+          return (
         <div
           data-slot="sidebar-wrapper"
-          style={
-            {
-              "--sidebar-width": SIDEBAR_WIDTH,
-              "--sidebar-width-icon": SIDEBAR_WIDTH_ICON,
-              ...style
-            }
-          }
+          style={sidebarStyle}
           className={cn(
             "group/sidebar-wrapper has-data-[variant=inset]:bg-sidebar flex min-h-svh w-full",
             className
@@ -180,6 +188,8 @@ function SidebarProvider({
           {...props}>
           {children}
         </div>
+          )
+        })()}
       </TooltipProvider>
     </SidebarContext.Provider>
   );
@@ -213,16 +223,12 @@ function Sidebar({
   if (isMobile) {
     return (
       <Sheet open={openMobile} onOpenChange={setOpenMobile} {...props}>
-        <SheetContent
+      <SheetContent
           data-sidebar="sidebar"
           data-slot="sidebar"
           data-mobile="true"
           className="bg-sidebar text-sidebar-foreground w-(--sidebar-width) p-0 [&>button]:hidden"
-          style={
-            {
-              "--sidebar-width": SIDEBAR_WIDTH_MOBILE
-            }
-          }
+          style={{ "--sidebar-width": SIDEBAR_WIDTH_MOBILE } as SidebarStyle}
           side={side}>
           <SheetHeader className="sr-only">
             <SheetTitle>Sidebar</SheetTitle>
@@ -651,11 +657,8 @@ function SidebarMenuSkeleton({
       <Skeleton
         className="h-4 max-w-(--skeleton-width) flex-1"
         data-sidebar="menu-skeleton-text"
-        style={
-          {
-            "--skeleton-width": width
-          }
-        } />
+        style={{ "--skeleton-width": width } as SidebarStyle}
+      />
     </div>
   );
 }

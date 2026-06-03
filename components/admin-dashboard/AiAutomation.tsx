@@ -38,13 +38,14 @@ export default function AiAutomation() {
   const topCollection = useMemo(() => {
     if (!Array.isArray(products) || !products.length) return "core catalog";
 
-    const counts = products.reduce((acc, product) => {
+    const counts = products.reduce<Record<string, number>>((acc, product) => {
       const name = product?.collection?.name || "Unassigned";
       acc[name] = (acc[name] || 0) + 1;
       return acc;
     }, {});
 
-    return Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] || "core catalog";
+    const entries = Object.entries(counts);
+    return entries.sort((a, b) => b[1] - a[1])[0]?.[0] || "core catalog";
   }, [products]);
 
   const aiInsights = useMemo(

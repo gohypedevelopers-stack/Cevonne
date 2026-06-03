@@ -5,7 +5,7 @@ type ResolvePostAuthPathArgs = {
   adminPath?: string;
 };
 
-const normalizeInternalPath = (value = "") => {
+const normalizeInternalPath = (value?: string | null) => {
   const trimmed = String(value).trim();
   if (!trimmed.startsWith("/") || trimmed.startsWith("//")) {
     return "";

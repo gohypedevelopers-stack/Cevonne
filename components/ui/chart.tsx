@@ -11,7 +11,22 @@ const THEMES = {
   dark: ".dark"
 }
 
-export const ChartContext = React.createContext(null)
+type ChartThemeConfig = {
+  label?: React.ReactNode;
+  icon?: React.ComponentType<{ className?: string }>;
+  color?: string;
+  theme?: Record<string, string>;
+};
+
+type ChartConfig = Record<string, ChartThemeConfig>;
+
+type ChartContextValue = {
+  config: ChartConfig;
+};
+
+export const ChartContext = React.createContext<ChartContextValue | null>(null)
+
+type CSSVariableStyle = React.CSSProperties & Record<`--${string}`, string>;
 
 function ChartContainer({
   id,
@@ -19,12 +34,19 @@ function ChartContainer({
   children,
   config,
   ...props
+}: {
+  id?: string;
+  className?: string;
+  children: React.ReactElement;
+  config: ChartConfig;
+  [key: string]: unknown;
 }) {
   const uniqueId = React.useId()
   const chartId = `chart-${id || uniqueId.replace(/:/g, "")}`
+  const contextValue: ChartContextValue = { config }
 
   return (
-    <ChartContext.Provider value={{ config }}>
+    <ChartContext.Provider value={contextValue}>
       <div
         data-slot="chart"
         data-chart={chartId}
@@ -45,6 +67,9 @@ function ChartContainer({
 const ChartStyle = ({
   id,
   config
+}: {
+  id: string;
+  config: ChartConfig;
 }) => {
   const colorConfig = Object.entries(config).filter(([, config]) => config.theme || config.color)
 
@@ -89,6 +114,20 @@ function ChartTooltipContent({
   color,
   nameKey,
   labelKey
+}: {
+  active?: boolean;
+  payload?: Array<any>;
+  className?: string;
+  indicator?: "dot" | "line" | "dashed";
+  hideLabel?: boolean;
+  hideIndicator?: boolean;
+  label?: React.ReactNode;
+  labelFormatter?: (value: unknown, payload: Array<any>) => React.ReactNode;
+  labelClassName?: string;
+  formatter?: (value: unknown, name: string, item: any, index: number, payload: any) => React.ReactNode;
+  color?: string;
+  nameKey?: string;
+  labelKey?: string;
 }) {
   const { config } = useChart()
 
@@ -176,7 +215,7 @@ function ChartTooltipContent({
                             {
                               "--color-bg": indicatorColor,
                               "--color-border": indicatorColor
-                            }
+                            } as CSSVariableStyle
                           } />
                       )
                     )}
@@ -215,6 +254,12 @@ function ChartLegendContent({
   payload,
   verticalAlign = "bottom",
   nameKey
+}: {
+  className?: string;
+  hideIcon?: boolean;
+  payload?: Array<any>;
+  verticalAlign?: "top" | "bottom";
+  nameKey?: string;
 }) {
   const { config } = useChart()
 
@@ -260,9 +305,9 @@ function ChartLegendContent({
 
 // Helper to extract item config from a payload.
 function getPayloadConfigFromPayload(
-  config,
-  payload,
-  key
+  config: ChartConfig,
+  payload: unknown,
+  key: string
 ) {
   if (typeof payload !== "object" || payload === null) {
     return undefined

@@ -8,7 +8,7 @@ function InputOTP({
   className,
   containerClassName,
   ...props
-}) {
+}: React.ComponentPropsWithoutRef<typeof OTPInput>) {
   return (
     <OTPInput
       data-slot="input-otp"

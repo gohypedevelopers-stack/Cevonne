@@ -22,6 +22,10 @@ function HoverCardContent({
   align = "center",
   sideOffset = 4,
   ...props
+}: React.ComponentPropsWithoutRef<typeof HoverCardPrimitive.Content> & {
+  className?: string;
+  align?: "start" | "center" | "end";
+  sideOffset?: number;
 }) {
   return (
     <HoverCardPrimitive.Portal data-slot="hover-card-portal">

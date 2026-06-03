@@ -667,7 +667,16 @@ exports.bulkImportProducts = async (req, res, next) => {
   }
 
   const prisma = await getPrisma();
-  const summary = {
+  const summary: {
+    created: number;
+    updated: number;
+    failed: number;
+    results: Array<{
+      slug: string;
+      status: "created" | "updated" | "failed";
+      message?: string;
+    }>;
+  } = {
     created: 0,
     updated: 0,
     failed: 0,
@@ -705,7 +714,7 @@ exports.bulkImportProducts = async (req, res, next) => {
       summary.results.push({
         slug: rawItem?.slug ?? rawItem?.name ?? 'unknown',
         status: 'failed',
-        message: error.message || 'Unable to import product',
+        message: error instanceof Error ? error.message : 'Unable to import product',
       });
     }
   }

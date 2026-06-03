@@ -144,7 +144,7 @@ function ContextMenuRadioItem({
   className,
   children,
   ...props
-}) {
+}: React.ComponentPropsWithoutRef<typeof ContextMenuPrimitive.RadioItem>) {
   return (
     <ContextMenuPrimitive.RadioItem
       data-slot="context-menu-radio-item"
