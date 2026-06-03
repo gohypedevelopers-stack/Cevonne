@@ -15,6 +15,7 @@ out
 next-scaffold-temp
 *.local
 .env
+.env.production
 next-env.d.ts
 # Editor directories and files
 .vscode/*
