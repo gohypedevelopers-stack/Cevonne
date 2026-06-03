@@ -1,5 +1,0 @@
-Please review the product details page and ensure all product information sections are present on the frontend.
-
-Also check the backend product add/upload form. I think many fields are unnecessary because they appear in the backend upload form but are not displayed on the frontend product details page.
-
-Kindly review both frontend and backend fields, remove unnecessary fields if needed, and make sure the product I added does not use mock data. It should display the actual product data from the backend.
