@@ -22,7 +22,7 @@ export const env = Object.freeze({
   databaseUrl: process.env.DATABASE_URL || "",
   jwtSecret: process.env.JWT_SECRET || "dev_secret",
   frontendUrl: process.env.FRONTEND_URL || "",
-  backendUrl: process.env.BACKEND_URL || "",
+  backendUrl: process.env.BACKEND_URL || process.env.VITE_APP_BACKEND_URL || "",
   smtpHost: process.env.SMTP_HOST || "",
   smtpPort: toNumber(process.env.SMTP_PORT, undefined),
   smtpUser: process.env.SMTP_USER || "",
