@@ -9,7 +9,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency } from "@/components/admin-dashboard/utils";
 import { useAuth } from "@/context/AuthContext";
 import { API_BASE } from "@/lib/api";
+<<<<<<< HEAD:components/admin-dashboard/components/OrdersPanel.tsx
 import type { Order } from "@/types/order";
+=======
+>>>>>>> 71ee5d17b965c62353c3f9d0c0cda5e799399f01:src/components/admin-dashboard/components/OrdersPanel.jsx
 
 const statusStyles = {
   pending: "border-amber-200 bg-amber-50 text-amber-800",

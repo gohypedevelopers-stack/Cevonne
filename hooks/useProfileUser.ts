@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useAuth } from "@/context/AuthContext";
 import { API_BASE } from "@/lib/api";
+<<<<<<< HEAD:hooks/useProfileUser.ts
 import type { PublicUser } from "@/types/user";
+=======
+>>>>>>> 71ee5d17b965c62353c3f9d0c0cda5e799399f01:src/hooks/useProfileUser.js
 
 export function useProfileUser() {
   const { user, refreshUser, authFetch, isAuthenticated, isLoading: authLoading } = useAuth();

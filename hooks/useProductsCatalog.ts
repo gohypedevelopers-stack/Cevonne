@@ -1,7 +1,10 @@
 import { useEffect, useState } from "react";
 import fallbackProducts from "@/data/cevonneProducts";
 import { API_BASE, HAS_API_BASE } from "@/lib/api";
+<<<<<<< HEAD:hooks/useProductsCatalog.ts
 import type { Product } from "@/types/product";
+=======
+>>>>>>> 71ee5d17b965c62353c3f9d0c0cda5e799399f01:src/hooks/useProductsCatalog.js
 
 const cache = {
   data: (HAS_API_BASE ? null : fallbackProducts || null) as Product[] | null,

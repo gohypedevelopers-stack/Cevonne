@@ -2,6 +2,7 @@ const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const { z } = require('zod');
 
+const { env } = require('../config');
 const { getPrisma } = require('../db/prismaClient');
 const { signToken } = require('../utils/jwt');
 const { sendOTP } = require('../utils/email');
@@ -311,10 +312,15 @@ exports.forgotPassword = async (req, res, next) => {
       },
     });
 
+<<<<<<< HEAD:server/controllers/user.controller.ts
     const requestOrigin =
       req.get('origin')?.trim().replace(/\/+$/, '') ||
       `${req.protocol}://${req.get('host')}`;
     const resetUrl = `${requestOrigin}/reset-password/${rawToken}`;
+=======
+    const resetBaseUrl = env.frontendUrl || process.env.FRONTEND_URL || '';
+    const resetUrl = `${String(resetBaseUrl).replace(/\/+$/, '')}/reset-password/${rawToken}`;
+>>>>>>> 71ee5d17b965c62353c3f9d0c0cda5e799399f01:Cevonne-Backend/src/controllers/user.controller.js
 
     return res.status(200).json({
       message: 'If that email exists, a reset link has been sent.',

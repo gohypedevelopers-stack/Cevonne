@@ -7,6 +7,19 @@ import { Link } from "@/lib/router";
 import { useProductsCatalog } from "@/hooks/useProductsCatalog";
 import { DEFAULT_PRODUCT_IMAGE, STATIC_ASSETS, resolveProductAsset } from "@/lib/assets";
 
+<<<<<<< HEAD:components/home/ProductCard2.tsx
+=======
+// Resolve images from backend-provided media to local asset URLs
+const IMG = import.meta.glob("/src/assets/images/**/*", {
+  eager: true,
+  query: "?url",
+  import: "default",
+});
+const FALLBACK_IMAGE =
+  IMG["/src/assets/images/product1.png"] ||
+  Object.values(IMG)[0] ||
+  "";
+>>>>>>> 71ee5d17b965c62353c3f9d0c0cda5e799399f01:src/components/home/ProductCard2.jsx
 const resolveAsset = (pth = "") => {
   if (!pth) return DEFAULT_PRODUCT_IMAGE;
   return resolveProductAsset(pth, DEFAULT_PRODUCT_IMAGE);

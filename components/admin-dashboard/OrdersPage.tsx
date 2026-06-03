@@ -14,8 +14,11 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/s
 import { useAuth } from "@/context/AuthContext";
 import { formatCurrency } from "@/components/admin-dashboard/utils";
 import { API_BASE } from "@/lib/api";
+<<<<<<< HEAD:components/admin-dashboard/OrdersPage.tsx
 import type { Order, OrderStatus } from "@/types/order";
 
+=======
+>>>>>>> 71ee5d17b965c62353c3f9d0c0cda5e799399f01:src/components/admin-dashboard/OrdersPage.jsx
 const statusLabels = { PENDING: "Awaiting payment", PAID: "Paid", FULFILLED: "Shipped" };
 const statusColors = {
   PENDING: "bg-amber-100 text-amber-800 border-amber-200",
