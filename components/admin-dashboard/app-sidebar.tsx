@@ -39,7 +39,7 @@ const primaryNav = [
 ];
 
 const secondaryNav = [
-  { title: "AI Automation", icon: Sparkles, href: "/dashboard/ai-automation" },
+  { title: "n8n Automations", icon: Sparkles, href: "/dashboard/ai-automation" },
   { title: "Settings", icon: Settings, href: "/dashboard#settings" },
   { title: "Support", icon: LifeBuoy, href: "mailto:support@marvelle.com" },
 ];

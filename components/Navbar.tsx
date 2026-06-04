@@ -3,7 +3,7 @@
 import React, { useEffect, useRef, useState } from "react"
 import { Link, useLocation } from "@/lib/router"
 import { Menu, Search, Heart, User, Phone, ShoppingCart } from "lucide-react"
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet"
+import { Sheet, SheetContent, SheetDescription, SheetTitle, SheetTrigger } from "@/components/ui/sheet"
 import { Separator } from "@/components/ui/separator"
 import { useShop } from "@/context/ShopContext"
 import { useLanguage } from "@/context/LanguageContext"
@@ -13,11 +13,11 @@ const NAV_H_MOBILE = "h-16"     // 64px
 const NAV_H_DESKTOP = "md:h-20" // 80px
 
 const Navbar = () => {
-  const [solid, setSolid] = useState(false)
-  const ticking = useRef(false)
   const THRESHOLD = 24
   const location = useLocation()
   const isProductPage = location.pathname.startsWith("/product")
+  const [solid, setSolid] = useState(isProductPage)
+  const ticking = useRef(false)
 
   const { cartItems, wishlist, openDrawer } = useShop()
   const { t } = useLanguage()
@@ -36,7 +36,7 @@ const Navbar = () => {
     return () => window.removeEventListener("scroll", onScroll)
   }, [isProductPage])
 
-  const textClass = "text-[var(--foreground)]"
+  const textClass = solid ? "text-[var(--foreground)]" : "text-white"
 
   return (
     <>
@@ -68,6 +68,10 @@ const Navbar = () => {
                 </button>
               </SheetTrigger>
               <SheetContent side="left" className="w-80 p-0 bg-[var(--background)]">
+                <SheetTitle className="sr-only">Main navigation</SheetTitle>
+                <SheetDescription className="sr-only">
+                  Links to shop categories, virtual try-on, and brand information.
+                </SheetDescription>
                 <div className="flex h-full flex-col">
                   <div className="flex-1 overflow-y-auto p-6">
                     <h3 className="mb-6 text-3xl font-serif font-bold tracking-wide text-[var(--foreground)]">{t("nav.menu")}</h3>
@@ -113,9 +117,10 @@ const Navbar = () => {
           <div className="absolute left-1/2 -translate-x-1/2">
             <Link to="/">
               <img
-                src={STATIC_ASSETS.logoMain}
-                alt="Brand"
-                className="h-8 w-auto lg:h-12 transition-[filter] duration-300"
+                src={STATIC_ASSETS.logoNavbar}
+                alt="Cevonne"
+                className="h-5 w-auto object-contain lg:h-7 transition-[filter] duration-300"
+                style={{ filter: solid ? "none" : "brightness(0) invert(1)" }}
               />
             </Link>
           </div>

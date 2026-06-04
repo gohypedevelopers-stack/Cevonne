@@ -1,8 +1,7 @@
 import { normalizeUploadedAssetUrl } from "@/lib/asset-url";
 
-const ASSET_BASE = "/video/assets";
+const ASSET_BASE = "/assets";
 const IMAGE_BASE = `${ASSET_BASE}/images`;
-const LOGO_BASE = `${ASSET_BASE}/logos`;
 const BACKGROUND_BASE = `${ASSET_BASE}/background`;
 const VIDEO_BASE = `${ASSET_BASE}/video`;
 
@@ -13,7 +12,8 @@ export const assetSrc = (asset) => {
 };
 
 export const STATIC_ASSETS = {
-  logoMain: `${LOGO_BASE}/cevonne_main_logo.png`,
+  logoNavbar: "/logo.svg",
+  logoMain: "/logo.svg",
   heroImage: `${IMAGE_BASE}/image.webp`,
   cardBackground: `${BACKGROUND_BASE}/card-bg.svg`,
   introVideo1: `${VIDEO_BASE}/intro1.mp4`,
