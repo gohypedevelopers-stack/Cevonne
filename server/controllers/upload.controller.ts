@@ -1,10 +1,13 @@
-const {
+import {
   UPLOADS_DIR,
   buildUploadUrl,
   ensureUploadsDir,
   ensureUploadFileExists,
   removeUploadFile,
-} = require('../services/upload.service');
+} from "../services/upload.service";
+
+const cjsModule = { exports: {} as Record<string, any> };
+const exports = cjsModule.exports as Record<string, any>;
 
 if (!process.env.VERCEL) {
   void ensureUploadsDir().catch((error) => {
@@ -36,9 +39,9 @@ const deleteUpload = (req, res) => {
   return res.status(204).send();
 };
 
-export {};
-
-module.exports = {
+cjsModule.exports = {
   uploadSuccess,
   deleteUpload,
 };
+
+export default cjsModule.exports;

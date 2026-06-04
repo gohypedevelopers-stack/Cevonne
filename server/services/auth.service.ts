@@ -1,6 +1,7 @@
 import type { AuthResponse, PublicUser } from "@/types/user";
+import crypto from "node:crypto";
 
-const { signToken } = require("../utils/jwt");
+import { signToken } from "../utils/jwt";
 
 export const sanitizeUser = (user: any): PublicUser | null => {
   if (!user) return null;
@@ -16,4 +17,4 @@ export const buildAuthResponse = (user: any): AuthResponse => ({
 export const createOtp = () => Math.floor(100000 + Math.random() * 900000).toString();
 
 export const createPasswordHashSeed = () =>
-  require("node:crypto").randomBytes(16).toString("hex");
+  crypto.randomBytes(16).toString("hex");

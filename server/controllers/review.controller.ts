@@ -1,6 +1,10 @@
-const { z } = require('zod');
+import { z } from "zod";
+import { Prisma } from "@prisma/client";
 
-const { getPrisma } = require('../db/prismaClient');
+import { getPrisma } from "../db/prismaClient";
+
+const cjsModule = { exports: {} as Record<string, any> };
+const exports = cjsModule.exports as Record<string, any>;
 
 const mediaSchema = z.object({
   url: z.string().url('Media URL must be valid'),
@@ -9,7 +13,7 @@ const mediaSchema = z.object({
 const baseReviewSchema = z.object({
   rating: z
     .number({
-      required_error: 'Rating is required',
+      error: 'Rating is required',
     })
     .int()
     .min(1)
@@ -84,10 +88,10 @@ exports.listReviews = async (req, res, next) => {
       status: parsed.status === 'ALL' ? undefined : parsed.status,
       OR: parsed.search
         ? [
-            { title: { contains: parsed.search, mode: 'insensitive' } },
-            { comment: { contains: parsed.search, mode: 'insensitive' } },
-            { user: { name: { contains: parsed.search, mode: 'insensitive' } } },
-            { user: { email: { contains: parsed.search, mode: 'insensitive' } } },
+            { title: { contains: parsed.search, mode: Prisma.QueryMode.insensitive } },
+            { comment: { contains: parsed.search, mode: Prisma.QueryMode.insensitive } },
+            { user: { name: { contains: parsed.search, mode: Prisma.QueryMode.insensitive } } },
+            { user: { email: { contains: parsed.search, mode: Prisma.QueryMode.insensitive } } },
           ]
         : undefined,
     };
@@ -101,7 +105,7 @@ exports.listReviews = async (req, res, next) => {
 
     const reviews = await prisma.review.findMany({
       where,
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" as const },
       include: reviewInclude,
     });
 
@@ -253,12 +257,12 @@ exports.deleteReview = async (req, res, next) => {
   }
 };
 
-export {};
-
-module.exports = {
+cjsModule.exports = {
   listReviews: exports.listReviews,
   getReview: exports.getReview,
   createReview: exports.createReview,
   updateReview: exports.updateReview,
   deleteReview: exports.deleteReview,
 };
+
+export default cjsModule.exports;

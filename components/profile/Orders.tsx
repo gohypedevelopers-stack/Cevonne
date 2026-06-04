@@ -4,16 +4,34 @@ import React, { useState } from "react";
 import { Package, ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useUserOrders } from "@/hooks/useUserOrders";
+import { normalizeOrderStatus, type OrderStatus } from "@/types/order";
 
-const STATUS_FLOW = ["Pending", "Processing", "Shipped", "Out for Delivery", "Delivered"];
+const STATUS_FLOW: Array<{ status: OrderStatus; label: string }> = [
+  { status: "PENDING", label: "Pending" },
+  { status: "PAID", label: "Paid" },
+  { status: "PROCESSING", label: "Processing" },
+  { status: "SHIPPED", label: "Shipped" },
+  { status: "OUT_FOR_DELIVERY", label: "Out for Delivery" },
+  { status: "DELIVERED", label: "Delivered" },
+];
 
 const badgeForStatus = (status = "") => {
-  const normalized = status.toLowerCase();
-  if (normalized.includes("deliver")) return "bg-emerald-100 text-emerald-700";
-  if (normalized.includes("process") || normalized.includes("pending")) return "bg-amber-100 text-amber-700";
-  if (normalized.includes("cancel")) return "bg-rose-100 text-rose-700";
-  if (normalized.includes("ship")) return "bg-blue-100 text-blue-700";
-  return "bg-slate-100 text-slate-700";
+  const normalized = normalizeOrderStatus(status);
+  switch (normalized) {
+    case "DELIVERED":
+      return "bg-emerald-100 text-emerald-700";
+    case "OUT_FOR_DELIVERY":
+      return "bg-indigo-100 text-indigo-700";
+    case "SHIPPED":
+      return "bg-blue-100 text-blue-700";
+    case "PROCESSING":
+      return "bg-violet-100 text-violet-700";
+    case "PAID":
+      return "bg-sky-100 text-sky-700";
+    case "PENDING":
+    default:
+      return "bg-amber-100 text-amber-700";
+  }
 };
 
 export default function Orders() {
@@ -38,10 +56,9 @@ export default function Orders() {
         ) : (
           orders.map((order) => {
             const orderId = order.id || order.number;
-            const status = order.status || "Pending";
-            const activeIdx = STATUS_FLOW.findIndex(
-              (s) => s.toLowerCase() === status.toLowerCase()
-            );
+            const status = normalizeOrderStatus(order.status);
+            const activeIdx = STATUS_FLOW.findIndex((s) => s.status === status);
+            const statusLabel = STATUS_FLOW.find((s) => s.status === status)?.label ?? status;
 
             return (
               <div
@@ -65,7 +82,7 @@ export default function Orders() {
                             status
                           )}`}
                         >
-                          {status}
+                          {statusLabel}
                         </span>
                         <span className="text-sm font-medium text-[var(--primary)]">
                           {order.totals?.total != null ? `₹${order.totals.total}` : "—"}
@@ -87,25 +104,25 @@ export default function Orders() {
                 </div>
 
                 {expandedId === orderId && (
-                  <div className="mt-4 grid gap-2 sm:grid-cols-5 text-xs text-[var(--muted-foreground)]">
-                    {STATUS_FLOW.map((step, idx) => {
-                      const isActive = idx === activeIdx;
-                      const isDone = activeIdx >= idx;
-                      return (
-                        <div
-                          key={step}
-                          className={`rounded-xl border px-3 py-2 text-center ${
-                            isActive
-                              ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+                  <div className="mt-4 grid gap-2 sm:grid-cols-6 text-xs text-[var(--muted-foreground)]">
+                          {STATUS_FLOW.map((step, idx) => {
+                            const isActive = idx === activeIdx;
+                            const isDone = activeIdx >= idx;
+                            return (
+                              <div
+                                key={step.status}
+                                className={`rounded-xl border px-3 py-2 text-center ${
+                                  isActive
+                                    ? "border-emerald-300 bg-emerald-50 text-emerald-700"
                               : isDone
                               ? "border-slate-200 bg-slate-50"
                               : "border-dashed border-slate-200"
                           }`}
-                        >
-                          {step}
-                        </div>
-                      );
-                    })}
+                                >
+                          {step.label}
+                                </div>
+                              );
+                            })}
                   </div>
                 )}
               </div>

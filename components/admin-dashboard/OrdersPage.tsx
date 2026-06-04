@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowUpRight, BadgeCheck, CheckCircle2, Clock3, CreditCard, MapPin, RefreshCw, Search, Truck } from "lucide-react";
+import { ArrowUpRight, CheckCircle2, CreditCard, MapPin, RefreshCw, Search, Truck } from "lucide-react";
 import { toast } from "sonner";
 
 import { AppSidebar } from "@/components/admin-dashboard/app-sidebar";
@@ -14,20 +14,43 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/s
 import { useAuth } from "@/context/AuthContext";
 import { formatCurrency } from "@/components/admin-dashboard/utils";
 import { API_BASE } from "@/lib/api";
-import type { Order, OrderStatus } from "@/types/order";
-const statusLabels = { PENDING: "Awaiting payment", PAID: "Paid", FULFILLED: "Shipped" };
-const statusColors = {
+import { getNextOrderStatus, normalizeOrderStatus, type Order, type OrderStatus } from "@/types/order";
+
+const statusLabels: Record<OrderStatus, string> = {
+  PENDING: "Awaiting payment",
+  PAID: "Paid",
+  PROCESSING: "Processing",
+  SHIPPED: "Shipped",
+  OUT_FOR_DELIVERY: "Out for delivery",
+  DELIVERED: "Delivered",
+};
+
+const statusColors: Record<OrderStatus, string> = {
   PENDING: "bg-amber-100 text-amber-800 border-amber-200",
   PAID: "bg-sky-100 text-sky-800 border-sky-200",
-  FULFILLED: "bg-emerald-100 text-emerald-800 border-emerald-200",
+  PROCESSING: "bg-violet-100 text-violet-800 border-violet-200",
+  SHIPPED: "bg-blue-100 text-blue-800 border-blue-200",
+  OUT_FOR_DELIVERY: "bg-indigo-100 text-indigo-800 border-indigo-200",
+  DELIVERED: "bg-emerald-100 text-emerald-800 border-emerald-200",
+};
+
+const actionLabels: Record<OrderStatus, string> = {
+  PENDING: "Mark paid",
+  PAID: "Start processing",
+  PROCESSING: "Mark shipped",
+  SHIPPED: "Out for delivery",
+  OUT_FOR_DELIVERY: "Mark delivered",
+  DELIVERED: "Delivered",
 };
 
 type OrderSummary = {
   total: number;
   pending: number;
-  paid: number;
-  fulfilled: number;
+  inProgress: number;
+  delivered: number;
   revenue: number;
+  paid?: number;
+  fulfilled?: number;
 };
 
 type OrdersApiResponse = {
@@ -38,7 +61,13 @@ type OrdersApiResponse = {
 export default function OrdersPage() {
   const { authFetch, isAdmin } = useAuth();
   const [orders, setOrders] = useState<Order[]>([]);
-  const [summary, setSummary] = useState<OrderSummary>({ total: 0, pending: 0, paid: 0, fulfilled: 0, revenue: 0 });
+  const [summary, setSummary] = useState<OrderSummary>({
+    total: 0,
+    pending: 0,
+    inProgress: 0,
+    delivered: 0,
+    revenue: 0,
+  });
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -51,11 +80,12 @@ export default function OrdersPage() {
       const list = Array.isArray((data as OrdersApiResponse)?.items ?? data)
         ? (((data as OrdersApiResponse).items ?? data) as Order[])
         : [];
+      const normalizedStatuses = list.map((order) => normalizeOrderStatus(order.status));
       const computedSummary: OrderSummary = {
         total: list.length,
-        pending: list.filter((o) => o.status === "PENDING").length,
-        paid: list.filter((o) => o.status === "PAID").length,
-        fulfilled: list.filter((o) => o.status === "FULFILLED").length,
+        pending: normalizedStatuses.filter((status) => status === "PENDING").length,
+        inProgress: normalizedStatuses.filter((status) => status !== "PENDING" && status !== "DELIVERED").length,
+        delivered: normalizedStatuses.filter((status) => status === "DELIVERED").length,
         revenue: list.reduce((acc, o) => acc + (Number(o?.totals?.total) || 0), 0),
       };
       const nextSummary: OrderSummary =
@@ -143,10 +173,11 @@ export default function OrdersPage() {
               </div>
             </header>
 
-            <div className="grid gap-3 md:grid-cols-4">
-              <StatCard label="Total orders" value={summary.total} helper={`${summary.pending} awaiting payment`} />
-              <StatCard label="Paid" value={summary.paid} helper="Ready to ship" />
-              <StatCard label="Fulfilled" value={summary.fulfilled} helper="Completed" />
+            <div className="grid gap-3 md:grid-cols-5">
+              <StatCard label="Total orders" value={summary.total} helper="All orders" />
+              <StatCard label="Awaiting payment" value={summary.pending} helper="Needs payment" />
+              <StatCard label="In progress" value={summary.inProgress} helper="Paid, processing, shipping" />
+              <StatCard label="Delivered" value={summary.delivered} helper="Completed orders" />
               <StatCard label="Total collected" value={formatCurrency(summary.revenue)} helper="Gross revenue" />
             </div>
 
@@ -178,7 +209,8 @@ export default function OrdersPage() {
                   ))
                 ) : filtered.length ? (
                   filtered.map((order) => {
-                    const status = order.status || "PENDING";
+                    const status = normalizeOrderStatus(order.status);
+                    const nextStatus = getNextOrderStatus(status);
                     const shipping = order.shipping || {};
                     const payment = order.paymentMethod || "card";
                     const total = order?.totals?.total ?? 0;
@@ -220,32 +252,21 @@ export default function OrdersPage() {
                           <div className="flex flex-wrap gap-2">
                             <Button
                               size="sm"
-                            variant="outline"
-                            className="rounded-full"
-                            disabled={updatingId === order.id || status !== "PENDING"}
-                            title={status !== "PENDING" ? "Already marked paid/shipped" : ""}
-                            onClick={() => updateStatus(order.id, "PAID")}
-                          >
-                            <CreditCard className="mr-2 h-4 w-4" />
-                            Mark paid
-                          </Button>
-                            <Button
-                              size="sm"
-                            variant="outline"
-                            className="rounded-full"
-                            disabled={updatingId === order.id || (status !== "PAID" && status !== "FULFILLED")}
-                            title={status === "PENDING" ? "Mark paid first" : ""}
-                            onClick={() => updateStatus(order.id, "FULFILLED")}
-                          >
-                            {status === "FULFILLED" ? (
-                              <>
-                                <CheckCircle2 className="mr-2 h-4 w-4 text-emerald-600" />
-                                  Fulfilled
+                              variant="outline"
+                              className="rounded-full"
+                              disabled={updatingId === order.id || status === "DELIVERED"}
+                              title={status === "DELIVERED" ? "Order already delivered" : ""}
+                              onClick={() => updateStatus(order.id, nextStatus)}
+                            >
+                              {status === "DELIVERED" ? (
+                                <>
+                                  <CheckCircle2 className="mr-2 h-4 w-4 text-emerald-600" />
+                                  Delivered
                                 </>
                               ) : (
                                 <>
                                   <Truck className="mr-2 h-4 w-4" />
-                                  Mark shipped
+                                  {actionLabels[status]}
                                 </>
                               )}
                             </Button>

@@ -1,4 +1,4 @@
-import { env } from "./env.js";
+import { env } from "./env";
 
 const normalizeOrigin = (value = "") => String(value).trim().replace(/\/+$/, "");
 
@@ -12,7 +12,6 @@ const getLocalhostOrigins = () => [
 export const getAllowedOrigins = () =>
   [
     env.frontendUrl,
-    env.backendUrl,
     ...getLocalhostOrigins(),
   ]
     .map(normalizeOrigin)

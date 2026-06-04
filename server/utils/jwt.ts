@@ -1,19 +1,23 @@
-const jwt = require('jsonwebtoken');
+import jwt, { type SignOptions } from "jsonwebtoken";
 
-type JwtSignOptions = { expiresIn?: string | number };
+import { env } from "../config/env";
+
+type JwtSignOptions = Pick<SignOptions, "expiresIn">;
 
 const defaultSignOptions: JwtSignOptions = {};
+const jwtSecret = env.jwtSecret;
 
-const signToken = (payload: string | object | Buffer, options: JwtSignOptions = defaultSignOptions) =>
-  jwt.sign(payload, process.env.JWT_SECRET, {
-    expiresIn: options.expiresIn || '30d',
+export const signToken = (
+  payload: string | object | Buffer,
+  options: JwtSignOptions = defaultSignOptions
+) =>
+  jwt.sign(payload, jwtSecret, {
+    expiresIn: options.expiresIn ?? "30d",
   });
 
-const verifyToken = (token) => jwt.verify(token, process.env.JWT_SECRET);
+export const verifyToken = (token: string) => jwt.verify(token, jwtSecret);
 
-module.exports = {
+export default {
   signToken,
   verifyToken,
 };
-
-export {};

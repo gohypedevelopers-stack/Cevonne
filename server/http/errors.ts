@@ -1,4 +1,4 @@
-import { STATUS_CODES } from "./statusCodes.js";
+import { STATUS_CODES } from "./statusCodes";
 
 type HttpErrorOptions = {
   expose?: boolean;

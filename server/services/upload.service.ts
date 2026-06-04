@@ -1,15 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { env } from "../config/env";
+import { normalizeUploadedAssetUrl } from "@/lib/asset-url";
 import { UPLOADS_DIR } from "../config/upload";
 
 export { UPLOADS_DIR, ensureUploadsDir } from "../config/upload";
 
-export const buildUploadUrl = (requestUrl: string, filename: string) => {
-  const baseUrl = env.frontendUrl ? new URL(env.frontendUrl) : new URL(requestUrl);
-  return `${baseUrl.origin}/uploads/${filename}`;
-};
+export const buildUploadUrl = (_requestUrl: string, filename: string) =>
+  normalizeUploadedAssetUrl(`/uploads/${filename}`) || `/uploads/${filename}`;
 
 export const ensureUploadFileExists = (filename: string) =>
   fs.existsSync(path.join(UPLOADS_DIR, filename));

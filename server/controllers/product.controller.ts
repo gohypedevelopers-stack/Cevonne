@@ -1,6 +1,12 @@
-const { z } = require('zod');
+import { z } from "zod";
+import { Prisma, ReviewStatus } from "@prisma/client";
 
-const { getPrisma } = require('../db/prismaClient');
+import { getPrisma } from "../db/prismaClient";
+import { normalizeUploadedAssetUrl } from "@/lib/asset-url";
+
+const cjsModule = { exports: {} as Record<string, any> };
+const exports = cjsModule.exports as Record<string, any>;
+const toJsonInput = (value: unknown) => (value === undefined ? undefined : (value as Prisma.InputJsonValue));
 
 const imageSchema = z.object({
   url: z
@@ -54,8 +60,8 @@ const experienceSchema = z
     theme: z
       .object({
         defaultBg: z.string().optional(),
-        bgScenes: z.record(z.string()).optional(),
-        bgTone: z.record(z.string()).optional(),
+        bgScenes: z.record(z.string(), z.string()).optional(),
+        bgTone: z.record(z.string(), z.string()).optional(),
       })
       .optional(),
     gallery: z.array(z.string()).optional(),
@@ -363,8 +369,8 @@ const productInclude = {
     },
   },
   reviews: {
-    where: { status: 'PUBLISHED' },
-    orderBy: { createdAt: 'desc' },
+    where: { status: ReviewStatus.PUBLISHED },
+    orderBy: { createdAt: "desc" as const },
     include: {
       media: true,
       user: {
@@ -379,7 +385,7 @@ const productInclude = {
   _count: {
     select: {
       reviews: {
-        where: { status: 'PUBLISHED' },
+        where: { status: ReviewStatus.PUBLISHED },
       },
     },
   },
@@ -393,17 +399,17 @@ const buildProductData = (payload) => ({
   slug: payload.slug,
   brand: payload.brand,
   productType: payload.productType,
-  tags: payload.tags,
-  badges: payload.badges,
+  tags: toJsonInput(payload.tags),
+  badges: toJsonInput(payload.badges),
   description: payload.description,
   finish: payload.finish,
   basePrice: toDecimalString(payload.basePrice),
-  media: payload.media,
-  pricing: payload.pricing,
-  ingredients: payload.ingredients,
-  size: payload.size,
-  setContents: payload.setContents,
-  experience: payload.experience,
+  media: toJsonInput(payload.media),
+  pricing: toJsonInput(payload.pricing),
+  ingredients: toJsonInput(payload.ingredients),
+  size: toJsonInput(payload.size),
+  setContents: toJsonInput(payload.setContents),
+  experience: toJsonInput(payload.experience),
   collection: payload.collectionId
     ? { connect: { id: payload.collectionId } }
     : undefined,
@@ -436,6 +442,17 @@ const buildProductData = (payload) => ({
 
 const normalizeBulkItem = (item) => parseProductInput(item);
 
+const normalizeAssetListItem = (value) => {
+  if (!value) return value;
+  if (typeof value === "string") return normalizeUploadedAssetUrl(value) ?? value;
+  return {
+    ...value,
+    url: normalizeUploadedAssetUrl(value.url) ?? value.url,
+    id: normalizeUploadedAssetUrl(value.id) ?? value.id,
+    src: normalizeUploadedAssetUrl(value.src) ?? value.src,
+  };
+};
+
 const toProductResponse = (product) => {
   if (!product) return product;
 
@@ -461,8 +478,59 @@ const toProductResponse = (product) => {
         )
       : 0;
 
+  const images = Array.isArray(product.images)
+    ? product.images.map((image) => ({
+        ...image,
+        url: normalizeUploadedAssetUrl(image.url) ?? image.url,
+      }))
+    : product.images;
+
+  const shades = Array.isArray(product.shades)
+    ? product.shades.map((shade) => ({
+        ...shade,
+        arAssetUrl: normalizeUploadedAssetUrl(shade.arAssetUrl) ?? shade.arAssetUrl,
+        arPreviewUrl: normalizeUploadedAssetUrl(shade.arPreviewUrl) ?? shade.arPreviewUrl,
+      }))
+    : product.shades;
+
+  const media =
+    product.media && typeof product.media === "object"
+      ? {
+          ...product.media,
+          heroImage: normalizeUploadedAssetUrl(product.media.heroImage) ?? product.media.heroImage,
+          gallery: Array.isArray(product.media.gallery)
+            ? product.media.gallery.map(normalizeAssetListItem)
+            : product.media.gallery,
+        }
+      : product.media;
+
+  const experience =
+    product.experience && typeof product.experience === "object"
+      ? {
+          ...product.experience,
+          hero:
+            product.experience.hero && typeof product.experience.hero === "object"
+              ? {
+                  ...product.experience.hero,
+                  image:
+                    normalizeUploadedAssetUrl(product.experience.hero.image) ??
+                    product.experience.hero.image,
+                }
+              : product.experience.hero,
+          gallery: Array.isArray(product.experience.gallery)
+            ? product.experience.gallery.map((item) =>
+                typeof item === "string" ? normalizeUploadedAssetUrl(item) ?? item : item
+              )
+            : product.experience.gallery,
+        }
+      : product.experience;
+
   return {
     ...product,
+    images,
+    shades,
+    media,
+    experience,
     averageRating,
     reviewCount,
   };
@@ -491,8 +559,6 @@ exports.listProducts = async (req, res, next) => {
     return next(error);
   }
 };
-
-export {};
 
 exports.getProduct = async (req, res, next) => {
   try {
@@ -550,16 +616,16 @@ exports.updateProduct = async (req, res, next) => {
         slug: payload.slug,
         brand: payload.brand,
         productType: payload.productType,
-        tags: payload.tags,
-        badges: payload.badges,
+        tags: toJsonInput(payload.tags),
+        badges: toJsonInput(payload.badges),
         description: payload.description,
         finish: payload.finish,
-        media: payload.media,
-        pricing: payload.pricing,
-        ingredients: payload.ingredients,
-        size: payload.size,
-        setContents: payload.setContents,
-        experience: payload.experience,
+        media: toJsonInput(payload.media),
+        pricing: toJsonInput(payload.pricing),
+        ingredients: toJsonInput(payload.ingredients),
+        size: toJsonInput(payload.size),
+        setContents: toJsonInput(payload.setContents),
+        experience: toJsonInput(payload.experience),
         basePrice:
           payload.basePrice !== undefined
             ? toDecimalString(payload.basePrice)
@@ -686,8 +752,9 @@ exports.bulkImportProducts = async (req, res, next) => {
   for (const rawItem of items) {
     try {
       const payload = normalizeBulkItem(rawItem);
+      const slug = payload.slug ?? rawItem?.slug ?? rawItem?.name ?? "unknown";
       const existing = await prisma.product.findUnique({
-        where: { slug: payload.slug },
+        where: { slug },
       });
 
       if (existing) {
@@ -701,13 +768,13 @@ exports.bulkImportProducts = async (req, res, next) => {
         });
 
         summary.updated += 1;
-        summary.results.push({ slug: payload.slug, status: 'updated' });
+        summary.results.push({ slug, status: 'updated' });
       } else {
         await prisma.product.create({
           data: buildProductData(payload),
         });
         summary.created += 1;
-        summary.results.push({ slug: payload.slug, status: 'created' });
+        summary.results.push({ slug, status: 'created' });
       }
     } catch (error) {
       summary.failed += 1;
@@ -781,7 +848,7 @@ exports.exportProducts = async (_req, res, next) => {
   }
 };
 
-module.exports = {
+cjsModule.exports = {
   listProducts: exports.listProducts,
   getProduct: exports.getProduct,
   createProduct: exports.createProduct,
@@ -790,3 +857,5 @@ module.exports = {
   bulkImportProducts: exports.bulkImportProducts,
   exportProducts: exports.exportProducts,
 };
+
+export default cjsModule.exports;

@@ -1,6 +1,10 @@
-const { z } = require('zod');
+import { z } from "zod";
 
-const { getPrisma } = require('../db/prismaClient');
+import { getPrisma } from "../db/prismaClient";
+import { normalizeUploadedAssetUrl } from "@/lib/asset-url";
+
+const cjsModule = { exports: {} as Record<string, any> };
+const exports = cjsModule.exports as Record<string, any>;
 
 const shadeSchema = z.object({
   name: z.string().min(1),
@@ -14,12 +18,21 @@ const shadeSchema = z.object({
   arCode: z.string().trim().optional().nullable(),
   price: z.number().min(0).optional(),
   quantity: z.number().int().min(0).optional(),
-  productId: z.string().optional(),
+  productId: z.string().min(1, 'Product is required'),
 });
 
 const normalizeHex = (hex) => hex.toUpperCase();
 const toDecimalString = (value) =>
   value !== undefined && value !== null ? value.toString() : null;
+
+const normalizeShadeResponse = (shade) => {
+  if (!shade) return shade;
+  return {
+    ...shade,
+    arAssetUrl: normalizeUploadedAssetUrl(shade.arAssetUrl) ?? shade.arAssetUrl,
+    arPreviewUrl: normalizeUploadedAssetUrl(shade.arPreviewUrl) ?? shade.arPreviewUrl,
+  };
+};
 
 exports.listShades = async (_req, res, next) => {
   try {
@@ -33,7 +46,7 @@ exports.listShades = async (_req, res, next) => {
         inventory: true,
       },
     });
-    return res.status(200).json(shades);
+    return res.status(200).json(shades.map(normalizeShadeResponse));
   } catch (error) {
     return next(error);
   }
@@ -54,7 +67,7 @@ exports.getShade = async (req, res, next) => {
     if (!shade) {
       return res.status(404).json({ message: 'Shade not found' });
     }
-    return res.status(200).json(shade);
+    return res.status(200).json(normalizeShadeResponse(shade));
   } catch (error) {
     return next(error);
   }
@@ -64,25 +77,26 @@ exports.createShade = async (req, res, next) => {
   try {
     const payload = shadeSchema.parse(req.body);
     const prisma = await getPrisma();
-
-    const shade = await prisma.shade.create({
-      data: {
-        name: payload.name,
-        hexColor: normalizeHex(payload.hexColor),
-        sku: payload.sku ?? null,
-        arAssetUrl: payload.arAssetUrl ?? null,
-        arPreviewUrl: payload.arPreviewUrl ?? null,
-        arCode: payload.arCode ?? null,
-        price: toDecimalString(payload.price),
-        product: payload.productId
-          ? { connect: { id: payload.productId } }
-          : undefined,
-        inventory: {
-          create: {
-            quantity: payload.quantity ?? 0,
-          },
+    const shadeData = {
+      name: payload.name,
+      hexColor: normalizeHex(payload.hexColor),
+      sku: payload.sku ?? null,
+      arAssetUrl: payload.arAssetUrl ?? null,
+      arPreviewUrl: payload.arPreviewUrl ?? null,
+      arCode: payload.arCode ?? null,
+      price: toDecimalString(payload.price),
+      product: {
+        connect: { id: payload.productId },
+      },
+      inventory: {
+        create: {
+          quantity: payload.quantity ?? 0,
         },
       },
+    };
+
+    const shade = await prisma.shade.create({
+      data: shadeData,
       include: {
         product: {
           select: { id: true, name: true, slug: true },
@@ -91,7 +105,7 @@ exports.createShade = async (req, res, next) => {
       },
     });
 
-    return res.status(201).json(shade);
+    return res.status(201).json(normalizeShadeResponse(shade));
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res
@@ -140,8 +154,6 @@ exports.updateShade = async (req, res, next) => {
           payload.price !== undefined ? toDecimalString(payload.price) : undefined,
         product: payload.productId
           ? { connect: { id: payload.productId } }
-          : payload.productId === null
-          ? { disconnect: true }
           : undefined,
       },
       include: {
@@ -175,7 +187,7 @@ exports.updateShade = async (req, res, next) => {
       },
     });
 
-    return res.status(200).json(refreshed);
+    return res.status(200).json(normalizeShadeResponse(refreshed));
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res
@@ -206,12 +218,12 @@ exports.deleteShade = async (req, res, next) => {
   }
 };
 
-export {};
-
-module.exports = {
+cjsModule.exports = {
   listShades: exports.listShades,
   getShade: exports.getShade,
   createShade: exports.createShade,
   updateShade: exports.updateShade,
   deleteShade: exports.deleteShade,
 };
+
+export default cjsModule.exports;

@@ -1,7 +1,7 @@
 import path from "node:path";
 import { mkdir } from "node:fs/promises";
 
-import { DEFAULT_LIMITS } from "./constants.js";
+import { DEFAULT_LIMITS } from "./constants";
 
 export const UPLOADS_DIR = path.join(process.cwd(), "uploads");
 export const UPLOADS_PUBLIC_PATH = "/uploads";
@@ -12,7 +12,4 @@ export const ensureUploadsDir = async () => {
   return UPLOADS_DIR;
 };
 
-export const buildUploadUrl = (requestUrl, filename) => {
-  const baseUrl = new URL(requestUrl);
-  return `${baseUrl.origin}${UPLOADS_PUBLIC_PATH}/${filename}`;
-};
+export const buildUploadUrl = (_requestUrl, filename) => `${UPLOADS_PUBLIC_PATH}/${filename}`;

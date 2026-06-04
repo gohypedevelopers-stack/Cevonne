@@ -1,20 +1,21 @@
-const nodemailer = require('nodemailer');
+import nodemailer from "nodemailer";
 
-const smtpPort = Number(process.env.SMTP_PORT);
+import { env } from "../config/env";
 
+const smtpPort = env.smtpPort ?? 587;
 const transporter = nodemailer.createTransport({
-  host: process.env.SMTP_HOST,
-  port: process.env.SMTP_PORT,
+  host: env.smtpHost,
+  port: smtpPort,
   secure: smtpPort === 465, // true for 465, false for other ports
   auth: {
-    user: process.env.SMTP_USER,
-    pass: process.env.GOOGLE_APP_KEY,
+    user: env.smtpUser,
+    pass: env.googleAppKey,
   },
 });
 
-exports.sendOTP = async (email, otp) => {
+export const sendOTP = async (email: string, otp: string) => {
   const mailOptions = {
-    from: process.env.EMAIL_FROM,
+    from: env.emailFrom,
     to: email,
     subject: 'Your Login OTP - Cevonne',
     html: `
@@ -35,4 +36,4 @@ exports.sendOTP = async (email, otp) => {
   await transporter.sendMail(mailOptions);
 };
 
-export {};
+export default { sendOTP };

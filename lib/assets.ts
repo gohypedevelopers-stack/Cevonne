@@ -1,3 +1,5 @@
+import { normalizeUploadedAssetUrl } from "@/lib/asset-url";
+
 const ASSET_BASE = "/video/assets";
 const IMAGE_BASE = `${ASSET_BASE}/images`;
 const LOGO_BASE = `${ASSET_BASE}/logos`;
@@ -56,10 +58,12 @@ const isAbsoluteAsset = (value) =>
 const normalizeAssetName = (value = "") =>
   String(value).trim().split("?")[0].split("#")[0];
 
+const normalizeStoredAssetUrl = (value = "") => normalizeUploadedAssetUrl(value) || normalizeAssetName(value);
+
 export const resolveProductAsset = (value, fallback = PRODUCT_ASSETS["product1.png"]) => {
   if (!value) return fallback;
 
-  const clean = normalizeAssetName(value);
+  const clean = normalizeStoredAssetUrl(value);
   if (isAbsoluteAsset(clean)) return clean;
 
   const basename = clean.split("/").pop();
@@ -71,7 +75,7 @@ export const resolveProductAsset = (value, fallback = PRODUCT_ASSETS["product1.p
 export const resolveMediaAsset = (value, fallback = STATIC_ASSETS.introVideo1) => {
   if (!value) return fallback;
 
-  const clean = normalizeAssetName(value);
+  const clean = normalizeStoredAssetUrl(value);
   if (isAbsoluteAsset(clean)) return clean;
 
   const basename = clean.split("/").pop();

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { API_BASE } from "@/lib/api";
-import type { Order } from "@/types/order";
+import { normalizeOrderStatus, type Order } from "@/types/order";
 import type { Product } from "@/types/product";
 import type { Review } from "@/types/review";
 
@@ -14,9 +14,11 @@ type DashboardReviewMeta = {
 type DashboardOrderSummary = {
   total: number;
   pending: number;
-  paid: number;
-  fulfilled: number;
+  inProgress: number;
+  delivered: number;
   revenue: number;
+  paid?: number;
+  fulfilled?: number;
 };
 
 type DashboardState = {
@@ -50,8 +52,8 @@ const emptyState: DashboardState = {
   orderSummary: {
     total: 0,
     pending: 0,
-    paid: 0,
-    fulfilled: 0,
+    inProgress: 0,
+    delivered: 0,
     revenue: 0,
   },
 };
@@ -187,9 +189,7 @@ export function useDashboardData(
       (acc, order) => acc + (Number(order?.totals?.total) || 0),
       0
     );
-    const pendingOrders = orders.filter(
-      (order) => (order.status || "PENDING") !== "FULFILLED"
-    ).length;
+    const pendingOrders = orders.filter((order) => normalizeOrderStatus(order.status) !== "DELIVERED").length;
 
     return {
       productCount: Array.isArray(data.products) ? data.products.length : 0,

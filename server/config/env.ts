@@ -1,3 +1,5 @@
+import { normalizeOriginUrl } from "./url.js";
+
 const toNumber = (value: string | number | null | undefined, fallback: number | undefined = undefined) => {
   if (value === undefined || value === null || value === "") {
     return fallback;
@@ -21,8 +23,7 @@ export const env = Object.freeze({
   nodeEnv: process.env.NODE_ENV || "development",
   databaseUrl: process.env.DATABASE_URL || "",
   jwtSecret: process.env.JWT_SECRET || "dev_secret",
-  frontendUrl: process.env.FRONTEND_URL || "",
-  backendUrl: process.env.BACKEND_URL || process.env.VITE_APP_BACKEND_URL || "",
+  frontendUrl: normalizeOriginUrl(process.env.FRONTEND_URL || ""),
   smtpHost: process.env.SMTP_HOST || "",
   smtpPort: toNumber(process.env.SMTP_PORT, undefined),
   smtpUser: process.env.SMTP_USER || "",

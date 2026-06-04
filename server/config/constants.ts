@@ -12,7 +12,10 @@ export const REVIEW_STATUSES = Object.freeze({
 export const ORDER_STATUSES = Object.freeze({
   PENDING: "PENDING",
   PAID: "PAID",
-  FULFILLED: "FULFILLED",
+  PROCESSING: "PROCESSING",
+  SHIPPED: "SHIPPED",
+  OUT_FOR_DELIVERY: "OUT_FOR_DELIVERY",
+  DELIVERED: "DELIVERED",
 });
 
 export const DEFAULT_LIMITS = Object.freeze({

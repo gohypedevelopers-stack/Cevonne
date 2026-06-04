@@ -1,6 +1,6 @@
 generator client {
   provider   = "prisma-client-js"
-  engineType  = "client"
+  engineType = "client"
 }
 
 datasource db {
@@ -12,14 +12,15 @@ model User {
   email        String              @unique
   name         String?
   passwordHash String?
-  otp          String?
-  otpExpiresAt DateTime?
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
   role         String              @default("CUSTOMER")
+  otp          String?
+  otpExpiresAt DateTime?
+  orders       Order[]
   resetTokens  PasswordResetToken?
   reviews      Review[]
-  orders       Order[]
+  UserActivity UserActivity?
 }
 
 model Collection {
@@ -34,29 +35,30 @@ model Collection {
 }
 
 model Product {
-  id           String         @id @default(cuid())
-  name         String
-  slug         String         @unique
-  description  String?
-  finish       String?
-  basePrice    Decimal        @db.Decimal(10, 2)
-  brand        String?
-  productType  String?
-  tags         Json?
-  badges       Json?
-  media        Json?
-  pricing      Json?
-  ingredients  Json?
-  size         Json?
-  setContents  Json?
-  experience   Json?
-  collectionId String?
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
-  collection   Collection?    @relation(fields: [collectionId], references: [id])
-  images       ProductImage[]
-  reviews      Review[]
-  shades       Shade[]
+  id                  String                @id @default(cuid())
+  name                String
+  slug                String                @unique
+  description         String?
+  finish              String?
+  basePrice           Decimal               @db.Decimal(10, 2)
+  collectionId        String?
+  createdAt           DateTime              @default(now())
+  updatedAt           DateTime              @updatedAt
+  badges              Json?
+  brand               String?
+  experience          Json?
+  ingredients         Json?
+  media               Json?
+  pricing             Json?
+  productType         String?
+  setContents         Json?
+  size                Json?
+  tags                Json?
+  collection          Collection?           @relation(fields: [collectionId], references: [id])
+  images              ProductImage[]
+  reviews             Review[]
+  shades              Shade[]
+  g7_discount_targets g7_discount_targets[]
 
   @@index([name])
   @@index([collectionId])
@@ -72,19 +74,21 @@ model ProductImage {
 }
 
 model Shade {
-  id        String     @id @default(cuid())
-  name      String
-  hexColor  String
-  sku       String?    @unique
-  price     Decimal?   @db.Decimal(10, 2)
-  productId String
-  arAssetUrl String?
-  arPreviewUrl String?
-  arCode    String?
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
-  inventory Inventory?
-  product   Product    @relation(fields: [productId], references: [id], onDelete: Cascade)
+  id                     String                   @id @default(cuid())
+  name                   String
+  hexColor               String
+  sku                    String?                  @unique
+  price                  Decimal?                 @db.Decimal(10, 2)
+  productId              String
+  createdAt              DateTime                 @default(now())
+  updatedAt              DateTime                 @updatedAt
+  arAssetUrl             String?
+  arCode                 String?
+  arPreviewUrl           String?
+  inventory              Inventory?
+  product                Product                  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  g7_discount_targets    g7_discount_targets[]
+  g7_inventory_snapshots g7_inventory_snapshots[]
 
   @@index([productId])
 }
@@ -152,6 +156,222 @@ model Order {
   @@index([userId])
 }
 
+model UserActivity {
+  id              String    @id
+  userId          String    @unique
+  lastPath        String?
+  lastRouteName   String?
+  lastProductId   String?
+  lastProductName String?
+  lastSeenAt      DateTime?
+  lastLoginAt     DateTime?
+  loginCount      Int       @default(0)
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime
+  User            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([lastLoginAt])
+  @@index([lastSeenAt])
+}
+
+model cevonne_g3_consent_sync {
+  id                  BigInt   @id @default(autoincrement())
+  contact_id          String?
+  consent_id          String?
+  email               String?
+  phone               String?
+  external_contact_id String?
+  user_id             String?
+  channel             String?
+  consent_status      String?
+  source_platform     String?
+  source_event        String?
+  payload             Json
+  synced_at           DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([channel], map: "idx_cevonne_g3_consent_sync_channel")
+  @@index([contact_id], map: "idx_cevonne_g3_consent_sync_contact")
+  @@index([email], map: "idx_cevonne_g3_consent_sync_email")
+  @@index([phone], map: "idx_cevonne_g3_consent_sync_phone")
+  @@index([synced_at(sort: Desc)], map: "idx_cevonne_g3_consent_sync_synced_at")
+}
+
+model cevonne_g3_opt_out_sync {
+  id                  BigInt   @id @default(autoincrement())
+  contact_id          String?
+  opt_out_id          String?
+  email               String?
+  phone               String?
+  external_contact_id String?
+  channel             String?
+  opt_out_keyword     String?
+  source_platform     String?
+  source_event        String?
+  payload             Json
+  synced_at           DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([channel], map: "idx_cevonne_g3_opt_out_sync_channel")
+  @@index([contact_id], map: "idx_cevonne_g3_opt_out_sync_contact")
+  @@index([email], map: "idx_cevonne_g3_opt_out_sync_email")
+  @@index([phone], map: "idx_cevonne_g3_opt_out_sync_phone")
+  @@index([synced_at(sort: Desc)], map: "idx_cevonne_g3_opt_out_sync_synced_at")
+}
+
+model cevonne_g3_privacy_execution_requests {
+  id               BigInt   @id @default(autoincrement())
+  request_id       String?  @db.Uuid
+  execution_action String
+  execution_status String
+  payload          Json
+  created_at       DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([created_at(sort: Desc)], map: "idx_cevonne_g3_privacy_execution_requests_created_at")
+  @@index([request_id], map: "idx_cevonne_g3_privacy_execution_requests_request")
+  @@index([execution_status], map: "idx_cevonne_g3_privacy_execution_requests_status")
+}
+
+model cevonne_g3_privacy_requests {
+  request_id          String   @id @db.Uuid
+  request_type        String
+  contact_id          String?
+  email               String?
+  phone               String?
+  external_contact_id String?
+  user_id             String?
+  source_platform     String?
+  source_event        String?
+  verification_status String
+  execution_status    String   @default("PENDING")
+  payload             Json
+  created_at          DateTime @default(now()) @db.Timestamptz(6)
+  updated_at          DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([contact_id], map: "idx_cevonne_g3_privacy_requests_contact")
+  @@index([created_at(sort: Desc)], map: "idx_cevonne_g3_privacy_requests_created_at")
+  @@index([email], map: "idx_cevonne_g3_privacy_requests_email")
+  @@index([execution_status], map: "idx_cevonne_g3_privacy_requests_execution_status")
+  @@index([phone], map: "idx_cevonne_g3_privacy_requests_phone")
+  @@index([request_type], map: "idx_cevonne_g3_privacy_requests_type")
+}
+
+model cevonne_g3_purchase_events {
+  purchase_event_id   String    @id @db.Uuid
+  order_id            String    @unique(map: "idx_cevonne_g3_purchase_events_order")
+  contact_id          String?
+  email               String?
+  phone               String?
+  external_contact_id String?
+  user_id             String?
+  source_platform     String?
+  source_event        String?
+  purchased_at        DateTime? @db.Timestamptz(6)
+  payload             Json
+  created_at          DateTime  @default(now()) @db.Timestamptz(6)
+
+  @@index([contact_id], map: "idx_cevonne_g3_purchase_events_contact")
+  @@index([created_at(sort: Desc)], map: "idx_cevonne_g3_purchase_events_created_at")
+  @@index([email], map: "idx_cevonne_g3_purchase_events_email")
+  @@index([purchased_at(sort: Desc)], map: "idx_cevonne_g3_purchase_events_purchased_at")
+}
+
+model cevonne_g3_recovery_suppression {
+  id                  BigInt   @id @default(autoincrement())
+  contact_id          String?
+  email               String?
+  phone               String?
+  external_contact_id String?
+  suppression_reason  String
+  source              String
+  payload             Json?
+  created_at          DateTime @default(now()) @db.Timestamptz(6)
+
+  @@index([contact_id], map: "idx_cevonne_g3_recovery_suppression_contact")
+  @@index([created_at(sort: Desc)], map: "idx_cevonne_g3_recovery_suppression_created_at")
+  @@index([email], map: "idx_cevonne_g3_recovery_suppression_email")
+  @@index([phone], map: "idx_cevonne_g3_recovery_suppression_phone")
+  @@index([suppression_reason], map: "idx_cevonne_g3_recovery_suppression_reason")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model g7_discount_targets {
+  id           String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  discount_id  String       @db.Uuid
+  product_id   String?
+  shade_id     String?
+  sku          String?
+  created_at   DateTime     @default(now()) @db.Timestamptz(6)
+  g7_discounts g7_discounts @relation(fields: [discount_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  Product      Product?     @relation(fields: [product_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  Shade        Shade?       @relation(fields: [shade_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([discount_id], map: "idx_g7_discount_targets_discount")
+  @@index([product_id], map: "idx_g7_discount_targets_product")
+  @@index([shade_id], map: "idx_g7_discount_targets_shade")
+  @@index([sku], map: "idx_g7_discount_targets_sku")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model g7_discounts {
+  id                      String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                    String                @unique
+  title                   String?
+  status                  String                @default("DRAFT")
+  discount_type           String                @default("PERCENT")
+  percent                 Decimal?              @db.Decimal
+  fixed_amount            Decimal?              @db.Decimal
+  starts_at               DateTime?             @db.Timestamptz(6)
+  ends_at                 DateTime?             @db.Timestamptz(6)
+  applies_to_all_products Boolean               @default(false)
+  offer_url               String?
+  metadata                Json                  @default("{}")
+  created_at              DateTime              @default(now()) @db.Timestamptz(6)
+  updated_at              DateTime              @default(now()) @db.Timestamptz(6)
+  g7_discount_targets     g7_discount_targets[]
+
+  @@index([code], map: "idx_g7_discounts_code")
+  @@index([starts_at, ends_at], map: "idx_g7_discounts_dates")
+  @@index([status], map: "idx_g7_discounts_status")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model g7_inventory_snapshots {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  shade_id     String?
+  sku          String
+  quantity     Int
+  source_type  String   @default("ADMIN_COUNT")
+  source_name  String?
+  evidence_url String?
+  notes        String?
+  captured_by  String   @default("system")
+  captured_at  DateTime @default(now()) @db.Timestamptz(6)
+  expires_at   DateTime @default(dbgenerated("(now() + '24:00:00'::interval)")) @db.Timestamptz(6)
+  Shade        Shade?   @relation(fields: [shade_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([sku, captured_at(sort: Desc)], map: "idx_g7_inventory_snapshots_latest")
+  @@index([shade_id], map: "idx_g7_inventory_snapshots_shade")
+  @@index([sku], map: "idx_g7_inventory_snapshots_sku")
+}
+
+/// This table contains check constraints and requires additional setup for migrations. Visit https://pris.ly/d/check-constraints for more info.
+model g7_offer_change_log {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sku           String?
+  product_id    String?
+  variant_id    String?
+  change_type   String
+  old_payload   Json?
+  new_payload   Json?
+  reason        String?
+  status        String    @default("PENDING")
+  error_message String?
+  created_at    DateTime  @default(now()) @db.Timestamptz(6)
+  processed_at  DateTime? @db.Timestamptz(6)
+
+  @@index([sku], map: "idx_g7_offer_change_log_sku")
+  @@index([status, created_at], map: "idx_g7_offer_change_log_status")
+}
+
 enum Role {
   ADMIN
   CUSTOMER
@@ -167,4 +387,8 @@ enum OrderStatus {
   PENDING
   PAID
   FULFILLED
+  PROCESSING
+  SHIPPED
+  OUT_FOR_DELIVERY
+  DELIVERED
 }

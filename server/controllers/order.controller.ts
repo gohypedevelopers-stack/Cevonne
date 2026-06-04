@@ -1,7 +1,11 @@
-const { z } = require("zod");
+import { OrderStatus } from "@prisma/client";
+import { z } from "zod";
 
-const { getPrisma } = require("../db/prismaClient");
-const { OrderStatus } = require("@prisma/client");
+import { getPrisma } from "../db/prismaClient";
+
+const cjsModule = { exports: {} as Record<string, any> };
+const exports = cjsModule.exports as Record<string, any>;
+type OrderTotalsJson = { total?: unknown } | null;
 
 const shippingSchema = z.object({
   fullName: z.string().min(1),
@@ -56,6 +60,9 @@ const sanitizeOrder = (order) => {
 };
 
 const createOrderNumber = () => `ORD-${Date.now().toString(36).toUpperCase()}`;
+const getOrderRevenue = (totals: unknown) => Number((totals as OrderTotalsJson)?.total) || 0;
+const isInProgressStatus = (status: OrderStatus) =>
+  status !== OrderStatus.PENDING && status !== OrderStatus.DELIVERED;
 
 exports.createOrder = async (req, res, next) => {
   try {
@@ -107,9 +114,11 @@ exports.listOrders = async (_req, res, next) => {
     const summary = {
       total: orders.length,
       pending: orders.filter((o) => o.status === OrderStatus.PENDING).length,
+      inProgress: orders.filter((o) => isInProgressStatus(o.status)).length,
+      delivered: orders.filter((o) => o.status === OrderStatus.DELIVERED).length,
       paid: orders.filter((o) => o.status === OrderStatus.PAID).length,
-      fulfilled: orders.filter((o) => o.status === OrderStatus.FULFILLED).length,
-      revenue: orders.reduce((acc, o) => acc + (Number(o.totals?.total) || 0), 0),
+      fulfilled: orders.filter((o) => o.status === OrderStatus.DELIVERED).length,
+      revenue: orders.reduce((acc, order) => acc + getOrderRevenue(order.totals), 0),
     };
 
     return res.status(200).json({
@@ -150,9 +159,11 @@ exports.updateOrder = async (req, res, next) => {
   }
 };
 
-module.exports = {
+cjsModule.exports = {
   createOrder: exports.createOrder,
   getMyOrders: exports.getMyOrders,
   listOrders: exports.listOrders,
   updateOrder: exports.updateOrder,
 };
+
+export default cjsModule.exports;

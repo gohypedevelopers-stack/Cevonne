@@ -1,6 +1,9 @@
-const { z } = require('zod');
+import { z } from "zod";
 
-const { getPrisma } = require('../db/prismaClient');
+import { getPrisma } from "../db/prismaClient";
+
+const cjsModule = { exports: {} as Record<string, any> };
+const exports = cjsModule.exports as Record<string, any>;
 
 const quantitySchema = z.object({
   quantity: z.number().int().min(0),
@@ -89,8 +92,10 @@ exports.updateInventory = async (req, res, next) => {
   }
 };
 
-module.exports = {
+cjsModule.exports = {
   listInventory: exports.listInventory,
   listLowStock: exports.listLowStock,
   updateInventory: exports.updateInventory,
 };
+
+export default cjsModule.exports;

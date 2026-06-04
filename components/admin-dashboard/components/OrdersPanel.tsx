@@ -1,5 +1,5 @@
 import { formatDistanceToNow } from "date-fns";
-import { ArrowRight, CheckCircle2, Clock3, CreditCard, MapPin, Truck } from "lucide-react";
+import { ArrowRight, CheckCircle2, CreditCard, MapPin, Truck } from "lucide-react";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -9,18 +9,33 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { formatCurrency } from "@/components/admin-dashboard/utils";
 import { useAuth } from "@/context/AuthContext";
 import { API_BASE } from "@/lib/api";
-import type { Order } from "@/types/order";
+import { getNextOrderStatus, normalizeOrderStatus, type Order, type OrderStatus } from "@/types/order";
 
-const statusStyles = {
-  pending: "border-amber-200 bg-amber-50 text-amber-800",
-  paid: "border-sky-200 bg-sky-50 text-sky-700",
-  fulfilled: "border-emerald-200 bg-emerald-50 text-emerald-700",
+const statusStyles: Record<OrderStatus, string> = {
+  PENDING: "border-amber-200 bg-amber-50 text-amber-800",
+  PAID: "border-sky-200 bg-sky-50 text-sky-700",
+  PROCESSING: "border-violet-200 bg-violet-50 text-violet-700",
+  SHIPPED: "border-blue-200 bg-blue-50 text-blue-700",
+  OUT_FOR_DELIVERY: "border-indigo-200 bg-indigo-50 text-indigo-700",
+  DELIVERED: "border-emerald-200 bg-emerald-50 text-emerald-700",
 };
 
-const statusLabels = {
-  pending: "Awaiting payment",
-  paid: "Paid",
-  fulfilled: "Shipped",
+const statusLabels: Record<OrderStatus, string> = {
+  PENDING: "Awaiting payment",
+  PAID: "Paid",
+  PROCESSING: "Processing",
+  SHIPPED: "Shipped",
+  OUT_FOR_DELIVERY: "Out for delivery",
+  DELIVERED: "Delivered",
+};
+
+const actionLabels: Record<OrderStatus, string> = {
+  PENDING: "Mark paid",
+  PAID: "Start processing",
+  PROCESSING: "Mark shipped",
+  SHIPPED: "Out for delivery",
+  OUT_FOR_DELIVERY: "Mark delivered",
+  DELIVERED: "Completed",
 };
 
 type OrdersPanelProps = {
@@ -29,14 +44,7 @@ type OrdersPanelProps = {
   refresh?: () => void;
 };
 
-const normalizeStatus = (status?: string | null) => String(status || "pending").toLowerCase();
-
-const nextStatus = (current?: string | null) => {
-  const normalized = normalizeStatus(current);
-  if (normalized === "pending") return "paid";
-  if (normalized === "paid") return "fulfilled";
-  return "fulfilled";
-};
+const normalizeStatus = (status?: string | null) => normalizeOrderStatus(status);
 
 export function OrdersPanel({ orders = [], loading = false, refresh }: OrdersPanelProps) {
   const { authFetch, isAdmin } = useAuth();
@@ -49,13 +57,17 @@ export function OrdersPanel({ orders = [], loading = false, refresh }: OrdersPan
 
   const summary = {
     total: sorted.length,
-    pending: sorted.filter((o) => normalizeStatus(o.status) === "pending").length,
-    inTransit: sorted.filter((o) => normalizeStatus(o.status) === "paid").length,
+    pending: sorted.filter((o) => normalizeStatus(o.status) === "PENDING").length,
+    inTransit: sorted.filter((o) => {
+      const status = normalizeStatus(o.status);
+      return status !== "PENDING" && status !== "DELIVERED";
+    }).length,
     revenue: sorted.reduce((acc, order) => acc + (Number(order?.totals?.total) || 0), 0),
   };
 
   const handleAdvance = async (order: Order) => {
-    const next = nextStatus(order?.status);
+    const current = normalizeStatus(order?.status);
+    const next = getNextOrderStatus(current);
     try {
       const response = await authFetch(`${API_BASE}/orders/${order.id}`, {
         method: "PATCH",
@@ -172,22 +184,17 @@ export function OrdersPanel({ orders = [], loading = false, refresh }: OrdersPan
                       size="sm"
                       className="rounded-full"
                       onClick={() => handleAdvance(order)}
-                      disabled={status === "fulfilled"}
+                      disabled={status === "DELIVERED"}
                     >
-                      {status === "fulfilled" ? (
+                      {status === "DELIVERED" ? (
                         <>
                           <CheckCircle2 className="mr-2 h-4 w-4 text-emerald-600" />
                           Completed
                         </>
-                      ) : status === "paid" ? (
-                        <>
-                          <Truck className="mr-2 h-4 w-4" />
-                          Mark shipped
-                        </>
                       ) : (
                         <>
-                          <Clock3 className="mr-2 h-4 w-4" />
-                          Mark paid
+                          <Truck className="mr-2 h-4 w-4" />
+                          {actionLabels[status] ?? "Advance status"}
                         </>
                       )}
                     </Button>

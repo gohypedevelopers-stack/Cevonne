@@ -1,0 +1,17 @@
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+import { dispatchInventoryRoute } from "@/server/next/api/inventory";
+
+const resolveSegments = async (params: unknown) => {
+  const resolved = await Promise.resolve(params as { path?: string[] } | undefined);
+  return resolved?.path ?? [];
+};
+
+export async function GET(request: Request, context: { params?: Promise<{ path?: string[] }> }) {
+  return dispatchInventoryRoute(request, await resolveSegments(context?.params));
+}
+
+export async function PUT(request: Request, context: { params?: Promise<{ path?: string[] }> }) {
+  return dispatchInventoryRoute(request, await resolveSegments(context?.params));
+}

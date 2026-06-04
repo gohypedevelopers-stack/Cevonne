@@ -1,6 +1,9 @@
-const { z } = require('zod');
+import { z } from "zod";
 
-const { getPrisma } = require('../db/prismaClient');
+import { getPrisma } from "../db/prismaClient";
+
+const cjsModule = { exports: {} as Record<string, any> };
+const exports = cjsModule.exports as Record<string, any>;
 
 const baseCollectionSchema = z.object({
   name: z.string().min(1),
@@ -101,10 +104,12 @@ exports.deleteCollection = async (req, res, next) => {
   }
 };
 
-module.exports = {
+cjsModule.exports = {
   listCollections: exports.listCollections,
   getCollection: exports.getCollection,
   createCollection: exports.createCollection,
   updateCollection: exports.updateCollection,
   deleteCollection: exports.deleteCollection,
 };
+
+export default cjsModule.exports;

@@ -1,12 +1,15 @@
-const bcrypt = require('bcrypt');
-const crypto = require('crypto');
-const { z } = require('zod');
+import bcrypt from "bcrypt";
+import crypto from "node:crypto";
+import { z } from "zod";
 
-const { env } = require('../config');
-const { getPrisma } = require('../db/prismaClient');
-const { signToken } = require('../utils/jwt');
-const { sendOTP } = require('../utils/email');
-const { sanitizeUser, buildAuthResponse } = require('../services/auth.service');
+import { env } from "../config";
+import { getPrisma } from "../db/prismaClient";
+import { signToken } from "../utils/jwt";
+import { sendOTP } from "../utils/email";
+import { sanitizeUser, buildAuthResponse } from "../services/auth.service";
+
+const cjsModule = { exports: {} as Record<string, any> };
+const exports = cjsModule.exports as Record<string, any>;
 
 
 const authSchema = z.object({
@@ -95,8 +98,19 @@ exports.signup = async (req, res, next) => {
       });
     }
 
+    if (!otp) {
+      return res.status(500).json({
+        message: 'Unable to generate OTP.',
+      });
+    }
+
+    const recipientEmail = email ?? user.email;
+    if (!recipientEmail) {
+      return res.status(500).json({ message: 'Unable to determine email.' });
+    }
+
     try {
-      await sendOTP(email, otp);
+      await sendOTP(recipientEmail, otp);
     } catch (emailError) {
       console.error('Failed to send OTP email:', emailError);
       return res.status(500).json({ message: 'Failed to send OTP email. Please try again.' });
@@ -124,6 +138,10 @@ exports.signin = async (req, res, next) => {
       return res.status(401).json({ message: 'Invalid email or password' });
     }
 
+    if (!user.passwordHash) {
+      return res.status(401).json({ message: 'Invalid email or password' });
+    }
+
     const isValid = await bcrypt.compare(password, user.passwordHash);
     if (!isValid) {
       return res.status(401).json({ message: 'Invalid email or password' });
@@ -147,8 +165,13 @@ exports.signin = async (req, res, next) => {
       data: { otp, otpExpiresAt },
     });
 
+    const recipientEmail = email;
+    if (!recipientEmail) {
+      return res.status(500).json({ message: 'Unable to determine email.' });
+    }
+
     try {
-      await sendOTP(email, otp);
+      await sendOTP(recipientEmail, otp);
     } catch (emailError) {
       console.error('Failed to send OTP email:', emailError);
       return res.status(500).json({ message: 'Failed to send OTP email. Please try again.' });
@@ -383,9 +406,7 @@ exports.updateProfile = async (req, res, next) => {
   }
 };
 
-export {};
-
-module.exports = {
+cjsModule.exports = {
   signup: exports.signup,
   signin: exports.signin,
   verifyOTP: exports.verifyOTP,
@@ -397,3 +418,5 @@ module.exports = {
   resetPassword: exports.resetPassword,
   updateProfile: exports.updateProfile,
 };
+
+export default cjsModule.exports;
