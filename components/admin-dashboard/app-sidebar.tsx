@@ -1,237 +1,170 @@
-"use client";
+"use client"
 
-import { useEffect, useRef, useState } from "react";
+import * as React from "react"
 import {
-  Boxes,
-  Sparkles,
-  LayoutDashboard,
-  Layers3,
-  LifeBuoy,
+  AudioWaveform,
+  BadgePercent,
+  BarChart3,
+  Command,
+  FileText,
+  GalleryVerticalEnd,
+  Globe,
+  House,
+  Megaphone,
   Package,
-  Palette,
-  Truck,
-  Settings,
+  ShoppingCart,
   Users2,
-} from "lucide-react";
+} from "lucide-react"
 
+import { NavMain } from "@/components/admin-dashboard/nav-main"
+import { NavUser } from "@/components/admin-dashboard/nav-user"
+import { TeamSwitcher } from "@/components/admin-dashboard/team-switcher"
 import {
   Sidebar,
   SidebarContent,
-  SidebarGroup,
-  SidebarGroupLabel,
+  SidebarFooter,
   SidebarHeader,
-  SidebarMenu,
-  SidebarMenuButton,
-  SidebarMenuItem,
   SidebarRail,
-} from "@/components/ui/sidebar";
-import { useIsMobile } from "@/hooks/use-mobile";
-import { useSidebar } from "@/hooks/use-sidebar";
+} from "@/components/ui/sidebar"
+import { useSidebar } from "@/hooks/use-sidebar"
 
-const primaryNav = [
-  { title: "Home", icon: LayoutDashboard, href: "/dashboard" },
-  { title: "Products", icon: Package, href: "/dashboard/products" },
-  { title: "Orders", icon: Truck, href: "/dashboard/orders" },
-  { title: "Inventory", icon: Boxes, href: "/dashboard#inventory" },
-  { title: "Collections", icon: Layers3, href: "/dashboard#collections" },
-  { title: "Shades", icon: Palette, href: "/dashboard/shades" },
-  { title: "Customers", icon: Users2, href: "/dashboard#customers" },
-];
+const data = {
+  user: {
+    name: "Cevonne Admin",
+    email: "admin@cevonne.com",
+    avatar: "/logo.svg",
+  },
+  teams: [
+    {
+      name: "Cevonne Admin",
+      logo: GalleryVerticalEnd,
+      plan: "Enterprise",
+    },
+    {
+      name: "Merchandising",
+      logo: AudioWaveform,
+      plan: "Catalog",
+    },
+    {
+      name: "Automation",
+      logo: Command,
+      plan: "AI workflows",
+    },
+  ],
+  navMain: [
+    {
+      title: "Home",
+      href: "/dashboard",
+      icon: House,
+      match: ["/dashboard"],
+      exactMatch: true,
+    },
+    {
+      title: "Orders",
+      href: "/dashboard/orders",
+      icon: ShoppingCart,
+      badge: 2,
+      match: ["/dashboard/orders"],
+      items: [
+        {
+          title: "Drafts",
+          href: "/dashboard/orders#drafts",
+        },
+        {
+          title: "Abandoned checkouts",
+          href: "/dashboard/orders#abandoned-checkouts",
+        },
+      ],
+    },
+    {
+      title: "Products",
+      href: "/dashboard/products",
+      icon: Package,
+      match: ["/dashboard/products"],
+      items: [
+        {
+          title: "Collections",
+          href: "/dashboard/products#collections",
+        },
+        {
+          title: "Inventory",
+          href: "/dashboard/products#inventory",
+        },
+        {
+          title: "Purchase orders",
+          href: "/dashboard/products#purchase-orders",
+        },
+        {
+          title: "Transfers",
+          href: "/dashboard/products#transfers",
+        },
+        {
+          title: "Gift cards",
+          href: "/dashboard/products#gift-cards",
+        },
+      ],
+    },
+    {
+      title: "Customers",
+      href: "/dashboard#customers",
+      icon: Users2,
+    },
+    {
+      title: "Marketing",
+      href: "/dashboard#marketing",
+      icon: Megaphone,
+    },
+    {
+      title: "Discounts",
+      href: "/dashboard#discounts",
+      icon: BadgePercent,
+    },
+    {
+      title: "Content",
+      href: "/dashboard#content",
+      icon: FileText,
+    },
+    {
+      title: "Markets",
+      href: "/dashboard#markets",
+      icon: Globe,
+    },
+    {
+      title: "Analytics",
+      href: "/dashboard#analytics",
+      icon: BarChart3,
+    },
+  ],
+}
 
-const secondaryNav = [
-  { title: "n8n Automations", icon: Sparkles, href: "/dashboard/ai-automation" },
-  { title: "Settings", icon: Settings, href: "/dashboard#settings" },
-  { title: "Support", icon: LifeBuoy, href: "mailto:support@marvelle.com" },
-];
+export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const { isMobile, setOpenMobile } = useSidebar()
 
-// Resizable sidebar bounds (desktop)
-const MIN_W = 240; // px
-const MAX_W = 420; // px
-const DEFAULT_W = 272; // px
+  const handleNavClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!isMobile) return
 
-type AppSidebarProps = React.ComponentPropsWithoutRef<"div">;
-
-export function AppSidebar({ className = "", style, ...props }: AppSidebarProps) {
-  const isMobile = useIsMobile();
-  const { setOpenMobile, state: sidebarState } = useSidebar();
-  const [width, setWidth] = useState(() => {
-    if (typeof window === "undefined") return DEFAULT_W;
-    const saved = Number(localStorage.getItem("adminSidebarWidth"));
-    return Number.isFinite(saved)
-      ? Math.min(MAX_W, Math.max(MIN_W, saved))
-      : DEFAULT_W;
-  });
-
-  const [resizing, setResizing] = useState(false);
-  const startX = useRef(0);
-  const startW = useRef(width);
-
-  useEffect(() => {
-    if (typeof window === "undefined" || isMobile) return;
-    localStorage.setItem("adminSidebarWidth", String(width));
-  }, [width, isMobile]);
-
-  useEffect(() => {
-    if (!isMobile) return;
-    setResizing(false);
-  }, [isMobile]);
-
-  useEffect(() => {
-    if (isMobile || !resizing) {
-      return undefined;
+    const target = event.target as HTMLElement | null
+    if (target?.closest("a[href]")) {
+      setOpenMobile(false)
     }
-
-    const onMove = (e) => {
-      const touch = e.touches?.[0] || e.changedTouches?.[0];
-      const clientX = (touch && touch.clientX) || e.clientX || 0;
-      const delta = clientX - startX.current;
-      const next = Math.min(MAX_W, Math.max(MIN_W, startW.current + delta));
-      setWidth(next);
-    };
-
-    const onUp = () => setResizing(false);
-
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    window.addEventListener("touchmove", onMove, { passive: false });
-    window.addEventListener("touchend", onUp);
-    document.body.classList.add("select-none", "cursor-ew-resize");
-
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-      window.removeEventListener("touchmove", onMove);
-      window.removeEventListener("touchend", onUp);
-      document.body.classList.remove("select-none", "cursor-ew-resize");
-    };
-  }, [resizing, isMobile]);
-
-  const beginResize = (e) => {
-    if (isMobile) return;
-    const touch = e.touches?.[0] || e.changedTouches?.[0];
-    const clientX = (touch && touch.clientX) || e.clientX || 0;
-    startX.current = clientX;
-    startW.current = width;
-    setResizing(true);
-  };
-
-  const collapsedWidth = 64;
-  const effectiveWidth = isMobile ? undefined : sidebarState === "collapsed" ? collapsedWidth : Math.round(width);
-  const wrapperStyle = isMobile ? undefined : { width: `${effectiveWidth}px`, height: "100vh" };
-  const sidebarStyle = isMobile
-    ? style
-    : {
-      ...style,
-      "--sidebar-width": `${effectiveWidth}px`,
-      "--sidebar-width-icon": `${collapsedWidth}px`,
-    };
-
-  const handleNavClick = () => {
-    if (isMobile) {
-      setOpenMobile(false);
-    }
-  };
+  }
 
   return (
-    // Wrapper controls the width; Sidebar fills it.
-    <div
-      className={`relative z-10 shrink-0 ${isMobile ? "w-full" : ""}`.trim()}
-      style={{ ...wrapperStyle, height: "100vh" }}
-    >
-      <Sidebar
-        position="sticky"
-        collapsible={isMobile ? "offcanvas" : "icon"}
-        className={`group/sidebar sticky left-0 top-0 flex h-screen w-full flex-col border-r border-border/60 bg-white text-slate-800 ${className}`.trim()}
-        style={sidebarStyle}
-        {...props}
+    <Sidebar collapsible="icon" {...props}>
+      <SidebarHeader>
+        <TeamSwitcher teams={data.teams} />
+      </SidebarHeader>
+      <SidebarContent
+        onClickCapture={handleNavClick}
+        className="px-3 pb-6 pt-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:pb-2 group-data-[collapsible=icon]:pt-2"
       >
-        <SidebarHeader className="flex-shrink-0 border-b border-border/60 px-4 pb-4 pt-6 group-data-[collapsible=icon]:px-2 group-data-[collapsible=icon]:pb-3 group-data-[collapsible=icon]:pt-4">
-          <div className="space-y-1 px-1 group-data-[collapsible=icon]:hidden">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-primary/60">
-              Admin Panel
-            </p>
-            <p className="text-sm text-muted-foreground">
-              Manage products, orders, inventory, and customers.
-            </p>
-          </div>
-        </SidebarHeader>
-
-        {/* Independently scrollable body (scrollbar hidden) */}
-        <SidebarContent className="scrollbar-hide flex-1 overflow-y-auto px-3 pb-6 pt-4 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:pb-2 group-data-[collapsible=icon]:pt-2">
-          <SidebarGroup className="space-y-3">
-            <SidebarGroupLabel className="px-1 text-[11px] font-semibold uppercase tracking-[0.32em] text-primary/70 group-data-[collapsible=icon]:hidden">
-              Management
-            </SidebarGroupLabel>
-            <SidebarMenu className="space-y-1.5">
-              {primaryNav.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
-                    <a
-                      href={item.href}
-                      onClick={handleNavClick}
-                      className="group/nav-item flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium text-muted-foreground transition-all hover:bg-primary hover:text-primary-foreground hover:shadow-sm group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0 group-data-[collapsible=icon]:px-0"
-                    >
-                      <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-muted text-primary transition group-[.group/nav-item]:hover:bg-primary/80 group-[.group/nav-item]:hover:text-primary-foreground group-data-[collapsible=icon]:h-10 group-data-[collapsible=icon]:w-10">
-                        <item.icon className="h-4 w-4" />
-                      </span>
-                      <span className="min-w-0 truncate group-data-[collapsible=icon]:hidden">
-                        {item.title}
-                      </span>
-                    </a>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroup>
-
-          <SidebarGroup className="space-y-3">
-            <SidebarGroupLabel className="px-1 text-[11px] font-semibold uppercase tracking-[0.32em] text-primary/70 group-data-[collapsible=icon]:hidden">
-              Tools
-            </SidebarGroupLabel>
-            <SidebarMenu className="space-y-1.5">
-              {secondaryNav.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton asChild>
-                    <a
-                      href={item.href}
-                      onClick={handleNavClick}
-                      className="group/item flex items-center gap-3 rounded-2xl px-3 py-2 text-sm font-medium text-muted-foreground transition-all hover:bg-primary/5 hover:text-primary hover:shadow-sm group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:gap-0 group-data-[collapsible=icon]:px-0"
-                    >
-                      <span className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-muted text-primary transition group-item-hover:bg-primary group-item-hover:text-primary-foreground group-data-[collapsible=icon]:h-10 group-data-[collapsible=icon]:w-10">
-                        <item.icon className="h-4 w-4" />
-                      </span>
-                      <span className="min-w-0 truncate group-data-[collapsible=icon]:hidden">
-                        {item.title}
-                      </span>
-                    </a>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroup>
-        </SidebarContent>
-
-        {/* Hide the clickable rail on desktop (prevents accidental collapse while resizing) */}
-        <SidebarRail className="md:hidden" />
-      </Sidebar>
-
-      {/* Drag handle (desktop only) — SINGLE hairline, overlaid to avoid double-line */}
-      {!isMobile && (
-        <div
-          role="separator"
-          aria-orientation="vertical"
-          aria-label="Resize sidebar"
-          aria-valuemin={MIN_W}
-          aria-valuemax={MAX_W}
-          aria-valuenow={Math.round(width)}
-          onMouseDown={beginResize}
-          onTouchStart={beginResize}
-          className="absolute -right-px top-0 hidden h-full w-2 cursor-ew-resize md:block z-50"
-        >
-          {/* ONE guide line only (removes the “double line” look) */}
-          <div className="pointer-events-none absolute inset-y-0 right-0 w-px bg-black/10" />
-        </div>
-      )}
-    </div>
-  );
+        <NavMain items={data.navMain} />
+      </SidebarContent>
+      <SidebarFooter>
+        <NavUser user={data.user} />
+      </SidebarFooter>
+      <SidebarRail />
+    </Sidebar>
+  )
 }
+

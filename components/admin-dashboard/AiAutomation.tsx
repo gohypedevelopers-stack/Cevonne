@@ -153,7 +153,7 @@ export default function AiAutomation() {
 
           <div className="flex flex-1 flex-col overflow-y-auto">
             <header className="border-b border-border/60 bg-white px-4 py-4 shadow-sm md:px-8">
-              <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 md:flex-row md:items-center md:justify-between">
+              <div className="flex w-full flex-col gap-3 md:flex-row md:items-center md:justify-between">
                 <div>
                   <div className="flex items-center gap-2">
                     <p className="text-2xl font-semibold text-primary">n8n Automations</p>
@@ -179,7 +179,7 @@ export default function AiAutomation() {
             </header>
 
             <main className="flex-1 space-y-6 px-4 pb-10 pt-6 md:px-8">
-              <div className="mx-auto w-full max-w-6xl space-y-6">
+              <div className="w-full space-y-6">
                 <div className="grid gap-4 md:grid-cols-3">
                   {loading
                     ? Array.from({ length: 3 }).map((_, i) => (
@@ -258,3 +258,4 @@ export default function AiAutomation() {
     </SidebarProvider>
   );
 }
+
