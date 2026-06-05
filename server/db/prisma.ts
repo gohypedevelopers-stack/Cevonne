@@ -35,10 +35,7 @@ export const getPrisma = async () => {
   }
 
   const client = createPrismaClient();
-
-  if (env.nodeEnv !== "production") {
-    globalForPrisma.__cevonnePrisma = client;
-  }
+  globalForPrisma.__cevonnePrisma = client;
 
   return client;
 };
