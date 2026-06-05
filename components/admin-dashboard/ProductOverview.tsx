@@ -114,7 +114,13 @@ const csvCell = (value) => {
   return `"${text}"`;
 };
 
-const getProductMeta = (product) => {
+type ProductMeta = {
+  label: string;
+  tone: "default" | "destructive" | "outline" | "secondary";
+  className: string;
+};
+
+const getProductMeta = (product): ProductMeta => {
   const stock = getProductStock(product);
 
   if (stock <= 0) {
