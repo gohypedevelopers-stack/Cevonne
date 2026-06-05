@@ -185,12 +185,14 @@ export const runController = async (
     await controller(req, res, next);
 
     if (nextError !== undefined && !res.headersSent) {
+      console.error("API controller error:", nextError);
       const result = serializeError(nextError);
       return jsonResponse(result.data, result.status, result.headers);
     }
 
     return toResponse(res);
   } catch (error) {
+    console.error("API controller error:", error);
     if (res.headersSent) {
       return toResponse(res);
     }

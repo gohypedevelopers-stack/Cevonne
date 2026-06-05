@@ -21,7 +21,13 @@ const toBoolean = (value: string | boolean | null | undefined, fallback = false)
 export const env = Object.freeze({
   port: toNumber(process.env.PORT, 3000),
   nodeEnv: process.env.NODE_ENV || "development",
-  databaseUrl: process.env.DATABASE_URL || "",
+  databaseUrl:
+    process.env.DATABASE_URL ||
+    process.env.POSTGRES_PRISMA_URL ||
+    process.env.POSTGRES_URL_NON_POOLING ||
+    process.env.POSTGRES_URL ||
+    process.env.NEON_DATABASE_URL ||
+    "",
   jwtSecret: process.env.JWT_SECRET || "dev_secret",
   frontendUrl: normalizeOriginUrl(process.env.FRONTEND_URL || ""),
   smtpHost: process.env.SMTP_HOST || "",

@@ -4,7 +4,6 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import { env } from "../config/env";
 
 declare global {
-  // eslint-disable-next-line no-var
   var __cevonnePrisma: PrismaClient | undefined;
 }
 
@@ -15,7 +14,7 @@ const globalForPrisma = globalThis as typeof globalThis & {
 const createPrismaClient = () => {
   if (!env.databaseUrl) {
     throw new Error(
-      "DATABASE_URL is not set. Add it to the root .env before using the migrated API."
+      "No database URL is configured. Set DATABASE_URL or a supported production database env before using the API."
     );
   }
 

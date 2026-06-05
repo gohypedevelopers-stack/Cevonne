@@ -85,12 +85,6 @@ exports.signup = async (req, res, next) => {
       },
     });
 
-    if (process.env.NODE_ENV === 'production' && !hasOtpMailConfig) {
-      return res.status(500).json({
-        message: 'OTP login is not configured on the server.',
-      });
-    }
-
     if (!otpFlowEnabled) {
       return res.status(201).json({
         message: 'Account created successfully.',
@@ -145,12 +139,6 @@ exports.signin = async (req, res, next) => {
     const isValid = await bcrypt.compare(password, user.passwordHash);
     if (!isValid) {
       return res.status(401).json({ message: 'Invalid email or password' });
-    }
-
-    if (process.env.NODE_ENV === 'production' && !hasOtpMailConfig) {
-      return res.status(500).json({
-        message: 'OTP login is not configured on the server.',
-      });
     }
 
     if (!otpFlowEnabled) {
