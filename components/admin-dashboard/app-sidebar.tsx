@@ -13,6 +13,7 @@ import {
   Megaphone,
   Package,
   ShoppingCart,
+  Wand2,
   Users2,
 } from "lucide-react"
 
@@ -103,6 +104,12 @@ const data = {
           href: "/dashboard/products#gift-cards",
         },
       ],
+    },
+    {
+      title: "N8N Automations",
+      href: "/dashboard/ai-automation",
+      icon: Wand2,
+      match: ["/dashboard/ai-automation"],
     },
     {
       title: "Customers",

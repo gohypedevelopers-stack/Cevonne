@@ -10,6 +10,14 @@ import { useShop } from "@/context/ShopContext";
 import { useAuth } from "@/context/AuthContext";
 import { readAddresses } from "@/lib/addressStorage";
 import { API_BASE } from "@/lib/api";
+import {
+  buildPurchaseSignature,
+  getCevonneConsentState,
+  getCevonneResponseMessage,
+  hasRecordedPurchaseSignature,
+  markRecordedPurchaseSignature,
+  postCevonneRoute,
+} from "@/lib/cevonne/client";
 
 type ShippingData = {
   fullName: string;
@@ -135,6 +143,7 @@ export default function CheckoutPage() {
   }, [shippingData, shippingStorageKey]);
 
   const currencySymbol = cartItems[0]?.currency || "₹";
+  const purchaseCurrency = cartItems[0]?.currency && cartItems[0].currency.length === 3 ? cartItems[0].currency.toUpperCase() : "INR";
   const subtotal = useMemo(
     () =>
       cartItems.reduce((sum, item) => {
@@ -163,7 +172,7 @@ export default function CheckoutPage() {
       toast.error("Add at least one item to place an order.");
       return;
     }
-      const missing = shippingFields.filter((field) => !shippingData[field.name]?.trim());
+    const missing = shippingFields.filter((field) => !shippingData[field.name]?.trim());
     if (missing.length) {
       toast.error(`Please fill ${missing[0].label.toLowerCase()}.`);
       return;
@@ -195,6 +204,42 @@ export default function CheckoutPage() {
       const data = await response.json();
       const savedNumber = data?.number || data?.id;
       setOrderId(savedNumber);
+
+      if (savedNumber) {
+        const consentState = getCevonneConsentState();
+        const normalizedShippingEmail = shippingData.email.trim().toLowerCase();
+        const purchaseContactId =
+          consentState?.email === normalizedShippingEmail ? consentState.contactId : undefined;
+        const purchaseSignature = buildPurchaseSignature(savedNumber);
+        if (!hasRecordedPurchaseSignature(purchaseSignature)) {
+          try {
+            const purchaseResponse = await postCevonneRoute("/cevonne/purchase", {
+              order_id: savedNumber,
+              email: shippingData.email,
+              contact_id: purchaseContactId,
+              purchase_value: total,
+              currency: purchaseCurrency,
+              source_event: "checkout_success",
+              items: cartItems.map((item) => ({
+                sku: item.sku || item.key,
+                product_id: item.productId || item.id || item.key,
+                quantity: item.quantity || 1,
+              })),
+            });
+
+            if (purchaseResponse.status !== "ERROR") {
+              markRecordedPurchaseSignature(purchaseSignature);
+            }
+
+            if (purchaseResponse.status === "BLOCK" || purchaseResponse.status === "MANUAL_ONLY") {
+              console.info(getCevonneResponseMessage(purchaseResponse));
+            }
+          } catch (purchaseError) {
+            console.warn("Purchase event failed", purchaseError);
+          }
+        }
+      }
+
       clearCart();
       toast.success(`Order ${savedNumber || ""} saved for dashboard review.`);
       if (typeof window !== "undefined") {

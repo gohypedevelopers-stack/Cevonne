@@ -1,6 +1,8 @@
 "use client";
 
 import LegalPageLayout from "./LegalPageLayout";
+import MarketingOptOutForm from "@/components/forms/MarketingOptOutForm";
+import PrivacyRequestForm from "@/components/forms/PrivacyRequestForm";
 
 const sections = [
   {
@@ -55,6 +57,20 @@ export default function PolicyPage() {
             <p className="text-sm leading-7 text-neutral-700 sm:text-base">{section.body}</p>
           </section>
         ))}
+
+        <section className="space-y-4 border-t border-neutral-200 pt-8">
+          <div className="space-y-2">
+            <h2 className="text-2xl font-semibold text-neutral-950">Privacy actions</h2>
+            <p className="max-w-3xl text-sm leading-7 text-neutral-700 sm:text-base">
+              Use these forms to request an export, request manual review for deletion, or unsubscribe from marketing emails. Destructive deletion remains manual-only until exact production mappings are confirmed.
+            </p>
+          </div>
+
+          <div className="grid gap-6 lg:grid-cols-2">
+            <PrivacyRequestForm />
+            <MarketingOptOutForm />
+          </div>
+        </section>
       </div>
     </LegalPageLayout>
   );

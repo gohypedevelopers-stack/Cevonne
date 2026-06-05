@@ -106,7 +106,7 @@ body.dashboard-form-lock {
   --chart-3: #ead6ba;
   --chart-4: #cfa87c;
   --chart-5: #6d3b74;
-  --sidebar: var(--primary-100);
+  --sidebar: #ffffff;
   --sidebar-foreground: var(--primary);
   --sidebar-primary: var(--primary);
   --sidebar-primary-foreground: var(--primary-foreground);

@@ -1,22 +1,11 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
+import { type CevonneResponse, type CevonneResponseStatus } from "@/lib/cevonne/response";
 
-export type CevonneN8nStatus = "PASS" | "BLOCK" | "MANUAL_ONLY" | "ERROR";
+export type CevonneN8nStatus = CevonneResponseStatus;
 
-export type CevonneN8nResponse = {
-  status: CevonneN8nStatus;
-  response_type?: string;
-  fail_reason?: string | null;
-  failure_reasons?: string[];
-  message?: string;
-  id?: string;
-  recommendation_only?: boolean;
-  dry_run?: boolean;
-  not_executed?: boolean;
-  handled_at?: string;
-  [key: string]: unknown;
-};
+export type CevonneN8nResponse = CevonneResponse;
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const CEVONNE_SOURCE = "website";
@@ -82,6 +71,7 @@ export async function postN8nWebhook(
     request_id: requestId,
     received_at: receivedAt,
   };
+  const dryRun = payload.dry_run === true;
 
   const { controller, cleanup } = buildTimeoutController(DEFAULT_TIMEOUT_MS);
 
@@ -93,6 +83,7 @@ export async function postN8nWebhook(
         "X-Cevonne-Source": CEVONNE_SOURCE,
         "X-Cevonne-Request-Id": requestId,
         "X-Cevonne-Timestamp": receivedAt,
+        "X-Cevonne-Dry-Run": dryRun ? "true" : "false",
       },
       body: JSON.stringify(requestBody),
       signal: controller.signal,

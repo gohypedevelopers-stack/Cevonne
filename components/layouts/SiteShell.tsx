@@ -5,6 +5,7 @@ import MobileBottomNav from "@/components/MobileBottomNav";
 import MobileTopBar from "@/components/MobileTopBar";
 import Navbar from "@/components/Navbar";
 import ShopDrawer from "@/components/ShopDrawer";
+import CevonneAttributionTracker from "@/components/CevonneAttributionTracker";
 import { useLocation } from "@/lib/router";
 
 const HIDE_FOOTER_PATHS = new Set(["/cart", "/checkout"]);
@@ -15,6 +16,7 @@ export default function SiteShell({ children }) {
 
   return (
     <main className="min-h-screen bg-background text-foreground">
+      <CevonneAttributionTracker />
       <Navbar />
       <MobileTopBar />
       {children}

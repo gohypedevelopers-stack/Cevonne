@@ -120,6 +120,8 @@ type ProductMeta = {
   className: string;
 };
 
+const dashboardSurfaceClass = "w-full overflow-hidden rounded-[28px] border border-border/60 bg-white shadow-none";
+
 const getProductMeta = (product): ProductMeta => {
   const stock = getProductStock(product);
 
@@ -466,100 +468,100 @@ export default function ProductOverview() {
 
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
             <main className="flex-1 space-y-4 px-3 pb-6 pt-2 md:px-4 lg:px-5">
-              <section className="bg-white">
-                <div className="flex min-h-10 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-                  <div className="flex items-center gap-2">
-                    <Tag className="h-4 w-4 text-primary" />
-                    <h1 className="text-[15px] font-semibold leading-none tracking-tight text-foreground">
-                      Products
-                    </h1>
-                  </div>
-
-                  <div className="flex flex-nowrap items-center gap-2 whitespace-nowrap sm:justify-end">
-                    <Button
-                      variant="outline"
-                      onClick={handleExport}
-                      className="h-9 rounded-full border-border/70 bg-white px-4 text-sm font-medium text-foreground shadow-none hover:bg-muted/40"
-                    >
-                      Export
-                    </Button>
-                    <Button
-                      variant="outline"
-                      onClick={() => setImportDialogOpen(true)}
-                      className="h-9 rounded-full border-border/70 bg-white px-4 text-sm font-medium text-foreground shadow-none hover:bg-muted/40"
-                    >
-                      Import
-                    </Button>
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button
-                          variant="outline"
-                          className="h-9 rounded-full border-border/70 bg-white px-4 text-sm font-medium text-foreground shadow-none hover:bg-muted/40"
-                        >
-                          More actions
-                          <ChevronDown className="h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-56 rounded-2xl border-border/60">
-                        <DropdownMenuItem onClick={handleRefresh}>
-                          <RefreshCcw className="h-4 w-4" />
-                          Refresh data
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={handleResetFilters}>
-                          <Filter className="h-4 w-4" />
-                          Reset filters
-                        </DropdownMenuItem>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem onClick={() => setImportDialogOpen(true)}>
-                          <Upload className="h-4 w-4" />
-                          Open bulk tools
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={handleCreate}>
-                          <Plus className="h-4 w-4" />
-                          Add new product
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                    <Button
-                      onClick={handleCreate}
-                      className="h-9 rounded-full bg-[#111111] px-4 text-sm font-medium text-white shadow-none hover:bg-black"
-                    >
-                      Add product
-                    </Button>
-                  </div>
+              <div className="flex min-h-10 w-full flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+                <div className="flex items-center gap-2">
+                  <Tag className="h-4 w-4 text-primary" />
+                  <h1 className="text-[15px] font-semibold leading-none tracking-tight text-foreground">
+                    Products
+                  </h1>
                 </div>
-              </section>
 
-              <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                {loading
-                  ? Array.from({ length: 4 }).map((_, index) => (
-                      <Card key={index} className="overflow-hidden rounded-3xl border-border/60 bg-white shadow-none p-0">
-                        <CardContent className="space-y-3 p-4">
-                          <div className="h-1.5 w-full rounded-full bg-muted/60" />
-                          <div className="h-4 w-24 rounded bg-muted/60" />
-                          <div className="h-9 w-20 rounded bg-muted/60" />
-                          <div className="h-3 w-28 rounded bg-muted/60" />
-                        </CardContent>
-                      </Card>
-                    ))
+                <div className="flex flex-nowrap items-center gap-2 whitespace-nowrap sm:justify-end">
+                  <Button
+                    variant="outline"
+                    onClick={handleExport}
+                    className="h-9 rounded-full border-border/70 bg-white px-4 text-sm font-medium text-foreground shadow-none hover:bg-muted/40"
+                  >
+                    Export
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={() => setImportDialogOpen(true)}
+                    className="h-9 rounded-full border-border/70 bg-white px-4 text-sm font-medium text-foreground shadow-none hover:bg-muted/40"
+                  >
+                    Import
+                  </Button>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        variant="outline"
+                        className="h-9 rounded-full border-border/70 bg-white px-4 text-sm font-medium text-foreground shadow-none hover:bg-muted/40"
+                      >
+                        More actions
+                        <ChevronDown className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56 rounded-2xl border-border/60">
+                      <DropdownMenuItem onClick={handleRefresh}>
+                        <RefreshCcw className="h-4 w-4" />
+                        Refresh data
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={handleResetFilters}>
+                        <Filter className="h-4 w-4" />
+                        Reset filters
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => setImportDialogOpen(true)}>
+                        <Upload className="h-4 w-4" />
+                        Open bulk tools
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={handleCreate}>
+                        <Plus className="h-4 w-4" />
+                        Add new product
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                  <Button
+                    onClick={handleCreate}
+                    className="h-9 rounded-full bg-[#111111] px-4 text-sm font-medium text-white shadow-none hover:bg-black"
+                  >
+                    Add product
+                  </Button>
+                </div>
+              </div>
+
+              <div className="w-full">
+                <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                  {loading
+                    ? Array.from({ length: 4 }).map((_, index) => (
+                        <Card key={index} className="overflow-hidden rounded-3xl border-border/60 bg-white shadow-none p-0">
+                          <CardContent className="space-y-3 p-4">
+                            <div className="h-1.5 w-full rounded-full bg-muted/60" />
+                            <div className="h-4 w-24 rounded bg-muted/60" />
+                            <div className="h-9 w-20 rounded bg-muted/60" />
+                            <div className="h-3 w-28 rounded bg-muted/60" />
+                          </CardContent>
+                        </Card>
+                      ))
                     : statCards.map((card) => (
-                      <Card key={card.label} className="overflow-hidden rounded-3xl border-border/60 bg-white shadow-none p-0">
-                        <CardContent className="space-y-4 p-4">
-                          <div className={`h-1.5 w-full rounded-full bg-gradient-to-r ${card.gradient}`} />
-                          <div className="flex items-start justify-between gap-3">
-                            <div className="space-y-1">
-                              <p className="text-sm font-semibold text-muted-foreground">{card.label}</p>
-                              <p className="text-3xl font-semibold tracking-tight text-foreground">{card.value}</p>
-                              <p className="text-xs text-muted-foreground">{card.helper}</p>
+                        <Card key={card.label} className="overflow-hidden rounded-3xl border-border/60 bg-white shadow-none p-0">
+                          <CardContent className="space-y-4 p-4">
+                            <div className={`h-1.5 w-full rounded-full bg-gradient-to-r ${card.gradient}`} />
+                            <div className="flex items-start justify-between gap-3">
+                              <div className="space-y-1">
+                                <p className="text-sm font-semibold text-muted-foreground">{card.label}</p>
+                                <p className="text-3xl font-semibold tracking-tight text-foreground">{card.value}</p>
+                                <p className="text-xs text-muted-foreground">{card.helper}</p>
+                              </div>
+                              <div className="rounded-2xl bg-primary/10 p-3">{card.icon}</div>
                             </div>
-                            <div className="rounded-2xl bg-primary/10 p-3">{card.icon}</div>
-                          </div>
-                        </CardContent>
-                      </Card>
-                    ))}
-              </section>
+                          </CardContent>
+                        </Card>
+                      ))}
+                </div>
+              </div>
 
-              <Card className="overflow-hidden rounded-[28px] border-border/60 bg-white shadow-none gap-0 p-0">
+              <div className={dashboardSurfaceClass}>
                 <div className="flex flex-col gap-3 border-b border-border/60 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <p className="text-lg font-semibold text-foreground">All products</p>
@@ -925,7 +927,7 @@ export default function ProductOverview() {
                     </TableBody>
                   </Table>
                 </div>
-              </Card>
+              </div>
             </main>
           </div>
         </SidebarInset>
