@@ -11,9 +11,17 @@ import {
   handleCevonneN8nResponse,
   type CevonneResponse,
 } from "@/lib/cevonne/response";
+import {
+  type CevonneAdminActionType,
+  type CevonneWorkflowStatus,
+} from "@/lib/cevonne/admin-model";
 import { env } from "@/server/config";
 import { getAuthUser, jsonResponse, readJsonBody } from "@/server/next/route-utils";
 import { postN8nWebhook } from "@/lib/cevonne/n8nClient";
+import {
+  recordCevonneAdminAuditLog,
+  recordCevonneWorkflowExecution,
+} from "@/server/next/api/cevonne-admin-store";
 
 const workflowGroup = "G3";
 const baseSource = (env.cevonneSiteSource || "website").trim();
@@ -149,6 +157,11 @@ const logCevonneRouteOutcome = ({ requestId, routePath, n8nResponseStatus, n8nRe
   } catch {
     // Logging must never break the route.
   }
+};
+
+const getRequestFingerprintHash = (request: Request) => {
+  const payload = `${getClientIp(request)}|${request.headers.get("user-agent") || ""}`;
+  return createHash("sha256").update(payload).digest("hex").slice(0, 16);
 };
 
 const getClientIp = (request: Request) => {
@@ -527,6 +540,7 @@ const dispatchAdminOnlyN8nRoute = async (
   routePath: string,
   eventType: string,
   sourceEvent: string,
+  actionType: CevonneAdminActionType,
   schema: typeof g11AdminInputSchema,
   buildPayload: (body: G11AdminInput) => Record<string, unknown>,
 ) => {
@@ -620,21 +634,64 @@ const dispatchAdminOnlyN8nRoute = async (
     recommendation_only: true,
   });
 
+  const normalizedResponse = handleCevonneN8nResponse({
+    ...n8nResponse,
+    id: n8nResponse.id || eventId,
+    event_id: n8nResponse.event_id || eventId,
+  });
+  const safeExecutionId = (typeof normalizedResponse.id === "string" && normalizedResponse.id.trim()) || eventId;
+  const responseType = typeof normalizedResponse.response_type === "string" && normalizedResponse.response_type.trim()
+    ? normalizedResponse.response_type.trim()
+    : eventType;
+  const responseStatus = normalizedResponse.status as CevonneWorkflowStatus;
+  const payloadSummary = JSON.stringify({
+    event_type: eventType,
+    source_event: sourceEvent,
+    scope: parsed.data.scope ?? null,
+    period: parsed.data.period ?? null,
+    has_notes: Boolean(parsed.data.notes),
+    has_context: Boolean(parsed.data.context),
+  });
+
+  recordCevonneWorkflowExecution({
+    workflowGroup: "G11",
+    routeName: routePath,
+    status: responseStatus,
+    responseType,
+    summary: typeof normalizedResponse.message === "string" ? normalizedResponse.message : "Recorded.",
+    failureReason: typeof normalizedResponse.fail_reason === "string" ? normalizedResponse.fail_reason : null,
+    actor: "admin",
+    adminUserId: auth.id,
+    adminEmail: auth.email,
+    requestId,
+    dryRun: Boolean(normalizedResponse.dry_run ?? env.cevonneN8nDryRun),
+    notExecuted: Boolean(normalizedResponse.not_executed ?? false),
+    safePublicIds: [safeExecutionId],
+  });
+
+  recordCevonneAdminAuditLog({
+    workflowGroup: "G11",
+    actionType,
+    routeName: routePath,
+    resultStatus: responseStatus,
+    responseType,
+    payloadSummary,
+    failureReason: typeof normalizedResponse.fail_reason === "string" ? normalizedResponse.fail_reason : null,
+    adminUserId: auth.id,
+    adminEmail: auth.email,
+    ipUserAgentHash: getRequestFingerprintHash(request),
+    safePublicIds: [safeExecutionId],
+  });
+
   logCevonneRouteOutcome({
     requestId,
     routePath,
-    n8nResponseStatus: n8nResponse.status,
-    n8nResponseType: typeof n8nResponse.response_type === "string" ? n8nResponse.response_type : null,
-    failReason: typeof n8nResponse.fail_reason === "string" ? n8nResponse.fail_reason : null,
+    n8nResponseStatus: normalizedResponse.status,
+    n8nResponseType: responseType,
+    failReason: typeof normalizedResponse.fail_reason === "string" ? normalizedResponse.fail_reason : null,
   });
 
-  return routeResponse(
-    handleCevonneN8nResponse({
-      ...n8nResponse,
-      id: n8nResponse.id || eventId,
-      event_id: n8nResponse.event_id || eventId,
-    }),
-  );
+  return routeResponse(normalizedResponse);
 };
 
 export const dispatchCevonneConsentRoute = async (request: Request) => {
@@ -820,6 +877,7 @@ export const dispatchCevonneG11DigestRoute = async (request: Request) => {
     "/api/cevonne/admin/g11-digest",
     "G11_WEEKLY_DIGEST_REQUEST",
     "g11_weekly_digest_request",
+    "G11_WEEKLY_DIGEST_REQUEST",
     g11AdminInputSchema,
     (body) => ({
       scope: body.scope ?? null,
@@ -837,6 +895,7 @@ export const dispatchCevonneG11RecommendationRoute = async (request: Request) =>
     "/api/cevonne/admin/g11-recommendation",
     "G11_DECISION_RECOMMENDATION_REQUEST",
     "g11_decision_recommendation_request",
+    "G11_DECISION_RECOMMENDATION_REQUEST",
     g11AdminInputSchema,
     (body) => ({
       scope: body.scope ?? null,
@@ -854,6 +913,7 @@ export const dispatchCevonneG11ActionDraftRoute = async (request: Request) => {
     "/api/cevonne/admin/g11-action-draft",
     "G11_DRAFT_ACTION_PACKET_REQUEST",
     "g11_draft_action_packet_request",
+    "G11_DRAFT_ACTION_PACKET_REQUEST",
     g11AdminInputSchema,
     (body) => ({
       scope: body.scope ?? null,

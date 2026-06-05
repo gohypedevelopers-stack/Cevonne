@@ -107,9 +107,9 @@ const data = {
     },
     {
       title: "N8N Automations",
-      href: "/dashboard/ai-automation",
+      href: "/dashboard/n8n-automations",
       icon: Wand2,
-      match: ["/dashboard/ai-automation"],
+      match: ["/dashboard/n8n-automations"],
     },
     {
       title: "Customers",

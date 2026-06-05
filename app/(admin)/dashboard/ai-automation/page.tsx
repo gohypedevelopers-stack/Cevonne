@@ -1,9 +1,5 @@
-"use client";
-
-import dynamic from "next/dynamic";
-
-const AiAutomation = dynamic(() => import("@/components/admin-dashboard/AiAutomation"), { ssr: false });
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <AiAutomation />;
+  redirect("/dashboard/n8n-automations");
 }
