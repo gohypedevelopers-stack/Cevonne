@@ -1,8 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 import { format, parseISO } from "date-fns";
-import { Eye, Plus, Star, Trash2 } from "lucide-react";
+import {
+  ArrowUpDown,
+  Eye,
+  Image as ImageIcon,
+  Layers,
+  MoreHorizontal,
+  PencilLine,
+  Plus,
+  Search,
+  Star,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 import { useForm } from "react-hook-form";
 
@@ -24,6 +35,16 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Checkbox } from "@/components/ui/checkbox";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   Select,
@@ -44,6 +65,7 @@ import {
 } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 
+import { cn } from "@/lib/utils";
 import { API_BASE, formatCurrency, slugify, toNumber } from "../utils";
 import { AR_STATIC_SHADES } from "@/data/arShades";
 import type { Product, ProductCollection, ProductShade } from "@/types/product";
@@ -71,6 +93,16 @@ type ManagementCollection = ProductCollection & {
     products?: number;
     shades?: number;
   };
+};
+
+type CollectionFilter = "all" | "with-image" | "empty" | "high-volume";
+type CollectionSort = "name" | "products" | "recent";
+
+const formatCollectionDate = (value?: Date | string | null) => {
+  if (!value) return "Recently updated";
+  const date = typeof value === "string" ? parseISO(value) : value;
+  if (Number.isNaN(date.getTime())) return "Recently updated";
+  return format(date, "MMM d, yyyy");
 };
 
 type ManagementPanelProps = {
@@ -101,6 +133,11 @@ export function ManagementPanel({
   const navigate = useNavigate();
   const [tab, setTab] = useState("products");
   const [collectionDialogOpen, setCollectionDialogOpen] = useState(false);
+  const [editingCollection, setEditingCollection] = useState<ManagementCollection | null>(null);
+  const [collectionFilter, setCollectionFilter] = useState<CollectionFilter>("all");
+  const [collectionSort, setCollectionSort] = useState<CollectionSort>("name");
+  const [collectionSearch, setCollectionSearch] = useState("");
+  const [selectedCollectionIds, setSelectedCollectionIds] = useState<string[]>([]);
   const [shadeDialogOpen, setShadeDialogOpen] = useState(false);
   const [inventoryDialogOpen, setInventoryDialogOpen] = useState(false);
   const [inventoryTarget, setInventoryTarget] = useState<InventoryEntry | null>(null);
@@ -123,6 +160,18 @@ export function ManagementPanel({
   const openInventoryDialog = (entry?: InventoryEntry | null) => {
     setInventoryTarget(entry || null);
     setInventoryDialogOpen(true);
+  };
+
+  const openCollectionDialog = (collection?: ManagementCollection | null) => {
+    setEditingCollection(collection ?? null);
+    setCollectionDialogOpen(true);
+  };
+
+  const closeCollectionDialog = (open: boolean) => {
+    setCollectionDialogOpen(open);
+    if (!open) {
+      setEditingCollection(null);
+    }
   };
 
   const openReviewDialog = (review: Review) => {
@@ -202,11 +251,86 @@ export function ManagementPanel({
         throw new Error(body?.message || "Failed to delete collection");
       }
       toast.success("Collection removed");
+      setSelectedCollectionIds((current) => current.filter((id) => id !== collection.id));
+      if (editingCollection?.id === collection.id) {
+        setCollectionDialogOpen(false);
+        setEditingCollection(null);
+      }
       refresh?.();
     } catch (error) {
       console.error(error);
       toast.error(error.message || "Unable to delete collection");
     }
+  };
+
+  const collectionMetrics = useMemo(() => {
+    const totalProducts = collections.reduce((acc, collection) => acc + (collection._count?.products ?? 0), 0);
+    const withArtwork = collections.filter((collection) => Boolean(collection.imageUrl)).length;
+    const emptyCollections = collections.filter((collection) => (collection._count?.products ?? 0) === 0).length;
+    return {
+      totalCollections: collections.length,
+      totalProducts,
+      withArtwork,
+      emptyCollections,
+    };
+  }, [collections]);
+
+  const filteredCollections = useMemo(() => {
+    const search = collectionSearch.trim().toLowerCase();
+
+    const filtered = collections.filter((collection) => {
+      const productCount = collection._count?.products ?? 0;
+      const searchable = [collection.name, collection.slug, collection.description ?? ""].join(" ").toLowerCase();
+      const matchesSearch = !search || searchable.includes(search);
+
+      const matchesFilter =
+        collectionFilter === "all" ||
+        (collectionFilter === "with-image" && Boolean(collection.imageUrl)) ||
+        (collectionFilter === "empty" && productCount === 0) ||
+        (collectionFilter === "high-volume" && productCount >= 10);
+
+      return matchesSearch && matchesFilter;
+    });
+
+    const sorted = [...filtered].sort((a, b) => {
+      if (collectionSort === "products") {
+        return (b._count?.products ?? 0) - (a._count?.products ?? 0);
+      }
+      if (collectionSort === "recent") {
+        return new Date(b.updatedAt ?? b.createdAt ?? 0).getTime() - new Date(a.updatedAt ?? a.createdAt ?? 0).getTime();
+      }
+      return a.name.localeCompare(b.name);
+    });
+
+    return sorted;
+  }, [collections, collectionFilter, collectionSearch, collectionSort]);
+
+  const selectedCollectionSet = useMemo(() => new Set(selectedCollectionIds), [selectedCollectionIds]);
+  const visibleCollectionIds = filteredCollections.map((collection) => collection.id);
+  const allVisibleSelected = visibleCollectionIds.length > 0 && visibleCollectionIds.every((id) => selectedCollectionSet.has(id));
+  const someVisibleSelected = visibleCollectionIds.some((id) => selectedCollectionSet.has(id)) && !allVisibleSelected;
+  const selectedCount = selectedCollectionIds.length;
+
+  const toggleCollectionSelection = (collectionId: string, checked: boolean | "indeterminate") => {
+    setSelectedCollectionIds((current) => {
+      if (checked) {
+        return current.includes(collectionId) ? current : [...current, collectionId];
+      }
+      return current.filter((id) => id !== collectionId);
+    });
+  };
+
+  const toggleVisibleCollections = (checked: boolean | "indeterminate") => {
+    setSelectedCollectionIds((current) => {
+      if (checked) {
+        return Array.from(new Set([...current, ...visibleCollectionIds]));
+      }
+      return current.filter((id) => !visibleCollectionIds.includes(id));
+    });
+  };
+
+  const clearCollectionSelection = () => {
+    setSelectedCollectionIds([]);
   };
 
   const deleteShade = async (shade: ProductShade) => {
@@ -265,7 +389,7 @@ export function ManagementPanel({
             size="sm"
             variant="secondary"
             className="rounded-full bg-secondary px-4 text-xs shadow-sm"
-            onClick={() => setCollectionDialogOpen(true)}
+            onClick={() => openCollectionDialog()}
           >
             <Plus className="mr-2 h-3.5 w-3.5" />
             New collection
@@ -402,55 +526,379 @@ export function ManagementPanel({
             </ScrollArea>
           </TabsContent>
 
-          <TabsContent value="collections">
-            <ScrollArea className="h-[340px] rounded-2xl border border-border/60 bg-muted/20">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Name</TableHead>
-                    <TableHead>Slug</TableHead>
-                    <TableHead className="text-right">Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {loading ? (
-                    <TableRow>
-                      <TableCell colSpan={3}>
-                        <Skeleton className="h-10 w-full" />
-                      </TableCell>
+          <TabsContent value="collections" className="space-y-5">
+            <div className="overflow-hidden rounded-[2rem] border border-border/60 bg-[linear-gradient(145deg,var(--primary-100),var(--secondary-100))] shadow-xl">
+              <div className="relative px-6 py-6 md:px-8">
+                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(255,255,255,0.65),transparent_38%),radial-gradient(circle_at_bottom_left,rgba(255,255,255,0.4),transparent_26%)]" />
+                <div className="relative flex flex-col gap-5 md:flex-row md:items-end md:justify-between">
+                  <div className="space-y-3">
+                    <div className="inline-flex items-center gap-2 rounded-full border border-[var(--secondary-200)] bg-white/80 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.24em] text-primary/70 shadow-sm">
+                      <Layers className="h-3.5 w-3.5" />
+                      Collections
+                    </div>
+                    <div className="space-y-2">
+                      <h3 className="text-2xl font-semibold text-primary md:text-3xl">Collections</h3>
+                      <p className="max-w-2xl text-sm leading-6 text-primary/75">
+                        Curate seasonal drops, keep product grouping intentional, and make collection merchandising easier to scan.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      size="sm"
+                      className="rounded-full bg-primary px-4 text-xs text-primary-foreground shadow"
+                      onClick={() => openCollectionDialog()}
+                    >
+                      <Plus className="mr-2 h-3.5 w-3.5" />
+                      Add collection
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div className="rounded-2xl border border-border/60 bg-white px-4 py-4 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Collections</p>
+                    <p className="mt-3 text-3xl font-semibold text-foreground">{collectionMetrics.totalCollections}</p>
+                  </div>
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                    <Layers className="h-4 w-4" />
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">Live groupings in the catalogue.</p>
+              </div>
+              <div className="rounded-2xl border border-border/60 bg-white px-4 py-4 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Products assigned</p>
+                    <p className="mt-3 text-3xl font-semibold text-foreground">{collectionMetrics.totalProducts}</p>
+                  </div>
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                    <ImageIcon className="h-4 w-4" />
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">Total products distributed across collections.</p>
+              </div>
+              <div className="rounded-2xl border border-border/60 bg-white px-4 py-4 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">With artwork</p>
+                    <p className="mt-3 text-3xl font-semibold text-foreground">{collectionMetrics.withArtwork}</p>
+                  </div>
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                    <PencilLine className="h-4 w-4" />
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">Collections with a hero image or banner.</p>
+              </div>
+              <div className="rounded-2xl border border-border/60 bg-white px-4 py-4 shadow-sm">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Empty collections</p>
+                    <p className="mt-3 text-3xl font-semibold text-foreground">{collectionMetrics.emptyCollections}</p>
+                  </div>
+                  <span className="flex size-10 shrink-0 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+                    <Star className="h-4 w-4" />
+                  </span>
+                </div>
+                <p className="mt-2 text-sm text-muted-foreground">Collections that still need products assigned.</p>
+              </div>
+            </div>
+
+            <div className="overflow-hidden rounded-[2rem] border border-border/60 bg-white shadow-xl">
+              <div className="flex flex-col gap-3 border-b border-border/60 px-4 py-4 lg:flex-row lg:items-center lg:justify-between">
+                <div className="flex flex-1 flex-col gap-3 md:flex-row md:items-center">
+                  <Select value={collectionFilter} onValueChange={(value) => setCollectionFilter(value as CollectionFilter)}>
+                    <SelectTrigger className="h-11 w-full rounded-full border-border/60 bg-white px-4 shadow-none md:w-56">
+                      <SelectValue placeholder="All collections" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All collections</SelectItem>
+                      <SelectItem value="with-image">With artwork</SelectItem>
+                      <SelectItem value="empty">Empty collections</SelectItem>
+                      <SelectItem value="high-volume">High volume</SelectItem>
+                    </SelectContent>
+                  </Select>
+
+                  <div className="relative flex-1">
+                    <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      value={collectionSearch}
+                      onChange={(event) => setCollectionSearch(event.target.value)}
+                      placeholder="Search collections by name, slug, or note"
+                      className="h-11 rounded-full border-border/60 bg-muted/20 pl-10 pr-4 shadow-none focus-visible:bg-white"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-start lg:self-auto">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-11 w-11 rounded-full border-border/60 bg-white p-0 text-foreground shadow-none hover:bg-muted/40"
+                        aria-label="Sort collections"
+                      >
+                        <ArrowUpDown className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56 rounded-2xl border-border/60">
+                      <DropdownMenuLabel className="px-3 pt-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Sort collections
+                      </DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuCheckboxItem checked={collectionSort === "name"} onCheckedChange={() => setCollectionSort("name")}>
+                        Name A-Z
+                      </DropdownMenuCheckboxItem>
+                      <DropdownMenuCheckboxItem checked={collectionSort === "products"} onCheckedChange={() => setCollectionSort("products")}>
+                        Most products
+                      </DropdownMenuCheckboxItem>
+                      <DropdownMenuCheckboxItem checked={collectionSort === "recent"} onCheckedChange={() => setCollectionSort("recent")}>
+                        Recently updated
+                      </DropdownMenuCheckboxItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </div>
+
+              {selectedCount > 0 && (
+                <div className="flex items-center justify-between gap-3 border-b border-border/60 bg-primary/5 px-4 py-3">
+                  <p className="text-sm font-medium text-primary">
+                    {selectedCount} selected
+                  </p>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    className="rounded-full px-3 text-xs font-medium text-muted-foreground"
+                    onClick={clearCollectionSelection}
+                  >
+                    Clear selection
+                  </Button>
+                </div>
+              )}
+
+              <ScrollArea className="h-[460px]">
+                <Table className="min-w-[1040px] table-fixed">
+                  <colgroup>
+                    <col className="w-[5%]" />
+                    <col className="w-[42%]" />
+                    <col className="w-[13%]" />
+                    <col className="w-[30%]" />
+                    <col className="w-[10%]" />
+                  </colgroup>
+                  <TableHeader>
+                    <TableRow className="bg-muted/20 hover:bg-muted/20">
+                      <TableHead className="w-12 px-3 py-4">
+                        <div className="flex items-center justify-center">
+                          <Checkbox
+                            aria-label="Select all visible collections"
+                            checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+                            onCheckedChange={toggleVisibleCollections}
+                            disabled={loading || filteredCollections.length === 0}
+                          />
+                        </div>
+                      </TableHead>
+                      <TableHead className="px-5 py-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Title
+                      </TableHead>
+                      <TableHead className="px-5 py-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Products
+                      </TableHead>
+                      <TableHead className="px-5 py-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Product conditions
+                      </TableHead>
+                      <TableHead className="px-5 py-4 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        Actions
+                      </TableHead>
                     </TableRow>
-                  ) : collections.length ? (
-                    collections.map((collection) => (
-                      <TableRow key={collection.id}>
-                        <TableCell className="font-medium">
-                          {collection.name}
-                        </TableCell>
-                        <TableCell>{collection.slug}</TableCell>
-                        <TableCell className="text-right">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="text-destructive"
-                            onClick={() => deleteCollection(collection)}
+                  </TableHeader>
+                  <TableBody>
+                    {loading ? (
+                      Array.from({ length: 5 }).map((_, index) => (
+                        <TableRow key={index}>
+                          <TableCell className="px-3 py-4">
+                            <Skeleton className="mx-auto h-4 w-4 rounded-sm" />
+                          </TableCell>
+                          <TableCell className="px-5 py-4">
+                            <Skeleton className="h-12 w-full rounded-2xl" />
+                          </TableCell>
+                          <TableCell className="px-5 py-4">
+                            <Skeleton className="h-8 w-16 rounded-full" />
+                          </TableCell>
+                          <TableCell className="px-5 py-4">
+                            <Skeleton className="h-8 w-full rounded-full" />
+                          </TableCell>
+                          <TableCell className="px-5 py-4 text-right">
+                            <Skeleton className="ml-auto h-8 w-8 rounded-full" />
+                          </TableCell>
+                        </TableRow>
+                      ))
+                    ) : filteredCollections.length ? (
+                      filteredCollections.map((collection) => {
+                        const productCount = collection._count?.products ?? 0;
+                        const isSelected = selectedCollectionSet.has(collection.id);
+                        const conditionLabel = collection.description || collection.imageUrl ? "Curated" : "Manual";
+                        const conditionNote =
+                          collection.description || "No merchandising notes yet. This collection is manually maintained.";
+
+                        return (
+                          <TableRow
+                            key={collection.id}
+                            className={cn(
+                              "group cursor-pointer transition hover:bg-primary/5",
+                              isSelected && "bg-primary/5"
+                            )}
+                            data-state={isSelected ? "selected" : undefined}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => openCollectionDialog(collection)}
+                            onKeyDown={(event) => {
+                              if (event.key === "Enter" || event.key === " ") {
+                                event.preventDefault();
+                                openCollectionDialog(collection);
+                              }
+                            }}
                           >
-                            Remove
-                          </Button>
+                            <TableCell className="px-3 py-4">
+                              <div
+                                className="flex items-center justify-center"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <Checkbox
+                                  aria-label={`Select ${collection.name}`}
+                                  checked={isSelected}
+                                  onCheckedChange={(checked) => toggleCollectionSelection(collection.id, checked)}
+                                  disabled={loading}
+                                />
+                              </div>
+                            </TableCell>
+                            <TableCell className="px-5 py-4">
+                              <div className="flex min-w-0 items-center gap-3">
+                                <div className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-border/60 bg-muted/20">
+                                  {collection.imageUrl ? (
+                                    <img
+                                      src={collection.imageUrl}
+                                      alt={collection.name}
+                                      className="h-full w-full object-cover"
+                                    />
+                                  ) : (
+                                    <div className="flex h-full w-full items-center justify-center bg-primary/10 text-primary">
+                                      <Layers className="h-4 w-4" />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm font-semibold text-foreground">{collection.name}</p>
+                                  <p className="truncate text-xs text-muted-foreground">{collection.slug}</p>
+                                  <p className="text-[11px] uppercase tracking-wide text-muted-foreground">
+                                    Updated {formatCollectionDate(collection.updatedAt)}
+                                  </p>
+                                </div>
+                              </div>
+                            </TableCell>
+                            <TableCell className="px-5 py-4">
+                              <div className="flex flex-col items-start">
+                                <span className="text-base font-semibold text-foreground">{productCount}</span>
+                                <span className="text-xs text-muted-foreground">products</span>
+                              </div>
+                            </TableCell>
+                            <TableCell className="px-5 py-4 whitespace-normal">
+                              <div className="space-y-2">
+                                <Badge
+                                  variant="outline"
+                                  className="rounded-full border-[var(--secondary-200)] bg-white px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-primary/70"
+                                >
+                                  {conditionLabel}
+                                </Badge>
+                                <p className="text-sm leading-6 text-muted-foreground">{conditionNote}</p>
+                              </div>
+                            </TableCell>
+                            <TableCell className="px-5 py-4 text-right">
+                              <div
+                                className="flex justify-end"
+                                onClick={(event) => event.stopPropagation()}
+                              >
+                                <DropdownMenu>
+                                  <DropdownMenuTrigger asChild>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      className="h-8 w-8 rounded-full border-border/60 bg-white p-0 text-foreground shadow-none hover:bg-muted/40"
+                                      aria-label={`Actions for ${collection.name}`}
+                                    >
+                                      <MoreHorizontal className="h-4 w-4" />
+                                    </Button>
+                                  </DropdownMenuTrigger>
+                                  <DropdownMenuContent align="end" className="w-56 rounded-2xl border-border/60">
+                                    <DropdownMenuItem onSelect={() => openCollectionDialog(collection)}>
+                                      <PencilLine className="h-4 w-4" />
+                                      Edit collection
+                                    </DropdownMenuItem>
+                                    <DropdownMenuSeparator />
+                                    <DropdownMenuItem variant="destructive" onSelect={() => void deleteCollection(collection)}>
+                                      <Trash2 className="h-4 w-4" />
+                                      Remove collection
+                                    </DropdownMenuItem>
+                                  </DropdownMenuContent>
+                                </DropdownMenu>
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })
+                    ) : (
+                      <TableRow>
+                        <TableCell colSpan={5} className="p-0">
+                          <div className="flex flex-col items-center justify-center gap-4 px-8 py-16 text-center">
+                            <div className="flex size-14 items-center justify-center rounded-3xl border border-border/60 bg-primary/10 text-primary">
+                              <Layers className="h-5 w-5" />
+                            </div>
+                            <div className="space-y-2">
+                              <h4 className="text-base font-semibold text-foreground">
+                                {collections.length ? "No collections match your filters" : "No collections yet"}
+                              </h4>
+                              <p className="max-w-xl text-sm leading-6 text-muted-foreground">
+                                {collections.length
+                                  ? "Try a different search term or clear the filter to reveal more collections."
+                                  : "Create your first collection to group products, curate campaigns, and keep merchandising organised."}
+                              </p>
+                            </div>
+                            <div className="flex flex-wrap items-center justify-center gap-2">
+                              {collections.length > 0 && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="rounded-full"
+                                  onClick={() => {
+                                    setCollectionFilter("all");
+                                    setCollectionSearch("");
+                                  }}
+                                >
+                                  Clear filters
+                                </Button>
+                              )}
+                              <Button
+                                type="button"
+                                className="rounded-full bg-primary px-4 text-primary-foreground"
+                                onClick={() => openCollectionDialog()}
+                              >
+                                <Plus className="mr-2 h-3.5 w-3.5" />
+                                Add collection
+                              </Button>
+                            </div>
+                          </div>
                         </TableCell>
                       </TableRow>
-                    ))
-                  ) : (
-                    <TableRow>
-                      <TableCell
-                        colSpan={3}
-                        className="py-8 text-center text-sm text-muted-foreground"
-                      >
-                        No collections have been created yet.
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
-            </ScrollArea>
+                    )}
+                  </TableBody>
+                </Table>
+              </ScrollArea>
+            </div>
           </TabsContent>
 
           <TabsContent value="shades">
@@ -719,7 +1167,8 @@ export function ManagementPanel({
 
       <CollectionDialog
         open={collectionDialogOpen}
-        onClose={setCollectionDialogOpen}
+        collection={editingCollection}
+        onClose={closeCollectionDialog}
         request={request}
         refresh={refresh}
       />
@@ -753,7 +1202,7 @@ export function ManagementPanel({
   );
 }
 
-function CollectionDialog({ open, onClose, request, refresh }) {
+function CollectionDialog({ open, onClose, request, refresh, collection }) {
   const { register, handleSubmit, watch, setValue, reset } = useForm({
     defaultValues: {
       name: "",
@@ -765,6 +1214,7 @@ function CollectionDialog({ open, onClose, request, refresh }) {
 
   const [manualSlug, setManualSlug] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const isEditing = Boolean(collection?.id);
 
   const nameValue = watch("name");
 
@@ -775,38 +1225,51 @@ function CollectionDialog({ open, onClose, request, refresh }) {
   }, [manualSlug, nameValue, setValue]);
 
   useEffect(() => {
-    if (!open) {
-      reset();
-      setManualSlug(false);
+    if (open) {
+      reset({
+        name: collection?.name ?? "",
+        slug: collection?.slug ?? "",
+        description: collection?.description ?? "",
+        imageUrl: collection?.imageUrl ?? "",
+      });
+      setManualSlug(Boolean(collection?.id));
       setSubmitting(false);
+      return;
     }
-  }, [open, reset]);
+
+    reset();
+    setManualSlug(false);
+    setSubmitting(false);
+  }, [collection, open, reset]);
 
   const onSubmit = async (values) => {
     setSubmitting(true);
     try {
-      const response = await request(`${API_BASE}/collections`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: values.name,
-          slug: values.slug,
-          description: values.description || null,
-          imageUrl: values.imageUrl || null,
-        }),
-      });
+      const response = await request(
+        isEditing ? `${API_BASE}/collections/${collection?.id}` : `${API_BASE}/collections`,
+        {
+          method: isEditing ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: values.name,
+            slug: values.slug,
+            description: values.description || null,
+            imageUrl: values.imageUrl || null,
+          }),
+        }
+      );
 
       if (!response.ok) {
         const body = await response.json().catch(() => null);
-        throw new Error(body?.message || "Failed to create collection");
+        throw new Error(body?.message || `Failed to ${isEditing ? "update" : "create"} collection`);
       }
 
-      toast.success("Collection created");
+      toast.success(isEditing ? "Collection updated" : "Collection created");
       refresh?.();
       onClose(false);
     } catch (error) {
       console.error(error);
-      toast.error(error.message || "Unable to create collection");
+      toast.error(error.message || `Unable to ${isEditing ? "update" : "create"} collection`);
     } finally {
       setSubmitting(false);
     }
@@ -816,9 +1279,11 @@ function CollectionDialog({ open, onClose, request, refresh }) {
     <Dialog open={open} onOpenChange={onClose}>
       <DialogContent className="max-w-md">
         <DialogHeader>
-          <DialogTitle>Create collection</DialogTitle>
+          <DialogTitle>{isEditing ? "Edit collection" : "Create collection"}</DialogTitle>
           <DialogDescription>
-            Collections help group products together for merchandising.
+            {isEditing
+              ? "Update the collection name, slug, and merchandising notes."
+              : "Collections help group products together for merchandising."}
           </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
@@ -836,7 +1301,15 @@ function CollectionDialog({ open, onClose, request, refresh }) {
               <button
                 type="button"
                 className="text-xs font-semibold text-primary"
-                onClick={() => setManualSlug((value) => !value)}
+                onClick={() =>
+                  setManualSlug((value) => {
+                    const next = !value;
+                    if (!next) {
+                      setValue("slug", slugify(watch("name")));
+                    }
+                    return next;
+                  })
+                }
               >
                 {manualSlug ? "Auto-generate" : "Edit manually"}
               </button>
@@ -877,7 +1350,7 @@ function CollectionDialog({ open, onClose, request, refresh }) {
               Cancel
             </Button>
             <Button type="submit" disabled={submitting}>
-              {submitting ? "Saving..." : "Create collection"}
+              {submitting ? "Saving..." : isEditing ? "Save changes" : "Create collection"}
             </Button>
           </div>
         </form>

@@ -85,7 +85,7 @@ const data = {
       items: [
         {
           title: "Collections",
-          href: "/dashboard/products#collections",
+          href: "/dashboard/products/collections",
         },
         {
           title: "Inventory",

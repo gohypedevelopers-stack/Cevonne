@@ -3,7 +3,8 @@ import path from "node:path";
 import crypto from "node:crypto";
 
 import { env } from "@/server/config/env";
-import { UPLOAD_MAX_BYTES, UPLOADS_DIR, ensureUploadsDir } from "@/server/config/upload";
+import { COLLECTION_VIDEO_MAX_BYTES, UPLOAD_MAX_BYTES, UPLOADS_DIR, ensureUploadsDir } from "@/server/config/upload";
+import { deleteFileFromR2, hasR2Storage, inferMediaKind, uploadFileToR2 } from "@/server/services/r2";
 import { jsonResponse, methodNotAllowed } from "../route-utils";
 
 const uploadsDisabledResponse = () =>
@@ -24,7 +25,7 @@ const fileDeleteDisabledResponse = () =>
     501
   );
 
-const isUploadRuntimeDisabled = () => env.isVercel || Boolean(process.env.VERCEL);
+const isUploadRuntimeDisabled = () => !hasR2Storage() && (env.isVercel || Boolean(process.env.VERCEL));
 
 const createUploadFilename = (originalName: string) => {
   const ext = path.extname(originalName);
@@ -34,6 +35,7 @@ const createUploadFilename = (originalName: string) => {
 
 export const dispatchUploadsRoute = async (request: Request, segments: string[] = []) => {
   const [filename] = segments;
+  const useR2 = hasR2Storage();
 
   if (isUploadRuntimeDisabled()) {
     if (request.method === "POST") {
@@ -51,14 +53,33 @@ export const dispatchUploadsRoute = async (request: Request, segments: string[] 
     }
 
     const formData = await request.formData();
-    const rawFile = formData.get("image");
+    const rawFile = formData.get("image") || formData.get("file");
 
     if (!(rawFile instanceof File)) {
       return jsonResponse({ message: "No file uploaded" }, 400);
     }
 
-    if (rawFile.size > UPLOAD_MAX_BYTES) {
+    const kind = String(formData.get("kind") || inferMediaKind(rawFile)).toUpperCase();
+    const maxBytes = kind === "VIDEO" ? COLLECTION_VIDEO_MAX_BYTES : UPLOAD_MAX_BYTES;
+
+    if (rawFile.size > maxBytes) {
       return jsonResponse({ message: "File too large" }, 413);
+    }
+
+    if (useR2) {
+      const asset = await uploadFileToR2(rawFile);
+      return jsonResponse(
+        {
+          url: asset.url,
+          storageKey: asset.storageKey,
+          filename: asset.storageKey,
+          originalName: asset.originalName,
+          size: asset.size,
+          mimeType: asset.mimeType,
+          kind: asset.kind,
+        },
+        201
+      );
     }
 
     await ensureUploadsDir();
@@ -71,9 +92,12 @@ export const dispatchUploadsRoute = async (request: Request, segments: string[] 
     return jsonResponse(
       {
         url: `/uploads/${safeName}`,
+        storageKey: safeName,
         filename: safeName,
         originalName: rawFile.name,
         size: rawFile.size,
+        mimeType: rawFile.type,
+        kind,
       },
       201
     );
@@ -84,6 +108,12 @@ export const dispatchUploadsRoute = async (request: Request, segments: string[] 
   }
 
   const safeFilename = path.basename(decodeURIComponent(filename));
+
+  if (useR2) {
+    await deleteFileFromR2(safeFilename);
+    return new Response(null, { status: 204 });
+  }
+
   const filePath = path.join(UPLOADS_DIR, safeFilename);
 
   try {

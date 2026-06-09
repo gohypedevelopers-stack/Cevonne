@@ -6,6 +6,22 @@ export interface ProductCollection {
   imageUrl?: string | null;
   createdAt?: Date | string;
   updatedAt?: Date | string;
+  media?: CollectionMedia[];
+}
+
+export interface CollectionMedia {
+  id: string;
+  collectionId?: string;
+  kind: "IMAGE" | "VIDEO";
+  url: string;
+  storageKey: string;
+  mimeType?: string | null;
+  fileName?: string | null;
+  size?: number | null;
+  alt?: string | null;
+  sortOrder?: number;
+  createdAt?: Date | string;
+  updatedAt?: Date | string;
 }
 
 export interface ProductImage {

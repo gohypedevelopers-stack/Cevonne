@@ -32,6 +32,7 @@ model Collection {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   products    Product[]
+  media       CollectionMedia[]
 }
 
 model Product {
@@ -71,6 +72,29 @@ model ProductImage {
   createdAt DateTime @default(now())
   alt       String?
   product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+}
+
+enum CollectionMediaKind {
+  IMAGE
+  VIDEO
+}
+
+model CollectionMedia {
+  id           String              @id @default(cuid())
+  collectionId String
+  kind         CollectionMediaKind  @default(IMAGE)
+  url          String
+  storageKey   String              @unique
+  mimeType     String?
+  fileName     String?
+  size         Int?
+  alt          String?
+  sortOrder    Int                 @default(0)
+  createdAt    DateTime            @default(now())
+  updatedAt    DateTime            @updatedAt
+  collection   Collection          @relation(fields: [collectionId], references: [id], onDelete: Cascade)
+
+  @@index([collectionId, sortOrder])
 }
 
 model Shade {

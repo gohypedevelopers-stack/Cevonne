@@ -644,135 +644,135 @@ export default function ProductOverview() {
                     <TableHeader>
                       {selectedCount > 0 ? (
                         <TableRow className="bg-muted/10 hover:bg-muted/10">
-                          <TableHead className="h-12 p-0" colSpan={5}>
-                            <div className="grid h-full grid-cols-[5%_47%_17%_13%_18%] items-center bg-muted/20 px-5">
-                              <div className="flex items-center justify-center">
-                                <Checkbox
-                                  aria-label="Select all visible products"
-                                  title="Select all visible products"
-                                  checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
-                                  onCheckedChange={handleToggleVisibleSelection}
-                                  disabled={bulkDeleting || visibleProductIds.length === 0}
-                                />
-                              </div>
-
-                              <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="h-8 rounded-full border-border/70 bg-white px-3 text-xs font-medium text-foreground shadow-none hover:bg-muted/40"
-                                  onClick={() => handlePlaceholderBulkAction("Bulk edit")}
-                                  disabled={bulkDeleting}
-                                >
-                                  Bulk edit
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  className="h-8 rounded-full border-border/70 bg-white px-3 text-xs font-medium text-foreground shadow-none hover:bg-muted/40"
-                                  onClick={() => handlePlaceholderBulkAction("Set as draft")}
-                                  disabled={bulkDeleting}
-                                >
-                                  Set as draft
-                                </Button>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  className="h-8 rounded-full px-3 text-xs font-medium text-muted-foreground"
-                                  onClick={handleClearSelection}
-                                  disabled={bulkDeleting}
-                                >
-                                  Clear selection
-                                </Button>
-                                <DropdownMenu>
-                                  <DropdownMenuTrigger asChild>
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      className="h-8 w-8 rounded-full border-border/70 bg-white p-0 text-foreground shadow-none hover:bg-muted/40"
-                                      disabled={bulkDeleting}
-                                      aria-label="More bulk actions"
-                                    >
-                                      <MoreHorizontal className="h-4 w-4" />
-                                    </Button>
-                                  </DropdownMenuTrigger>
-                                  <DropdownMenuContent align="end" className="w-80 rounded-2xl border-border/60">
-                                    <DropdownMenuItem onSelect={() => handlePlaceholderBulkAction("Archive products")}>
-                                      <Archive className="h-4 w-4" />
-                                      Archive products
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onSelect={() => handlePlaceholderBulkAction("Unlist products")}>
-                                      <EyeOff className="h-4 w-4" />
-                                      Unlist products
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem variant="destructive" onSelect={() => void handleDeleteSelected()}>
-                                      <Trash2 className="h-4 w-4" />
-                                      Delete products
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem onSelect={() => handlePlaceholderBulkAction("Include in sales channels")}>
-                                      Include in sales channels
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onSelect={() => handlePlaceholderBulkAction("Exclude from sales channels")}>
-                                      Exclude from sales channels
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem onSelect={() => handlePlaceholderBulkAction("Include in catalogs")}>
-                                      Include in catalogs
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onSelect={() => handlePlaceholderBulkAction("Exclude from catalogs")}>
-                                      Exclude from catalogs
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem onSelect={() => handlePlaceholderBulkAction("Add tags")}>
-                                      <Tags className="h-4 w-4" />
-                                      Add tags
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onSelect={() => handlePlaceholderBulkAction("Remove tags")}>
-                                      <Tag className="h-4 w-4" />
-                                      Remove tags
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onSelect={() => handlePlaceholderBulkAction("Add to collection(s)")}>
-                                      <FolderPlus className="h-4 w-4" />
-                                      Add to collection(s)
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem onSelect={() => handlePlaceholderBulkAction("Remove from collection(s)")}>
-                                      <FolderMinus className="h-4 w-4" />
-                                      Remove from collection(s)
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuLabel className="px-2 pt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                                      Apps
-                                    </DropdownMenuLabel>
-                                    <DropdownMenuItem onSelect={() => handlePlaceholderBulkAction("Create email campaign")}>
-                                      <Mail className="h-4 w-4" />
-                                      Create email campaign
-                                    </DropdownMenuItem>
-                                  </DropdownMenuContent>
-                                </DropdownMenu>
-                              </div>
-
-                              <div aria-hidden="true" className="col-span-2" />
-
-                              <div className="justify-self-end">
-                                <div className="flex items-center gap-1 shrink-0">
-                                  <Switch
-                                    id="show-selected-only"
-                                    checked={showSelectedOnly}
-                                    onCheckedChange={setShowSelectedOnly}
-                                    disabled={selectedCount === 0 || bulkDeleting}
-                                    className="h-4 w-7 shrink-0"
-                                  />
-                                  <label
-                                    htmlFor="show-selected-only"
-                                    className={cn(
-                                      "cursor-pointer whitespace-nowrap text-sm font-medium leading-none text-foreground",
-                                      (selectedCount === 0 || bulkDeleting) && "cursor-not-allowed text-muted-foreground"
-                                    )}
+                          <TableHead className="h-12 px-3 py-2">
+                            <div className="flex items-center justify-center">
+                              <Checkbox
+                                aria-label="Select all visible products"
+                                title="Select all visible products"
+                                checked={allVisibleSelected ? true : someVisibleSelected ? "indeterminate" : false}
+                                onCheckedChange={handleToggleVisibleSelection}
+                                disabled={bulkDeleting || visibleProductIds.length === 0}
+                              />
+                            </div>
+                          </TableHead>
+                          <TableHead className="h-12 px-5 py-2">
+                            <div className="flex min-w-0 items-center gap-2 overflow-x-auto">
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-8 rounded-full border-border/70 bg-white px-3 text-xs font-medium text-foreground shadow-none hover:bg-muted/40"
+                                onClick={() => handlePlaceholderBulkAction("Bulk edit")}
+                                disabled={bulkDeleting}
+                              >
+                                Bulk edit
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-8 rounded-full border-border/70 bg-white px-3 text-xs font-medium text-foreground shadow-none hover:bg-muted/40"
+                                onClick={() => handlePlaceholderBulkAction("Set as draft")}
+                                disabled={bulkDeleting}
+                              >
+                                Set as draft
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                className="h-8 rounded-full px-3 text-xs font-medium text-muted-foreground"
+                                onClick={handleClearSelection}
+                                disabled={bulkDeleting}
+                              >
+                                Clear selection
+                              </Button>
+                              <DropdownMenu>
+                                <DropdownMenuTrigger asChild>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="h-8 w-8 rounded-full border-border/70 bg-white p-0 text-foreground shadow-none hover:bg-muted/40"
+                                    disabled={bulkDeleting}
+                                    aria-label="More bulk actions"
                                   >
-                                    Show all selected
-                                  </label>
-                                </div>
+                                    <MoreHorizontal className="h-4 w-4" />
+                                  </Button>
+                                </DropdownMenuTrigger>
+                                <DropdownMenuContent align="end" className="w-80 rounded-2xl border-border/60">
+                                  <DropdownMenuItem onSelect={() => handlePlaceholderBulkAction("Archive products")}>
+                                    <Archive className="h-4 w-4" />
+                                    Archive products
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onSelect={() => handlePlaceholderBulkAction("Unlist products")}>
+                                    <EyeOff className="h-4 w-4" />
+                                    Unlist products
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem variant="destructive" onSelect={() => void handleDeleteSelected()}>
+                                    <Trash2 className="h-4 w-4" />
+                                    Delete products
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem onSelect={() => handlePlaceholderBulkAction("Include in sales channels")}>
+                                    Include in sales channels
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onSelect={() => handlePlaceholderBulkAction("Exclude from sales channels")}>
+                                    Exclude from sales channels
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem onSelect={() => handlePlaceholderBulkAction("Include in catalogs")}>
+                                    Include in catalogs
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onSelect={() => handlePlaceholderBulkAction("Exclude from catalogs")}>
+                                    Exclude from catalogs
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuItem onSelect={() => handlePlaceholderBulkAction("Add tags")}>
+                                    <Tags className="h-4 w-4" />
+                                    Add tags
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onSelect={() => handlePlaceholderBulkAction("Remove tags")}>
+                                    <Tag className="h-4 w-4" />
+                                    Remove tags
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onSelect={() => handlePlaceholderBulkAction("Add to collection(s)")}>
+                                    <FolderPlus className="h-4 w-4" />
+                                    Add to collection(s)
+                                  </DropdownMenuItem>
+                                  <DropdownMenuItem onSelect={() => handlePlaceholderBulkAction("Remove from collection(s)")}>
+                                    <FolderMinus className="h-4 w-4" />
+                                    Remove from collection(s)
+                                  </DropdownMenuItem>
+                                  <DropdownMenuSeparator />
+                                  <DropdownMenuLabel className="px-2 pt-1 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                    Apps
+                                  </DropdownMenuLabel>
+                                  <DropdownMenuItem onSelect={() => handlePlaceholderBulkAction("Create email campaign")}>
+                                    <Mail className="h-4 w-4" />
+                                    Create email campaign
+                                  </DropdownMenuItem>
+                                </DropdownMenuContent>
+                              </DropdownMenu>
+                            </div>
+                          </TableHead>
+                          <TableHead className="h-12 px-5 py-2" aria-hidden="true" />
+                          <TableHead className="h-12 px-5 py-2" aria-hidden="true" />
+                          <TableHead className="h-12 px-5 py-2">
+                            <div className="flex items-center justify-end">
+                              <div className="flex items-center gap-1 shrink-0">
+                                <Switch
+                                  id="show-selected-only"
+                                  checked={showSelectedOnly}
+                                  onCheckedChange={setShowSelectedOnly}
+                                  disabled={selectedCount === 0 || bulkDeleting}
+                                  className="h-4 w-7 shrink-0"
+                                />
+                                <label
+                                  htmlFor="show-selected-only"
+                                  className={cn(
+                                    "cursor-pointer whitespace-nowrap text-sm font-medium leading-none text-foreground",
+                                    (selectedCount === 0 || bulkDeleting) && "cursor-not-allowed text-muted-foreground"
+                                  )}
+                                >
+                                  Show all selected
+                                </label>
                               </div>
                             </div>
                           </TableHead>

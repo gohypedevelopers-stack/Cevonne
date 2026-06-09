@@ -14,6 +14,7 @@ type DialogPortalProps = React.ComponentPropsWithoutRef<typeof DialogPrimitive.P
 type DialogOverlayProps = React.ComponentPropsWithoutRef<typeof DialogPrimitive.Overlay>;
 type DialogContentProps = React.ComponentPropsWithoutRef<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean;
+  overlayClassName?: string;
 };
 type DialogHeaderProps = React.ComponentPropsWithoutRef<"div">;
 type DialogFooterProps = React.ComponentPropsWithoutRef<"div">;
@@ -44,10 +45,13 @@ const DialogOverlay = React.forwardRef<
 const DialogContent = React.forwardRef<
   React.ElementRef<typeof DialogPrimitive.Content>,
   DialogContentProps
->(function DialogContent({ className, children, showCloseButton = true, ...props }, ref) {
+>(function DialogContent(
+  { className, children, overlayClassName, showCloseButton = true, ...props },
+  ref,
+) {
   return (
     <DialogPortal>
-      <DialogOverlay />
+      <DialogOverlay className={overlayClassName} />
       <DialogPrimitive.Content
         ref={ref}
         data-slot="dialog-content"
