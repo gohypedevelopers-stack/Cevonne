@@ -10,7 +10,9 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/context/AuthContext";
+import { cn } from "@/lib/utils";
 import {
   FALLBACK_OVERVIEW,
   formatRelativeTime,
@@ -19,6 +21,7 @@ import {
   type N8nWorkflowCard,
 } from "@/components/admin-dashboard/n8n-automations-common";
 import { CevonneWorkflowGroup } from "@/lib/cevonne/admin-model";
+import { WF1_WORKFLOW_ROUTE, type Wf1DetailResponse, getWf1ToneClass } from "@/lib/wf1";
 
 const buildRouteUrl = (path: string) => new URL(path.startsWith("/") ? path : `/${path}`, window.location.origin).toString();
 
@@ -163,7 +166,9 @@ export default function N8nAutomationsOverview() {
   const request = authFetch ?? defaultRequest;
 
   const [overview, setOverview] = useState<N8nOverviewResponse>(FALLBACK_OVERVIEW);
+  const [wf1Detail, setWf1Detail] = useState<Wf1DetailResponse | null>(null);
   const [loading, setLoading] = useState(true);
+  const [wf1Loading, setWf1Loading] = useState(true);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -192,10 +197,35 @@ export default function N8nAutomationsOverview() {
     void loadOverview();
   }, [loadOverview]);
 
+  const loadWf1 = useCallback(async () => {
+    setWf1Loading(true);
+
+    try {
+      const response = await request(buildRouteUrl("/api/admin/workflows/wf1"));
+      const body = (await response.json().catch(() => null)) as Wf1DetailResponse | null;
+
+      if (body?.workflow) {
+        setWf1Detail(body);
+      } else {
+        setWf1Detail(null);
+      }
+    } catch (error) {
+      console.error("Failed to load WF1 summary", error);
+      setWf1Detail(null);
+    } finally {
+      setWf1Loading(false);
+    }
+  }, [request]);
+
+  useEffect(() => {
+    void loadWf1();
+  }, [loadWf1]);
+
   const workflows = overview.workflows || FALLBACK_OVERVIEW.workflows;
+  const wf1Workflow = wf1Detail?.workflow || null;
   const latestWorkflow = useMemo(() => getLatestWorkflow(workflows), [workflows]);
   const summaryMetrics = useMemo(() => {
-    return workflows.reduce(
+    const combinedMetrics = workflows.reduce(
       (acc, workflow) => {
         const status = getClientStatus(workflow);
 
@@ -218,14 +248,30 @@ export default function N8nAutomationsOverview() {
         waiting: 0,
       },
     );
-  }, [workflows]);
+
+    if (wf1Workflow) {
+      if (wf1Workflow.status === "Working" || wf1Workflow.status === "Passed" || wf1Workflow.status === "Approved" || wf1Workflow.status === "Safe") {
+        combinedMetrics.working += 1;
+      } else if (wf1Workflow.status === "Needs review") {
+        combinedMetrics.needsReview += 1;
+      } else if (wf1Workflow.status === "Blocked" || wf1Workflow.status === "Failed" || wf1Workflow.status === "System error") {
+        combinedMetrics.blocked += 1;
+      } else {
+        combinedMetrics.waiting += 1;
+      }
+    }
+
+    return combinedMetrics;
+  }, [wf1Workflow, workflows]);
+
+  const totalWorkflowCount = workflows.length + (wf1Workflow ? 1 : 0);
 
   const summaryCards = useMemo(
     () => [
       {
         label: "Total workflows",
-        value: workflows.length,
-        helper: "G1 through G11",
+        value: totalWorkflowCount,
+        helper: wf1Workflow ? "G1 through G11 plus WF1" : "G1 through G11",
         icon: <Workflow className="h-5 w-5 text-primary" />,
       },
       {
@@ -259,7 +305,7 @@ export default function N8nAutomationsOverview() {
         icon: <TimerReset className="h-5 w-5 text-cyan-600" />,
       },
     ],
-    [latestWorkflow, summaryMetrics.working, summaryMetrics.needsReview, summaryMetrics.blocked, summaryMetrics.waiting, workflows.length],
+    [latestWorkflow, summaryMetrics.working, summaryMetrics.needsReview, summaryMetrics.blocked, summaryMetrics.waiting, totalWorkflowCount, wf1Workflow],
   );
 
   return (
@@ -331,6 +377,73 @@ export default function N8nAutomationsOverview() {
                 </div>
 
                 <div className="grid w-full gap-4 [grid-template-columns:repeat(auto-fit,minmax(260px,1fr))]">
+                  {wf1Loading ? (
+                    <Card className="border border-violet-200/70 bg-white/95 shadow-[0_18px_50px_rgba(88,57,173,0.10)]">
+                      <CardHeader className="space-y-3">
+                        <Skeleton className="h-4 w-20 rounded-full" />
+                        <Skeleton className="h-6 w-56" />
+                        <Skeleton className="h-4 w-full" />
+                        <div className="space-y-3 rounded-2xl border border-border/60 bg-muted/20 p-4">
+                          <Skeleton className="h-4 w-full" />
+                          <Skeleton className="h-4 w-full" />
+                          <Skeleton className="h-4 w-full" />
+                          <Skeleton className="h-4 w-full" />
+                        </div>
+                      </CardHeader>
+                      <CardContent>
+                        <Skeleton className="h-10 w-full rounded-full" />
+                      </CardContent>
+                    </Card>
+                  ) : wf1Workflow ? (
+                    <Card className="border border-violet-200/70 bg-white/95 shadow-[0_18px_50px_rgba(88,57,173,0.10)] transition-transform duration-200 hover:-translate-y-0.5">
+                      <CardHeader className="space-y-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="space-y-2">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Badge className="rounded-full bg-violet-100 text-violet-800 hover:bg-violet-100">WF1</Badge>
+                              <Badge className="rounded-full bg-emerald-100 text-emerald-800 hover:bg-emerald-100">Instagram</Badge>
+                            </div>
+                            <CardTitle className="text-lg text-primary">WF1 - Instagram Scheduler</CardTitle>
+                            <CardDescription>Schedules approved Instagram content safely after review, approval, and compliance checks.</CardDescription>
+                          </div>
+                          <Badge className={cn("rounded-full border", getWf1ToneClass(wf1Workflow.status))}>{wf1Workflow.status}</Badge>
+                        </div>
+                          <div className="space-y-3 rounded-2xl border border-border/60 bg-muted/20 p-4">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">Attention</span>
+                            <span className={`text-sm font-medium ${wf1Workflow.attentionMessage.includes("No action needed") ? "text-emerald-700" : "text-amber-700"}`}>
+                              {wf1Workflow.attentionMessage}
+                            </span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">Last activity</span>
+                            <span className="text-sm font-medium text-foreground">{wf1Workflow.lastActivity}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">Next post</span>
+                            <span className="text-sm font-medium text-foreground">{wf1Workflow.nextScheduledPost}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">Buffer</span>
+                            <span className="text-sm font-medium text-foreground">{wf1Workflow.bufferHealth}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">Approval status</span>
+                            <span className="text-sm font-medium text-foreground">{wf1Workflow.approvalStatus}</span>
+                          </div>
+                        </div>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        <Button asChild className="w-full rounded-full">
+                          <Link href={WF1_WORKFLOW_ROUTE}>
+                            View details
+                            <ArrowRight className="ml-2 h-4 w-4" />
+                          </Link>
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  ) : null}
+
                   {(loading ? FALLBACK_OVERVIEW.workflows : workflows).map((workflow: N8nWorkflowCard) => {
                     const tone = statusToneClasses[workflow.status];
                     const copy = getClientWorkflowCopy(workflow);

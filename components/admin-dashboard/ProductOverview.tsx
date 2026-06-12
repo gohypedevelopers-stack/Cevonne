@@ -561,7 +561,7 @@ export default function ProductOverview() {
                 </div>
               </div>
 
-              <div className={dashboardSurfaceClass}>
+              <div id="inventory" className={`${dashboardSurfaceClass} scroll-mt-24`}>
                 <div className="flex flex-col gap-3 border-b border-border/60 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
                   <div>
                     <p className="text-lg font-semibold text-foreground">All products</p>

@@ -1,10 +1,4 @@
-"use client";
-
-import dynamic from "next/dynamic";
-
-const CollectionsPage = dynamic(() => import("@/components/admin-dashboard/CollectionsPage"), {
-  ssr: false,
-});
+import CollectionsPage from "@/components/admin-dashboard/CollectionsPage";
 
 export default function Page() {
   return <CollectionsPage />;

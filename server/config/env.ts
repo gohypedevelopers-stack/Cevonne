@@ -53,6 +53,13 @@ export const env = Object.freeze({
   cevonneN8nWeeklyDigestUrl: process.env.N8N_G11_WEEKLY_DIGEST_URL || "",
   cevonneN8nDecisionRecommendationUrl: process.env.N8N_G11_DECISION_RECOMMENDATION_URL || "",
   cevonneN8nDraftActionPacketUrl: process.env.N8N_G11_DRAFT_ACTION_PACKET_URL || "",
+  n8nBaseUrl: normalizeOriginUrl(process.env.N8N_BASE_URL || "https://n8n.cevonne.com/webhook"),
+  n8nWebhookSecret: process.env.N8N_WEBHOOK_SECRET || process.env.N8N_WEBHOOK_SHARED_SECRET || "",
+  n8nWf1IntakePath: process.env.N8N_WF1_INTAKE_PATH || "wf1-caption-intake",
+  n8nWf1DryRunPath: process.env.N8N_WF1_DRY_RUN_PATH || "wf1-schedule-dry-run",
+  n8nWf1PublishResultPath: process.env.N8N_WF1_PUBLISH_RESULT_PATH || "wf1-publish-result",
+  n8nWf1BufferHealthPath: process.env.N8N_WF1_BUFFER_HEALTH_PATH || "wf1-buffer-health",
+  n8nG5ApprovalDecisionPath: process.env.N8N_G5_APPROVAL_DECISION_PATH || "g5-approval-decision",
   isProduction: process.env.NODE_ENV === "production",
   isVercel: toBoolean(process.env.VERCEL, false),
 });

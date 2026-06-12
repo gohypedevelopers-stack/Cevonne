@@ -34,6 +34,7 @@ type NavItem = {
   match?: string[]
   exactMatch?: boolean
   items?: NavSubItem[]
+  isActive?: (pathname: string, hash: string) => boolean
 }
 
 function pathMatches(pathname: string, candidate: string, exactMatch = false) {
@@ -45,9 +46,14 @@ function pathMatches(pathname: string, candidate: string, exactMatch = false) {
 
 export function NavMain({ items }: { items: NavItem[] }) {
   const pathname = usePathname()
+  const [hash, setHash] = React.useState("")
   const [openSections, setOpenSections] = React.useState<Record<string, boolean>>({})
 
   React.useEffect(() => {
+    const updateHash = () => setHash(window.location.hash.slice(1))
+    updateHash()
+    window.addEventListener("hashchange", updateHash)
+
     setOpenSections((current) => {
       const next = { ...current }
 
@@ -65,7 +71,16 @@ export function NavMain({ items }: { items: NavItem[] }) {
 
       return next
     })
+
+    return () => window.removeEventListener("hashchange", updateHash)
   }, [items, pathname])
+
+  const resolveIsActive = React.useCallback(
+    (item: NavItem) =>
+      item.isActive?.(pathname, hash) ??
+      item.match?.some((candidate) => pathMatches(pathname, candidate, item.exactMatch)),
+    [hash, pathname]
+  )
 
   return (
     <SidebarGroup>
@@ -73,9 +88,7 @@ export function NavMain({ items }: { items: NavItem[] }) {
       <SidebarMenu>
         {items.map((item) => {
           const hasChildren = Boolean(item.items?.length)
-          const isActive = item.match?.some((candidate) =>
-            pathMatches(pathname, candidate, item.exactMatch)
-          )
+          const isActive = resolveIsActive(item)
           const isOpen = hasChildren ? openSections[item.title] ?? Boolean(isActive) : false
 
           const buttonContent = (

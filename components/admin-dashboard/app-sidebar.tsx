@@ -3,18 +3,14 @@
 import * as React from "react"
 import {
   AudioWaveform,
-  BadgePercent,
-  BarChart3,
+  Boxes,
   Command,
-  FileText,
   GalleryVerticalEnd,
-  Globe,
   House,
-  Megaphone,
+  Layers3,
   Package,
   ShoppingCart,
   Wand2,
-  Users2,
 } from "lucide-react"
 
 import { NavMain } from "@/components/admin-dashboard/nav-main"
@@ -65,81 +61,38 @@ const data = {
       href: "/dashboard/orders",
       icon: ShoppingCart,
       badge: 2,
+      exactMatch: true,
       match: ["/dashboard/orders"],
-      items: [
-        {
-          title: "Drafts",
-          href: "/dashboard/orders#drafts",
-        },
-        {
-          title: "Abandoned checkouts",
-          href: "/dashboard/orders#abandoned-checkouts",
-        },
-      ],
     },
     {
       title: "Products",
       href: "/dashboard/products",
       icon: Package,
-      match: ["/dashboard/products"],
-      items: [
-        {
-          title: "Collections",
-          href: "/dashboard/products/collections",
-        },
-        {
-          title: "Inventory",
-          href: "/dashboard/products#inventory",
-        },
-        {
-          title: "Purchase orders",
-          href: "/dashboard/products#purchase-orders",
-        },
-        {
-          title: "Transfers",
-          href: "/dashboard/products#transfers",
-        },
-        {
-          title: "Gift cards",
-          href: "/dashboard/products#gift-cards",
-        },
-      ],
+      isActive: (pathname, hash) =>
+        (pathname === "/dashboard/products" ||
+          pathname === "/dashboard/products/new" ||
+          /^\/dashboard\/products\/[^/]+\/edit$/.test(pathname)) &&
+        hash !== "inventory",
+    },
+    {
+      title: "Collections",
+      href: "/dashboard/products/collections",
+      icon: Layers3,
+      exactMatch: true,
+      isActive: (pathname) => pathname === "/dashboard/products/collections",
+    },
+    {
+      title: "Inventory",
+      href: "/dashboard/products#inventory",
+      icon: Boxes,
+      exactMatch: true,
+      isActive: (pathname, hash) => pathname === "/dashboard/products" && hash === "inventory",
     },
     {
       title: "N8N Automations",
       href: "/dashboard/n8n-automations",
       icon: Wand2,
       match: ["/dashboard/n8n-automations"],
-    },
-    {
-      title: "Customers",
-      href: "/dashboard#customers",
-      icon: Users2,
-    },
-    {
-      title: "Marketing",
-      href: "/dashboard#marketing",
-      icon: Megaphone,
-    },
-    {
-      title: "Discounts",
-      href: "/dashboard#discounts",
-      icon: BadgePercent,
-    },
-    {
-      title: "Content",
-      href: "/dashboard#content",
-      icon: FileText,
-    },
-    {
-      title: "Markets",
-      href: "/dashboard#markets",
-      icon: Globe,
-    },
-    {
-      title: "Analytics",
-      href: "/dashboard#analytics",
-      icon: BarChart3,
     },
   ],
 }
