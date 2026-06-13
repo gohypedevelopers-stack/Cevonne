@@ -2,8 +2,8 @@
 
 import dynamic from "next/dynamic";
 
-const ProductOverview = dynamic(() => import("@/components/admin-dashboard/ProductOverview"), { ssr: false });
+const ProductsPage = dynamic(() => import("@/components/admin-dashboard/ProductsPage"), { ssr: false });
 
 export default function Page() {
-  return <ProductOverview />;
+  return <ProductsPage />;
 }

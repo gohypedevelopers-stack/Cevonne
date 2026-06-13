@@ -1,21 +1,11 @@
 "use client"
 
 import * as React from "react"
-import {
-  AudioWaveform,
-  Boxes,
-  Command,
-  GalleryVerticalEnd,
-  House,
-  Layers3,
-  Package,
-  ShoppingCart,
-  Wand2,
-} from "lucide-react"
+import Image from "next/image"
+import { Boxes, House, Layers3, Package, ShoppingCart, Wand2 } from "lucide-react"
 
 import { NavMain } from "@/components/admin-dashboard/nav-main"
 import { NavUser } from "@/components/admin-dashboard/nav-user"
-import { TeamSwitcher } from "@/components/admin-dashboard/team-switcher"
 import {
   Sidebar,
   SidebarContent,
@@ -31,26 +21,9 @@ const data = {
     email: "admin@cevonne.com",
     avatar: "/logo.svg",
   },
-  teams: [
-    {
-      name: "Cevonne Admin",
-      logo: GalleryVerticalEnd,
-      plan: "Enterprise",
-    },
-    {
-      name: "Merchandising",
-      logo: AudioWaveform,
-      plan: "Catalog",
-    },
-    {
-      name: "Automation",
-      logo: Command,
-      plan: "AI workflows",
-    },
-  ],
   navMain: [
     {
-      title: "Home",
+      title: "Dashboard",
       href: "/dashboard",
       icon: House,
       match: ["/dashboard"],
@@ -111,8 +84,18 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   return (
     <Sidebar collapsible="icon" {...props}>
-      <SidebarHeader>
-        <TeamSwitcher teams={data.teams} />
+      <SidebarHeader className="px-2 pt-3">
+        <div className="rounded-[24px] border border-sidebar-border/70 bg-sidebar-accent/30 px-3 py-3 shadow-sm transition-colors group-data-[collapsible=icon]:px-2">
+          <div className="flex items-center gap-3 group-data-[collapsible=icon]:justify-center">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl border border-sidebar-border/60 bg-sidebar-primary text-sidebar-primary-foreground shadow-sm">
+              <Image src="/logo.svg" alt="Cevonne" width={28} height={28} className="size-7 object-contain" priority />
+            </div>
+            <div className="min-w-0 group-data-[collapsible=icon]:hidden">
+              <p className="truncate text-sm font-semibold text-sidebar-foreground">Cevonne Admin</p>
+              <p className="truncate text-xs text-sidebar-foreground/70">Enterprise</p>
+            </div>
+          </div>
+        </div>
       </SidebarHeader>
       <SidebarContent
         onClickCapture={handleNavClick}
@@ -120,7 +103,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       >
         <NavMain items={data.navMain} />
       </SidebarContent>
-      <SidebarFooter>
+      <SidebarFooter className="border-t border-sidebar-border/70 px-2 pb-3 pt-3">
         <NavUser user={data.user} />
       </SidebarFooter>
       <SidebarRail />
