@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Image from "next/image"
-import { Boxes, House, Layers3, Package, ShoppingCart, Wand2 } from "lucide-react"
+import { Boxes, House, Layers3, Package, ShoppingCart, Users, Wand2 } from "lucide-react"
 
 import { NavMain } from "@/components/admin-dashboard/nav-main"
 import { NavUser } from "@/components/admin-dashboard/nav-user"
@@ -60,6 +60,13 @@ const data = {
       icon: Boxes,
       exactMatch: true,
       isActive: (pathname) => pathname === "/dashboard/inventory",
+    },
+    {
+      title: "Users",
+      href: "/dashboard/users",
+      icon: Users,
+      exactMatch: true,
+      isActive: (pathname) => pathname === "/dashboard/users",
     },
     {
       title: "N8N Automations",
