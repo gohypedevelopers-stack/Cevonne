@@ -1,3 +1,6 @@
+"use client";
+
+import { useNavigate } from "@/lib/router";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -35,6 +38,8 @@ type QuickAction = {
 };
 
 export function QuickActionsPanel({ onCreateProduct, onRefresh, stats }: QuickActionsPanelProps) {
+    const navigate = useNavigate();
+
     const quickActions = [
         {
             icon: Plus,
@@ -74,13 +79,7 @@ export function QuickActionsPanel({ onCreateProduct, onRefresh, stats }: QuickAc
             icon: Package,
             label: "Inventory",
             description: "Update stock levels",
-            onClick: () => {
-                document.getElementById("management")?.scrollIntoView({ behavior: "smooth" });
-                setTimeout(() => {
-                    const inventoryTab = document.querySelector<HTMLElement>('[value="inventory"]');
-                    inventoryTab?.click();
-                }, 300);
-            },
+            onClick: () => navigate("/dashboard/inventory"),
             variant: "outline",
         },
         {

@@ -56,10 +56,10 @@ const data = {
     },
     {
       title: "Inventory",
-      href: "/dashboard/products#inventory",
+      href: "/dashboard/inventory",
       icon: Boxes,
       exactMatch: true,
-      isActive: (pathname, hash) => pathname === "/dashboard/products" && hash === "inventory",
+      isActive: (pathname) => pathname === "/dashboard/inventory",
     },
     {
       title: "N8N Automations",
@@ -110,4 +110,3 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
     </Sidebar>
   )
 }
-

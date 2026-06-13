@@ -848,7 +848,7 @@ export default function Dashboard() {
                       title="Inventory Alerts"
                       description="Low-stock lipstick shades that need replenishment."
                       countLabel={`${numberFormatter.format(filteredAlerts.length)} shown`}
-                      action={{ label: "Open inventory", href: "/dashboard/products#inventory" }}
+                      action={{ label: "Open inventory", href: "/dashboard/inventory" }}
                     />
                     {loading && !filteredAlerts.length ? (
                       <InventoryAlertsSkeleton />
@@ -875,7 +875,7 @@ export default function Dashboard() {
                               {numberFormatter.format(item.stock)} left
                             </Badge>
                             <Button asChild size="sm" variant="outline" className="rounded-full">
-                              <Link to="/dashboard/products#inventory">
+                              <Link to="/dashboard/inventory">
                                 Restock
                                 <ArrowRight />
                               </Link>

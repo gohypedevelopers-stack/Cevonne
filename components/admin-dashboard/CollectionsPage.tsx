@@ -7,6 +7,7 @@ import {
   MoreHorizontal,
   Plus,
   Search,
+  RefreshCw,
   PencilLine,
   Trash2,
   Tag,
@@ -25,6 +26,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -52,6 +54,7 @@ type CollectionRow = ProductCollection & {
 };
 
 type CollectionFilter = "all" | "with-products" | "empty" | "with-artwork";
+type CollectionSort = "newest" | "oldest" | "name";
 
 type CollectionFormValues = {
   name: string;
@@ -73,6 +76,12 @@ const productBrowserScopeOptions: Array<{ value: ProductBrowserScope; label: str
   { value: "name", label: "Name" },
   { value: "slug", label: "Slug" },
   { value: "brand", label: "Brand" },
+];
+
+const collectionSortOptions: Array<{ value: CollectionSort; label: string }> = [
+  { value: "newest", label: "Newest first" },
+  { value: "oldest", label: "Oldest first" },
+  { value: "name", label: "Name A-Z" },
 ];
 
 const defaultRequest = (url: string, options?: RequestInit) => fetch(url, options);
@@ -502,8 +511,8 @@ function CollectionDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        overlayClassName="bg-black/30 backdrop-blur-[2px]"
-        className="fixed left-[5vw] top-[5vh] h-[90dvh] w-[90vw] max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-[32px] border-border/60 bg-white p-0 sm:max-w-none"
+        overlayClassName="bg-black/45 backdrop-blur-sm"
+        className="fixed left-[5vw] top-[5vh] h-[90dvh] w-[90vw] max-w-none translate-x-0 translate-y-0 overflow-hidden rounded-[34px] border-border/60 bg-[#faf5f1] p-0 shadow-2xl sm:max-w-none"
       >
         <DialogHeader className="sr-only">
           <DialogTitle>{isEditing ? "Edit collection" : "Add collection"}</DialogTitle>
@@ -514,28 +523,30 @@ function CollectionDialog({
 
         <form onSubmit={handleSubmit(onSubmit)} className="flex h-full min-h-0 flex-col">
           <div className="flex-1 min-h-0 overflow-y-auto px-5 py-5 md:px-8 md:py-6">
-            <div className="mb-5 flex items-center gap-2 text-xl font-semibold text-foreground">
-              <Layers3 className="h-4 w-4 text-primary" />
-              <span>{isEditing ? "Edit collection" : "Add collection"}</span>
+            <div className="mb-6 flex items-center gap-3 text-2xl font-semibold tracking-tight text-primary">
+              <div className="flex size-9 items-center justify-center rounded-full border border-border/60 bg-primary/10 text-primary shadow-sm">
+                <Layers3 className="h-4 w-4" />
+              </div>
+              <span className="font-serif">{isEditing ? "Edit collection" : "Add collection"}</span>
             </div>
 
             <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
               <div className="space-y-4">
-                <Card className="overflow-hidden rounded-3xl border border-border/60 bg-white shadow-none gap-0 py-0">
-                  <div className="space-y-1 border-b border-border/60 px-5 py-4">
+                <Card className="overflow-hidden rounded-[28px] border border-border/60 bg-white shadow-sm gap-0 py-0">
+                  <div className="space-y-1 border-b border-border/60 px-6 py-5">
                     <CardTitle className="text-base font-semibold text-foreground">Collection details</CardTitle>
                     <CardDescription>
                       Define the name and merchandising note for this collection.
                     </CardDescription>
                   </div>
-                  <CardContent className="space-y-4 p-4">
+                  <CardContent className="space-y-4 p-6">
                     <div className="space-y-2">
                       <Label htmlFor="collection-name">Title</Label>
                       <Input
                         id="collection-name"
                         placeholder="Collection title"
                         required
-                        className="shadow-none"
+                        className="h-11 rounded-2xl border-border/70 bg-white shadow-none focus-visible:ring-primary/20"
                         {...register("name", {
                           required: true,
                           onChange: () => {
@@ -553,21 +564,21 @@ function CollectionDialog({
                         id="collection-description"
                         rows={7}
                         placeholder="Add a title and description to see how this collection might appear in a search engine listing."
-                        className="shadow-none"
+                        className="rounded-2xl border-border/70 bg-white shadow-none focus-visible:ring-primary/20"
                         {...register("description")}
                       />
                     </div>
                   </CardContent>
                 </Card>
 
-                <Card className="overflow-hidden rounded-3xl border border-border/60 bg-white shadow-none gap-0 py-0">
-                  <div className="space-y-4 border-b border-border/60 px-5 py-4">
+                <Card className="overflow-hidden rounded-[28px] border border-border/60 bg-white shadow-sm gap-0 py-0">
+                  <div className="space-y-4 border-b border-border/60 px-6 py-5">
                     <div className="space-y-1">
                       <CardTitle className="text-base font-semibold text-foreground">Products</CardTitle>
                       <CardDescription>Search, browse, and add products to this collection.</CardDescription>
                     </div>
 
-                    <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
+                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
                       <div className="relative flex-1">
                         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                         <Input
@@ -576,7 +587,7 @@ function CollectionDialog({
                             setProductSearch(event.target.value);
                           }}
                           placeholder="Search products"
-                          className="h-10 rounded-full border-border/70 bg-white pl-9 shadow-none"
+                          className="h-11 rounded-full border-border/70 bg-white pl-9 shadow-none focus-visible:ring-primary/20"
                         />
                       </div>
 
@@ -584,19 +595,19 @@ function CollectionDialog({
                         <Button
                           type="button"
                           variant="outline"
-                          className="h-10 rounded-full border-border/70 bg-white px-4 shadow-none hover:bg-muted/40"
+                          className="h-11 rounded-full border-border/70 bg-white px-4 shadow-none hover:bg-muted/40"
                           onClick={openProductBrowser}
                         >
                           Browse
                         </Button>
 
                         <Select value={productSort} onValueChange={(value) => setProductSort(value as ProductSort)}>
-                        <SelectTrigger className="!h-10 !min-h-10 min-w-[220px] rounded-full border-border/70 bg-white !px-3 !py-0 !leading-none !shadow-none">
-                          <div className="flex items-center gap-1">
-                            <span className="text-muted-foreground">Sort:</span>
-                            <SelectValue placeholder="Most relevant" />
-                          </div>
-                        </SelectTrigger>
+                          <SelectTrigger className="!h-11 !min-h-11 min-w-[220px] rounded-full border-border/70 bg-white !px-3 !py-0 !leading-none !shadow-none">
+                            <div className="flex items-center gap-1">
+                              <span className="text-muted-foreground">Sort:</span>
+                              <SelectValue placeholder="Most relevant" />
+                            </div>
+                          </SelectTrigger>
                           <SelectContent>
                             {productSortOptions.map((option) => (
                               <SelectItem key={option.value} value={option.value}>
@@ -609,10 +620,10 @@ function CollectionDialog({
                     </div>
                   </div>
 
-                  <CardContent className="p-0 bg-muted/10">
+                  <CardContent className="p-0 bg-white">
                     {!hasSelectedProducts ? (
                       <div className="flex min-h-[280px] flex-col items-center justify-center px-6 py-14 text-center">
-                        <div className="flex size-14 items-center justify-center rounded-full border border-border/60 bg-white text-muted-foreground">
+                        <div className="flex size-14 items-center justify-center rounded-full border border-border/60 bg-white text-muted-foreground shadow-sm">
                           <Tag className="h-6 w-6" />
                         </div>
                         <div className="mt-4 space-y-1">
@@ -624,7 +635,7 @@ function CollectionDialog({
                       </div>
                     ) : visibleProducts.length ? (
                       <ScrollArea className="h-[360px]">
-                        <div className="divide-y divide-border/60 bg-muted/10">
+                        <div className="divide-y divide-border/60 bg-white">
                           {visibleProducts.map((product, index) => {
                             const thumbnail = getProductThumbnail(product);
 
@@ -632,13 +643,13 @@ function CollectionDialog({
                               <div
                                 key={product.id}
                                 className={cn(
-                                  "flex items-center gap-3 px-4 py-3 transition hover:bg-primary/5"
+                                  "flex items-center gap-3 px-5 py-4 transition hover:bg-primary/5"
                                 )}
                               >
                                 <span className="flex w-7 shrink-0 items-center justify-center text-sm font-medium text-muted-foreground">
                                   {index + 1}.
                                 </span>
-                                <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-border/60 bg-white text-xs font-semibold text-primary">
+                                <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border/60 bg-white text-xs font-semibold text-primary shadow-sm">
                                   {thumbnail ? (
                                     <div
                                       aria-hidden="true"
@@ -685,8 +696,8 @@ function CollectionDialog({
                   </CardContent>
                 </Card>
 
-                <Card className="overflow-hidden rounded-3xl border border-border/60 bg-white shadow-none gap-0 py-0">
-                  <div className="flex items-start justify-between gap-3 border-b border-border/60 px-5 py-4">
+                <Card className="overflow-hidden rounded-[28px] border border-border/60 bg-white shadow-sm gap-0 py-0">
+                  <div className="flex items-start justify-between gap-3 border-b border-border/60 px-6 py-5">
                     <div className="space-y-1">
                       <CardTitle className="text-base font-semibold text-foreground">Search engine listing</CardTitle>
                       <CardDescription>
@@ -695,9 +706,9 @@ function CollectionDialog({
                     </div>
                     <Button
                       type="button"
-                      variant="ghost"
+                      variant="outline"
                       size="icon"
-                      className="h-8 w-8 rounded-full text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                      className="h-8 w-8 rounded-full border-border/70 bg-white text-muted-foreground shadow-none hover:bg-muted/40 hover:text-foreground"
                       onClick={() => {
                         setSeoEditorOpen((current) => !current);
                       }}
@@ -709,8 +720,8 @@ function CollectionDialog({
                     </Button>
                   </div>
                   <CardContent className="p-0">
-                    <div className="border-b border-border/60 px-5 py-4">
-                      <div className="rounded-3xl border border-border/60 bg-white px-4 py-3 shadow-none">
+                    <div className="border-b border-border/60 px-6 py-5">
+                      <div className="rounded-2xl border border-border/60 bg-white px-4 py-3 shadow-sm">
                         <p className="text-sm font-medium uppercase tracking-[0.16em] text-foreground">
                           Cevonne
                         </p>
@@ -724,7 +735,7 @@ function CollectionDialog({
                     </div>
 
                     {seoEditorOpen ? (
-                      <div id="seo-details-fields" className="space-y-4 px-5 py-4">
+                      <div id="seo-details-fields" className="space-y-4 px-6 py-5">
                         <div className="space-y-2">
                           <Label htmlFor="seo-title">Page title</Label>
                           <Input
@@ -737,7 +748,7 @@ function CollectionDialog({
                               setValue("name", event.target.value, { shouldDirty: true, shouldTouch: true });
                             }}
                             placeholder="Collection title"
-                            className="h-11 rounded-2xl border-border/70 bg-white shadow-none"
+                            className="h-11 rounded-2xl border-border/70 bg-white shadow-none focus-visible:ring-primary/20"
                           />
                           <p className="text-xs text-muted-foreground">{seoTitleChars} of 70 characters used</p>
                         </div>
@@ -752,7 +763,7 @@ function CollectionDialog({
                               setValue("description", event.target.value, { shouldDirty: true, shouldTouch: true });
                             }}
                             placeholder="Add a title and description to see how this collection might appear in a search engine listing."
-                            className="min-h-32 rounded-2xl border-border/70 bg-white shadow-none"
+                            className="min-h-32 rounded-2xl border-border/70 bg-white shadow-none focus-visible:ring-primary/20"
                           />
                           <p className="text-xs text-muted-foreground">{seoDescriptionChars} of 160 characters used</p>
                         </div>
@@ -789,15 +800,15 @@ function CollectionDialog({
               </div>
 
               <div className="space-y-4">
-                <Card className="overflow-hidden rounded-3xl border border-border/60 bg-white shadow-none gap-0 py-0">
-                  <div className="space-y-1 border-b border-border/60 px-5 py-4">
-                    <CardTitle className="text-base font-semibold text-foreground">Image</CardTitle>
+                <Card className="overflow-hidden rounded-[28px] border border-border/60 bg-white shadow-sm gap-0 py-0">
+                  <div className="space-y-1 border-b border-border/60 px-6 py-5">
+                    <CardTitle className="text-base font-semibold text-foreground">Media</CardTitle>
                     <CardDescription>Upload a hero image, optional gallery, and one video.</CardDescription>
                   </div>
-                  <CardContent className="p-4">
+                  <CardContent className="p-6">
                     {coverPreviewUrl ? (
                       <div className="space-y-4">
-                        <div className="overflow-hidden rounded-2xl border border-border/60 bg-muted/20">
+                        <div className="overflow-hidden rounded-2xl border border-border/60 bg-white shadow-sm">
                           {coverPreviewKind === "VIDEO" ? (
                             <div className="relative aspect-[4/3]">
                               <video
@@ -840,7 +851,7 @@ function CollectionDialog({
                             className="rounded-full border-border/70 bg-white px-4 shadow-none hover:bg-muted/40"
                             onClick={() => setMediaDialogOpen(true)}
                           >
-                            {collectionMedia.length ? "Manage media" : "Add image"}
+                            {collectionMedia.length ? "Manage media" : "Add media"}
                           </Button>
                           {collectionMedia.length ? (
                             <Button
@@ -858,14 +869,14 @@ function CollectionDialog({
                         </div>
                       </div>
                     ) : (
-                      <div className="flex min-h-40 flex-col items-center justify-center gap-3 px-5 py-8 text-center">
+                      <div className="flex min-h-40 flex-col items-center justify-center gap-3 rounded-2xl border border-dashed border-border/70 bg-white px-5 py-8 text-center">
                         <Button
                           type="button"
                           variant="outline"
                           className="rounded-full border-border/70 bg-white px-4 shadow-none hover:bg-muted/40"
                           onClick={() => setMediaDialogOpen(true)}
                         >
-                          Add image
+                          Add media
                         </Button>
                         <p className="text-sm text-muted-foreground">
                           Upload up to 5 images and 1 video.
@@ -879,7 +890,7 @@ function CollectionDialog({
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center justify-end gap-3 border-t border-border/60 bg-white px-5 py-4 backdrop-blur md:px-8">
+          <div className="flex shrink-0 items-center justify-end gap-3 border-t border-border/60 bg-background/95 px-5 py-4 backdrop-blur md:px-8">
             <Button
               type="button"
               variant="outline"
@@ -891,7 +902,7 @@ function CollectionDialog({
             </Button>
             <Button
               type="submit"
-              className="rounded-full bg-[#111111] px-6 text-white shadow-none hover:bg-black"
+              className="rounded-full bg-primary px-6 text-primary-foreground shadow-none hover:bg-primary/90"
               disabled={submitting || !nameValue.trim()}
             >
               {submitting ? "Saving..." : isEditing ? "Save changes" : "Save"}
@@ -919,35 +930,35 @@ function CollectionDialog({
           }
         }}
       >
-        <DialogContent
-          showCloseButton={!productBrowserSubmitting}
-          overlayClassName="bg-black/45 backdrop-blur-[2px]"
-          className="w-[min(42rem,calc(100vw-1.5rem))] max-w-none overflow-hidden rounded-[28px] border-border/60 bg-white p-0 shadow-none"
-        >
+      <DialogContent
+        showCloseButton={!productBrowserSubmitting}
+        overlayClassName="bg-transparent backdrop-blur-sm"
+        className="w-[min(42rem,calc(100vw-1.5rem))] max-w-none overflow-hidden rounded-[28px] border-border/60 bg-white p-0 shadow-2xl"
+      >
           <div className="flex max-h-[90vh] flex-col">
             <DialogHeader className="border-b border-border/60 px-5 py-4 text-left">
-              <DialogTitle className="text-xl font-semibold text-foreground">Add products</DialogTitle>
+              <DialogTitle className="font-serif text-xl font-semibold tracking-tight text-primary">Add products</DialogTitle>
               <DialogDescription className="text-sm text-muted-foreground">
                 Search and select products to add to this collection.
               </DialogDescription>
             </DialogHeader>
 
             <div className="border-b border-border/60 px-5 py-4">
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <div className="relative flex-1">
-                  <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
+              <div className="grid items-stretch gap-3 md:grid-cols-[minmax(0,1fr)_190px]">
+                <div className="relative min-w-0">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     value={productBrowserSearch}
                     onChange={(event) => setProductBrowserSearch(event.target.value)}
                     placeholder="Search products"
-                    className="h-11 rounded-full border-border/70 bg-white pl-9"
+                    className="h-12 min-h-12 rounded-full border-border/70 bg-white pl-9 text-sm leading-none shadow-none focus-visible:ring-primary/20"
                   />
                 </div>
 
                 <Select value={productBrowserScope} onValueChange={(value) => setProductBrowserScope(value as ProductBrowserScope)}>
-                  <SelectTrigger className="h-11 w-full rounded-full border-border/70 bg-white sm:w-[190px]">
-                    <div className="flex items-center gap-1">
-                      <span className="text-muted-foreground">Search by</span>
+                  <SelectTrigger className="h-12 min-h-12 w-full rounded-full border-border/70 bg-white px-4 py-0 text-sm leading-none shadow-none">
+                    <div className="flex h-full w-full items-center justify-between gap-2 leading-none">
+                      <span className="whitespace-nowrap text-muted-foreground">Search by</span>
                       <SelectValue placeholder="All" />
                     </div>
                   </SelectTrigger>
@@ -960,15 +971,6 @@ function CollectionDialog({
                   </SelectContent>
                 </Select>
               </div>
-
-              <Button
-                type="button"
-                variant="outline"
-                className="mt-3 h-9 rounded-full border-dashed border-border/70 bg-white px-4 text-sm shadow-none hover:bg-muted/40"
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                Add filter
-              </Button>
             </div>
 
             <div className="min-h-0 flex-1">
@@ -1001,7 +1003,7 @@ function CollectionDialog({
                               });
                             }}
                           />
-                          <div className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-border/60 bg-white text-xs font-semibold text-primary">
+                          <div className="flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-xl border border-border/60 bg-white text-xs font-semibold text-primary shadow-sm">
                             {thumbnail ? (
                               <div
                                 aria-hidden="true"
@@ -1022,7 +1024,7 @@ function CollectionDialog({
                   </div>
                 ) : (
                   <div className="flex h-full min-h-[260px] flex-col items-center justify-center px-6 py-12 text-center">
-                    <div className="rounded-full border border-border/60 bg-white p-4 text-muted-foreground">
+                    <div className="rounded-full border border-border/60 bg-white p-4 text-muted-foreground shadow-sm">
                       <Search className="h-5 w-5" />
                     </div>
                     <p className="mt-4 text-sm font-medium text-foreground">No products match your search.</p>
@@ -1046,7 +1048,7 @@ function CollectionDialog({
               </Button>
               <Button
                 type="button"
-                className="rounded-full bg-[#111111] px-6 text-white shadow-none hover:bg-black"
+                className="rounded-full bg-primary px-6 text-primary-foreground shadow-none hover:bg-primary/90"
                 disabled={productBrowserSelection.length === 0 || productBrowserSubmitting}
                 onClick={confirmProductBrowser}
               >
@@ -1067,6 +1069,7 @@ export default function CollectionsPage() {
 
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<CollectionFilter>("all");
+  const [collectionSort, setCollectionSort] = useState<CollectionSort>("newest");
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingCollection, setEditingCollection] = useState<CollectionRow | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -1083,7 +1086,7 @@ export default function CollectionsPage() {
 
     const term = search.trim().toLowerCase();
 
-    return [...collections]
+    const filteredRows = [...collections]
       .filter((collection: CollectionRow) => {
         const productCount = collection._count?.products ?? 0;
         const haystack = [collection.name, collection.slug, collection.description ?? ""].join(" ").toLowerCase();
@@ -1096,9 +1099,20 @@ export default function CollectionsPage() {
           (filter === "with-artwork" && Boolean(collection.imageUrl || collection.media?.length));
 
         return matchesSearch && matchesFilter;
-      })
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [collections, filter, search]);
+      });
+
+    return filteredRows.sort((a, b) => {
+      switch (collectionSort) {
+        case "oldest":
+          return new Date(a.updatedAt ?? a.createdAt ?? 0).getTime() - new Date(b.updatedAt ?? b.createdAt ?? 0).getTime();
+        case "name":
+          return a.name.localeCompare(b.name);
+        case "newest":
+        default:
+          return new Date(b.updatedAt ?? b.createdAt ?? 0).getTime() - new Date(a.updatedAt ?? a.createdAt ?? 0).getTime();
+      }
+    });
+  }, [collections, collectionSort, filter, search]);
 
   const selectedCollectionSet = useMemo(() => new Set(selectedCollectionIds), [selectedCollectionIds]);
   const allVisibleCollectionsSelected =
@@ -1177,128 +1191,195 @@ export default function CollectionsPage() {
   const resetFilters = () => {
     setSearch("");
     setFilter("all");
+    setCollectionSort("newest");
   };
 
-  const hasFilters = Boolean(search.trim()) || filter !== "all";
+  const activeFilterCount = [search.trim(), filter !== "all", collectionSort !== "newest"].filter(Boolean).length;
+  const hasFilters = activeFilterCount > 0;
 
   return (
     <SidebarProvider>
-      <div className="flex min-h-screen w-full overflow-hidden bg-[#f7f8fb]">
+      <div className="relative flex min-h-screen w-full overflow-hidden bg-[#faf5f1] text-foreground">
+        <div className="pointer-events-none absolute -left-24 top-8 size-72 rounded-full bg-primary/5 blur-3xl" />
+        <div className="pointer-events-none absolute right-0 top-24 size-80 rounded-full bg-secondary/35 blur-3xl" />
         <AppSidebar />
 
-        <SidebarInset className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          <div className="sticky top-0 z-20 grid grid-cols-[auto,1fr] items-center gap-2 border-b bg-white/80 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-white/60 md:hidden">
-            <SidebarTrigger className="-ml-1" />
-            <span className="text-sm font-medium text-primary/80">Menu</span>
-          </div>
-
+        <SidebarInset className="relative flex min-w-0 flex-1 flex-col overflow-hidden bg-transparent">
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-            <main className="flex-1 space-y-4 px-3 pb-6 pt-0 md:px-4 lg:px-5">
-              <div className="flex min-h-10 w-full flex-col gap-3 py-4 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
-                <div className="flex items-center gap-2">
-                  <Layers3 className="h-4 w-4 text-primary" />
-                  <h1 className="text-[15px] font-semibold leading-none tracking-tight text-foreground">
-                    Collections
-                  </h1>
-                </div>
-
-                <div className="flex flex-nowrap items-center gap-2 whitespace-nowrap sm:justify-end">
-                  <Button
-                    onClick={openCreateDialog}
-                    className="h-9 rounded-full bg-[#111111] px-4 text-sm font-medium text-white shadow-none hover:bg-black"
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add collection
-                  </Button>
-                </div>
-              </div>
-
-              <Card className="overflow-hidden rounded-3xl border-border/60 bg-white shadow-none gap-0 py-0">
-                <div className="flex flex-col gap-3 border-b border-border/60 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <p className="text-lg font-semibold text-foreground">All collections</p>
-                    <p className="text-sm text-muted-foreground">Search, filter, and open any collection record in a few clicks.</p>
-                  </div>
-
-                  <div className="flex flex-1 flex-col gap-2 lg:max-w-3xl lg:flex-row lg:items-center lg:justify-end">
-                    <Select value={filter} onValueChange={(value) => setFilter(value as CollectionFilter)}>
-                      <SelectTrigger className="h-11 w-full rounded-full border-border/70 bg-white lg:w-48">
-                        <SelectValue placeholder="All collections" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All collections</SelectItem>
-                        <SelectItem value="with-products">With products</SelectItem>
-                        <SelectItem value="empty">Empty</SelectItem>
-                        <SelectItem value="with-artwork">With artwork</SelectItem>
-                      </SelectContent>
-                    </Select>
-
-                    <div className="relative w-full lg:min-w-[320px] lg:flex-1">
-                      <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                      <Input
-                        value={search}
-                        onChange={(event) => setSearch(event.target.value)}
-                        placeholder="Search collections by name, slug, or note"
-                        className="h-11 rounded-full border-border/70 bg-white pl-9"
-                      />
+            <main className="flex-1 px-4 pb-8 pt-6 lg:px-8">
+              <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6">
+                <header className="sticky top-0 z-10 rounded-[28px] border border-border/60 bg-background/90 px-4 py-4 shadow-sm backdrop-blur-xl lg:px-6 lg:py-5">
+                  <div className="flex flex-col gap-4">
+                    <div className="flex items-center gap-3 md:hidden">
+                      <SidebarTrigger className="size-9 rounded-full border border-border/60 bg-white shadow-sm" />
+                      <span className="text-sm font-medium text-muted-foreground">Menu</span>
                     </div>
 
-                    {hasFilters ? (
-                      <Button variant="ghost" className="h-11 rounded-full px-4" onClick={resetFilters}>
-                        Reset
-                      </Button>
-                    ) : null}
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                      <div className="max-w-2xl space-y-2">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-muted-foreground">
+                          Cevonne Admin
+                        </p>
+                        <h1 className="font-serif text-4xl leading-none tracking-tight text-primary md:text-5xl">
+                          Collections
+                        </h1>
+                        <p className="max-w-xl text-sm leading-6 text-muted-foreground md:text-base">
+                          Organise lipstick ranges, campaigns, and product groups.
+                        </p>
+                      </div>
+
+                      <div className="flex w-full flex-col gap-3 sm:flex-row lg:max-w-3xl lg:flex-1 lg:justify-end">
+                        <Button
+                          onClick={openCreateDialog}
+                          className="h-11 rounded-full bg-primary px-5 text-primary-foreground shadow-none hover:bg-primary/90"
+                        >
+                          <Plus data-icon="inline-start" />
+                          Add collection
+                        </Button>
+                      </div>
+                    </div>
                   </div>
-                </div>
+                </header>
 
-                <div className="overflow-x-auto">
-                  <Table className="min-w-[880px] table-fixed">
-                    <colgroup>
-                      <col className="w-[2%]" />
-                      <col className="w-[58%]" />
-                      <col className="w-[18%]" />
-                      <col className="w-[22%]" />
-                    </colgroup>
-                    <TableHeader>
-                      <TableRow className="bg-muted/20 hover:bg-muted/20">
-                        <TableHead className="px-4 py-3">
-                          <span className="sr-only">Select collections</span>
-                          <Checkbox
-                            checked={
-                              allVisibleCollectionsSelected
-                                ? true
-                                : someVisibleCollectionsSelected
-                                  ? "indeterminate"
-                                  : false
-                            }
-                            onCheckedChange={toggleAllVisibleCollections}
-                            aria-label="Select all collections"
-                          />
-                        </TableHead>
-                        <TableHead className="px-2 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          <div className="grid min-w-0 grid-cols-[4px_minmax(0,1fr)_44px] items-center gap-2">
-                            <span aria-hidden="true" />
-                            <span className="block truncate">Title</span>
-                            <span aria-hidden="true" />
+                <Card className="overflow-hidden rounded-[28px] border border-border/60 bg-white shadow-sm gap-0 py-0">
+                  <CardHeader className="flex flex-col gap-4 px-6 py-5 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-3">
+                        <CardTitle className="font-serif text-2xl font-semibold tracking-tight text-primary">
+                          All collections
+                        </CardTitle>
+                        <Badge
+                          variant="outline"
+                          className="rounded-full border-border/70 bg-secondary/30 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground"
+                        >
+                          {collectionRows.length} shown
+                        </Badge>
+                      </div>
+                      <CardDescription className="max-w-2xl text-sm text-muted-foreground">
+                        Search, filter, and open any collection record in a few clicks.
+                      </CardDescription>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <Badge
+                        variant="outline"
+                        className="rounded-full border-border/70 bg-muted/20 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground"
+                      >
+                        {activeFilterCount} active filters
+                      </Badge>
+                    </div>
+                  </CardHeader>
+
+                  <Separator className="bg-border/70" />
+
+                  <CardContent className="p-0">
+                    <div className="px-6 py-4">
+                      <div className="flex h-11 items-center">
+                        <div className="flex h-11 w-full items-center gap-3 overflow-x-auto">
+                          <div className="relative min-w-[320px] flex-1">
+                            <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                              value={search}
+                              onChange={(event) => setSearch(event.target.value)}
+                              placeholder="Search collections by name, slug, or note"
+                              className="h-11 min-w-0 rounded-full border-border/70 bg-white pl-10 shadow-none"
+                            />
                           </div>
-                        </TableHead>
-                        <TableHead className="px-2 py-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Products
-                        </TableHead>
-                        <TableHead className="px-2 py-3 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                          Actions
-                        </TableHead>
-                      </TableRow>
-                    </TableHeader>
 
-                    <TableBody>
+                          <Select value={filter} onValueChange={(value) => setFilter(value as CollectionFilter)}>
+                            <SelectTrigger className="!h-11 shrink-0 rounded-full border-border/70 bg-white px-4 shadow-none sm:w-[220px]">
+                              <SelectValue placeholder="All collections" />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-2xl border-border/60 bg-white shadow-lg">
+                              <SelectItem value="all">All collections</SelectItem>
+                              <SelectItem value="with-products">With products</SelectItem>
+                              <SelectItem value="empty">Empty</SelectItem>
+                              <SelectItem value="with-artwork">With artwork</SelectItem>
+                            </SelectContent>
+                          </Select>
+
+                          <Select value={collectionSort} onValueChange={(value) => setCollectionSort(value as CollectionSort)}>
+                            <SelectTrigger className="!h-11 shrink-0 rounded-full border-border/70 bg-white px-4 shadow-none sm:w-[180px]">
+                              <SelectValue placeholder="Newest first" />
+                            </SelectTrigger>
+                            <SelectContent className="rounded-2xl border-border/60 bg-white shadow-lg">
+                              {collectionSortOptions.map((option) => (
+                                <SelectItem key={option.value} value={option.value}>
+                                  {option.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            className="h-11 shrink-0 rounded-full px-4 text-muted-foreground"
+                            onClick={resetFilters}
+                          >
+                            Reset
+                          </Button>
+
+                          <Button
+                            type="button"
+                            variant="outline"
+                            className="h-11 shrink-0 rounded-full border-border/70 bg-white px-4 shadow-none"
+                            onClick={() => refresh?.()}
+                          >
+                            <RefreshCw data-icon="inline-start" />
+                            Refresh
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+
+                    <Separator className="bg-border/70" />
+
+                    <div className="px-6 pb-6 pt-4">
+                      <div className="overflow-x-auto">
+                        <Table className="min-w-[880px] table-fixed">
+                          <colgroup>
+                            <col className="w-[2%]" />
+                            <col className="w-[58%]" />
+                            <col className="w-[18%]" />
+                            <col className="w-[22%]" />
+                          </colgroup>
+                          <TableHeader>
+                            <TableRow className="bg-muted/20 hover:bg-muted/20">
+                              <TableHead className="px-4 py-4">
+                                <span className="sr-only">Select collections</span>
+                                <Checkbox
+                                  checked={
+                                    allVisibleCollectionsSelected
+                                      ? true
+                                      : someVisibleCollectionsSelected
+                                        ? "indeterminate"
+                                        : false
+                                  }
+                                  onCheckedChange={toggleAllVisibleCollections}
+                                  aria-label="Select all collections"
+                                />
+                              </TableHead>
+                              <TableHead className="px-4 py-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                TITLE
+                              </TableHead>
+                              <TableHead className="px-4 py-4 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                PRODUCTS
+                              </TableHead>
+                              <TableHead className="px-4 py-4 text-right text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                ACTIONS
+                              </TableHead>
+                            </TableRow>
+                          </TableHeader>
+
+                          <TableBody>
                       {loading ? (
                         Array.from({ length: 6 }).map((_, index) => (
                           <TableRow key={index}>
-                            <TableCell className="px-4 py-3">
+                            <TableCell className="px-4 py-4">
                               <Skeleton className="h-5 w-5 rounded-md" />
                             </TableCell>
-                            <TableCell colSpan={3} className="px-2 py-3">
+                            <TableCell colSpan={3} className="px-2 py-4">
                               <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_auto] items-center gap-4">
                                 <Skeleton className="h-12 w-full rounded-2xl" />
                                 <Skeleton className="h-8 w-20 rounded-full" />
@@ -1316,75 +1397,68 @@ export default function CollectionsPage() {
                           const isSelected = selectedCollectionSet.has(collection.id);
 
                           return (
-                              <TableRow
-                                key={collection.id}
-                                className={cn("group transition hover:bg-primary/5", isSelected && "bg-primary/5")}
-                              >
-                              <TableCell className="px-4 py-3">
+                            <TableRow
+                              key={collection.id}
+                              className={cn("group transition hover:bg-primary/5", isSelected && "bg-primary/5")}
+                            >
+                              <TableCell className="px-4 py-4 align-top">
                                 <Checkbox
                                   checked={isSelected}
                                   onCheckedChange={(state) => toggleCollectionSelection(collection.id, state)}
                                   aria-label={`Select ${collection.name}`}
                                 />
                               </TableCell>
-                              <TableCell className="px-2 py-3">
-                                <div className="grid min-w-0 grid-cols-[4px_minmax(0,1fr)_44px] items-center gap-2">
-                                  <span aria-hidden="true" />
-                                  <div className="flex min-w-0 items-center gap-3">
-                                    {previewUrl ? (
-                                      previewVideo && !previewImage ? (
-                                        <div className="relative h-11 w-11 overflow-hidden rounded-2xl ring-1 ring-border/70">
-                                          <video
-                                            src={previewUrl}
-                                            className="h-full w-full object-cover"
-                                            muted
-                                            playsInline
-                                            preload="metadata"
-                                          />
-                                          <div className="absolute inset-0 flex items-center justify-center bg-black/20 text-white">
-                                            <Video className="h-4 w-4" />
-                                          </div>
-                                        </div>
-                                      ) : (
-                                        <div
-                                          aria-hidden="true"
-                                          className="h-11 w-11 rounded-2xl bg-cover bg-center ring-1 ring-border/70"
-                                          style={{ backgroundImage: `url("${encodeURI(previewUrl)}")` }}
+                              <TableCell className="px-4 py-4 align-top">
+                                <div className="flex min-w-0 items-center gap-3">
+                                  {previewUrl ? (
+                                    previewVideo && !previewImage ? (
+                                      <div className="relative h-12 w-12 overflow-hidden rounded-xl border border-border/70 bg-white shadow-sm">
+                                        <video
+                                          src={previewUrl}
+                                          className="h-full w-full object-cover"
+                                          muted
+                                          playsInline
+                                          preload="metadata"
                                         />
-                                      )
-                                    ) : (
-                                      <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary/10 text-sm font-semibold text-primary ring-1 ring-border/70">
-                                        {collection.name.slice(0, 2).toUpperCase()}
+                                        <div className="absolute inset-0 flex items-center justify-center bg-black/20 text-white">
+                                          <Video className="h-4 w-4" />
+                                        </div>
                                       </div>
-                                    )}
-                                    <div className="min-w-0">
-                                      <button
-                                        type="button"
-                                        onClick={() => openEditDialog(collection)}
-                                        className="block truncate text-left text-sm font-semibold text-foreground hover:text-primary"
-                                      >
-                                        {collection.name}
-                                      </button>
+                                    ) : (
+                                      <div
+                                        aria-hidden="true"
+                                        className="h-12 w-12 rounded-xl border border-border/70 bg-cover bg-center shadow-sm"
+                                        style={{ backgroundImage: `url("${encodeURI(previewUrl)}")` }}
+                                      />
+                                    )
+                                  ) : (
+                                    <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-border/70 bg-[#fbf5ef] text-sm font-semibold text-primary shadow-sm">
+                                      {collection.name.slice(0, 2).toUpperCase()}
                                     </div>
+                                  )}
+                                  <div className="min-w-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => openEditDialog(collection)}
+                                      className="block truncate text-left text-sm font-semibold text-foreground hover:text-primary"
+                                    >
+                                      {collection.name}
+                                    </button>
                                   </div>
-                                  <span aria-hidden="true" />
                                 </div>
                               </TableCell>
 
-                              <TableCell className="px-4 py-3">
+                              <TableCell className="px-4 py-4 align-top">
                                 <p className="text-sm font-semibold leading-none text-foreground">{productCount}</p>
                               </TableCell>
 
-                              <TableCell className="px-4 py-3 text-right">
-                                <div
-                                  className="flex items-center justify-end gap-2"
-                                  onClick={(event) => event.stopPropagation()}
-                                >
+                              <TableCell className="px-4 py-4 text-right align-top">
+                                <div className="flex justify-end gap-2" onClick={(event) => event.stopPropagation()}>
                                   <Button
                                     type="button"
-                                    variant="ghost"
+                                    variant="outline"
                                     size="icon"
-                                    className="h-9 w-9 rounded-full"
+                                    className="h-9 w-9 rounded-full border-border/70 bg-white shadow-none hover:bg-muted/40"
                                     onClick={() => openEditDialog(collection)}
                                     aria-label={`Edit ${collection.name}`}
                                   >
@@ -1402,7 +1476,10 @@ export default function CollectionsPage() {
                                         <MoreHorizontal className="h-4 w-4" />
                                       </Button>
                                     </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end" className="w-48 rounded-2xl border-border/60">
+                                    <DropdownMenuContent
+                                      align="end"
+                                      className="w-48 rounded-2xl border-border/60 bg-white shadow-lg"
+                                    >
                                       <DropdownMenuItem onSelect={() => openEditDialog(collection)}>
                                         <PencilLine className="h-4 w-4" />
                                         Edit collection
@@ -1424,7 +1501,7 @@ export default function CollectionsPage() {
                         })
                       ) : (
                         <TableRow>
-                          <TableCell colSpan={4} className="px-5 py-10 text-center">
+                          <TableCell colSpan={4} className="px-5 py-12 text-center">
                             <div className="mx-auto flex max-w-md flex-col items-center gap-3 text-center">
                               <div className="rounded-full bg-primary/10 p-4 text-primary">
                                 <Layers3 className="h-6 w-6" />
@@ -1441,18 +1518,25 @@ export default function CollectionsPage() {
                                     : "Create your first collection to start grouping products for the storefront."}
                                 </p>
                               </div>
-                              <Button type="button" className="rounded-full bg-primary text-primary-foreground" onClick={openCreateDialog}>
-                                <Plus className="mr-2 h-4 w-4" />
+                              <Button
+                                type="button"
+                                className="rounded-full bg-primary text-primary-foreground hover:bg-primary/90"
+                                onClick={openCreateDialog}
+                              >
+                                <Plus data-icon="inline-start" />
                                 Add collection
                               </Button>
                             </div>
                           </TableCell>
                         </TableRow>
                       )}
-                    </TableBody>
-                  </Table>
-                </div>
-              </Card>
+                          </TableBody>
+                        </Table>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
             </main>
           </div>
         </SidebarInset>
