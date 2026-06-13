@@ -20,6 +20,7 @@ import {
   SidebarMenuSubButton,
   SidebarMenuSubItem,
 } from "@/components/ui/sidebar"
+import { cn } from "@/lib/utils"
 
 type NavSubItem = {
   title: string
@@ -84,8 +85,10 @@ export function NavMain({ items }: { items: NavItem[] }) {
 
   return (
     <SidebarGroup>
-      <SidebarGroupLabel>Platform</SidebarGroupLabel>
-      <SidebarMenu>
+      <SidebarGroupLabel className="px-3 pb-2 pt-1 text-[11px] font-semibold uppercase tracking-[0.32em] text-[#4b0d4b]/45">
+        Platform
+      </SidebarGroupLabel>
+      <SidebarMenu className="gap-1.5">
         {items.map((item) => {
           const hasChildren = Boolean(item.items?.length)
           const isActive = resolveIsActive(item)
@@ -94,21 +97,21 @@ export function NavMain({ items }: { items: NavItem[] }) {
           const buttonContent = (
             <>
               {item.icon && <item.icon />}
-              <span>{item.title}</span>
+              <span className="truncate group-data-[collapsible=icon]:hidden">
+                {item.title}
+              </span>
               {item.badge ? (
-                <span className="ml-auto inline-flex min-w-6 items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[11px] font-semibold leading-none text-white shadow-sm">
+                <span className="ml-auto inline-flex min-w-6 items-center justify-center rounded-full bg-rose-500 px-2 py-0.5 text-[10px] font-semibold leading-none text-white shadow-sm group-data-[collapsible=icon]:hidden">
                   {item.badge}
                 </span>
               ) : null}
               {hasChildren ? (
                 <ChevronRight
-                  className={[
-                    "h-4 w-4 shrink-0 transition-transform duration-200",
-                    isOpen ? "rotate-90" : "",
-                    item.badge ? "ml-2" : "ml-auto",
-                  ]
-                    .filter(Boolean)
-                    .join(" ")}
+                  className={cn(
+                    "h-4 w-4 shrink-0 transition-transform duration-200 group-data-[collapsible=icon]:hidden",
+                    isOpen && "rotate-90",
+                    item.badge ? "ml-2" : "ml-auto"
+                  )}
                 />
               ) : null}
             </>
@@ -117,7 +120,12 @@ export function NavMain({ items }: { items: NavItem[] }) {
           if (!hasChildren) {
             return (
               <SidebarMenuItem key={item.title}>
-                <SidebarMenuButton asChild isActive={Boolean(isActive)} tooltip={item.title}>
+                <SidebarMenuButton
+                  asChild
+                  isActive={Boolean(isActive)}
+                  tooltip={item.title}
+                  className="group h-11 rounded-xl border border-transparent px-3 text-sm font-medium text-[#4b0d4b]/75 transition-all duration-200 hover:border-[#eadfd8] hover:bg-[#fbf7f4] hover:text-[#4b0d4b] data-[active=true]:border-[#eadfd8] data-[active=true]:bg-[#fbf7f4] data-[active=true]:text-[#4b0d4b] data-[active=true]:shadow-sm data-[state=open]:border-[#eadfd8] data-[state=open]:bg-[#fbf7f4] data-[state=open]:text-[#4b0d4b] data-[state=open]:shadow-sm group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:h-8 group-data-[collapsible=icon]:w-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-2 group-data-[collapsible=icon]:py-2"
+                >
                   <Link href={item.href}>{buttonContent}</Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
@@ -139,7 +147,12 @@ export function NavMain({ items }: { items: NavItem[] }) {
             >
               <SidebarMenuItem>
                 <CollapsibleTrigger asChild>
-                  <SidebarMenuButton asChild isActive={Boolean(isActive)} tooltip={item.title}>
+                  <SidebarMenuButton
+                    asChild
+                    isActive={Boolean(isActive)}
+                    tooltip={item.title}
+                    className="group h-11 rounded-xl border border-transparent px-3 text-sm font-medium text-[#4b0d4b]/75 transition-all duration-200 hover:border-[#eadfd8] hover:bg-[#fbf7f4] hover:text-[#4b0d4b] data-[active=true]:border-[#eadfd8] data-[active=true]:bg-[#fbf7f4] data-[active=true]:text-[#4b0d4b] data-[active=true]:shadow-sm data-[state=open]:border-[#eadfd8] data-[state=open]:bg-[#fbf7f4] data-[state=open]:text-[#4b0d4b] data-[state=open]:shadow-sm group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:h-8 group-data-[collapsible=icon]:w-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-2 group-data-[collapsible=icon]:py-2"
+                  >
                     <Link href={item.href}>{buttonContent}</Link>
                   </SidebarMenuButton>
                 </CollapsibleTrigger>

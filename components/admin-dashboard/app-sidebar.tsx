@@ -19,7 +19,7 @@ const data = {
   user: {
     name: "Cevonne Admin",
     email: "admin@cevonne.com",
-    avatar: "/logo.svg",
+    avatar: "/logo-icon.svg",
   },
   navMain: [
     {
@@ -91,26 +91,34 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   return (
     <Sidebar collapsible="icon" {...props}>
-      <SidebarHeader className="px-2 pt-3">
-        <div className="rounded-[24px] border border-sidebar-border/70 bg-sidebar-accent/30 px-3 py-3 shadow-sm transition-colors group-data-[collapsible=icon]:px-2">
-          <div className="flex items-center gap-3 group-data-[collapsible=icon]:justify-center">
-            <div className="flex size-11 shrink-0 items-center justify-center rounded-2xl border border-sidebar-border/60 bg-sidebar-primary text-sidebar-primary-foreground shadow-sm">
-              <Image src="/logo.svg" alt="Cevonne" width={28} height={28} className="size-7 object-contain" priority />
+      <SidebarHeader className="px-3 pt-3">
+        <div className="rounded-2xl px-3 py-3 transition-colors duration-200 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:py-2">
+          <div className="flex w-full items-center gap-3 group-data-[collapsible=icon]:justify-center">
+            <div className="flex size-11 shrink-0 items-center justify-center rounded-xl group-data-[collapsible=icon]:size-8">
+              <Image
+                src="/logo-icon.svg"
+                alt="Cevonne"
+                width={32}
+                height={32}
+                className="size-8 object-contain brightness-0"
+                priority
+              />
             </div>
             <div className="min-w-0 group-data-[collapsible=icon]:hidden">
-              <p className="truncate text-sm font-semibold text-sidebar-foreground">Cevonne Admin</p>
-              <p className="truncate text-xs text-sidebar-foreground/70">Enterprise</p>
+              <p className="truncate font-serif text-[18px] font-semibold leading-none tracking-tight text-black">
+                Cevonne Admin
+              </p>
             </div>
           </div>
         </div>
       </SidebarHeader>
       <SidebarContent
         onClickCapture={handleNavClick}
-        className="px-3 pb-6 pt-4 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:pb-2 group-data-[collapsible=icon]:pt-2"
+        className="px-3 pb-4 pt-3 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden group-data-[collapsible=icon]:px-2 group-data-[collapsible=icon]:pb-2 group-data-[collapsible=icon]:pt-2"
       >
         <NavMain items={data.navMain} />
       </SidebarContent>
-      <SidebarFooter className="border-t border-sidebar-border/70 px-2 pb-3 pt-3">
+      <SidebarFooter className="border-t border-[#f0e6df] px-3 pb-3 pt-3">
         <NavUser user={data.user} />
       </SidebarFooter>
       <SidebarRail />
