@@ -450,6 +450,14 @@ const normalizeAssetListItem = (value) => {
     url: normalizeUploadedAssetUrl(value.url) ?? value.url,
     id: normalizeUploadedAssetUrl(value.id) ?? value.id,
     src: normalizeUploadedAssetUrl(value.src) ?? value.src,
+    key: value.key,
+    storageKey: value.storageKey,
+    mimeType: value.mimeType,
+    fileName: value.fileName,
+    size: value.size,
+    kind: value.kind,
+    alt: value.alt,
+    isPrimary: value.isPrimary,
   };
 };
 

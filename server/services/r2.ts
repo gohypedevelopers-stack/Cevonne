@@ -2,10 +2,28 @@ import crypto from "node:crypto";
 import path from "node:path";
 
 import { DeleteObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 
 import { env } from "@/server/config/env";
 
 export type R2MediaKind = "IMAGE" | "VIDEO";
+export type R2UploadKind = R2MediaKind;
+
+export type R2UploadRequest = {
+  filename: string;
+  contentType: string;
+  size: number;
+  productId?: string | null;
+};
+
+export type R2UploadResponse = {
+  uploadUrl: string;
+  key: string;
+  publicUrl: string;
+  contentType: string;
+  kind: R2UploadKind;
+  size: number;
+};
 
 type StoredAsset = {
   storageKey: string;
@@ -15,6 +33,16 @@ type StoredAsset = {
   originalName: string;
   size: number;
 };
+
+export const PRODUCT_MEDIA_MAX_BYTES = 10 * 1024 * 1024;
+
+export const PRODUCT_MEDIA_ALLOWED_MIME_TYPES = new Set([
+  "image/png",
+  "image/jpeg",
+  "image/webp",
+  "image/gif",
+  "video/mp4",
+]);
 
 const MIME_EXTENSION_MAP: Record<string, string> = {
   "image/jpeg": ".jpg",
@@ -30,6 +58,25 @@ const MIME_EXTENSION_MAP: Record<string, string> = {
   "video/x-m4v": ".m4v",
   "video/ogg": ".ogv",
 };
+
+const sanitizeFilename = (fileName: string) => {
+  const normalized = fileName
+    .normalize("NFKD")
+    .replace(/[^\w.\-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return normalized || "upload";
+};
+
+const getMediaKind = (mimeType: string): R2MediaKind =>
+  mimeType.toLowerCase().startsWith("video/") ? "VIDEO" : "IMAGE";
+
+const createTimestampPrefix = () =>
+  new Date()
+    .toISOString()
+    .replace(/[-:.TZ]/g, "")
+    .slice(0, 14);
 
 let client: S3Client | null = null;
 
@@ -68,6 +115,19 @@ const getExtension = (fileName: string, mimeType: string) => {
   const ext = path.extname(fileName).toLowerCase();
   if (ext) return ext;
   return MIME_EXTENSION_MAP[mimeType.toLowerCase()] || "";
+};
+
+export const createProductMediaStorageKey = (
+  fileName: string,
+  mimeType: string,
+  productId?: string | null
+) => {
+  const safeName = sanitizeFilename(path.basename(fileName || "upload"));
+  const extension = getExtension(safeName, mimeType);
+  const baseName = extension && safeName.toLowerCase().endsWith(extension) ? safeName : `${safeName}${extension}`;
+  const uniquePrefix = `${createTimestampPrefix()}-${crypto.randomUUID().slice(0, 8)}`;
+  const parentPath = productId?.trim() ? `products/${sanitizeFilename(productId.trim())}` : "products/tmp";
+  return `${parentPath}/${uniquePrefix}-${baseName}`;
 };
 
 export const inferMediaKind = (file: File | { type?: string | null }) =>
@@ -114,6 +174,48 @@ export const uploadFileToR2 = async (file: File): Promise<StoredAsset> => {
     mimeType,
     originalName: file.name || storageKey,
     size: file.size,
+  };
+};
+
+export const createR2PresignedUpload = async ({
+  filename,
+  contentType,
+  size,
+  productId,
+}: R2UploadRequest): Promise<R2UploadResponse> => {
+  if (!hasR2Storage()) {
+    throw new Error("R2 storage is not configured");
+  }
+
+  const normalizedContentType = String(contentType || "").toLowerCase();
+
+  if (!PRODUCT_MEDIA_ALLOWED_MIME_TYPES.has(normalizedContentType)) {
+    throw new Error("Unsupported file type");
+  }
+
+  if (!Number.isFinite(size) || size <= 0 || size > PRODUCT_MEDIA_MAX_BYTES) {
+    throw new Error("File too large");
+  }
+
+  const key = createProductMediaStorageKey(filename || "upload", normalizedContentType, productId);
+  const kind = getMediaKind(normalizedContentType);
+  const uploadUrl = await getSignedUrl(
+    getClient(),
+    new PutObjectCommand({
+      Bucket: env.r2BucketName,
+      Key: key,
+      ContentType: normalizedContentType,
+    }),
+    { expiresIn: 60 * 15 }
+  );
+
+  return {
+    uploadUrl,
+    key,
+    publicUrl: buildR2Url(key),
+    contentType: normalizedContentType,
+    kind,
+    size,
   };
 };
 

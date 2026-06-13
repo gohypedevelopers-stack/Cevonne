@@ -6,10 +6,14 @@ import {
   AlertTriangle,
   ArrowRight,
   ArrowUpRight,
+  Crown,
+  IndianRupee,
   Package,
   Plus,
+  RefreshCcw,
   Search,
   ShoppingBag,
+  UserPlus,
   Users,
 } from "lucide-react";
 
@@ -26,7 +30,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import {
@@ -92,10 +95,37 @@ type InventoryAlertRow = {
   stock: number;
 };
 
-type CustomerDomainRow = {
-  domain: string;
-  count: number;
-  percentage: number;
+type DashboardCustomerUser = {
+  id?: string;
+  name?: string | null;
+  email?: string;
+  role?: string;
+  createdAt?: Date | string;
+  joinedAt?: Date | string;
+};
+
+type CustomerInsightSummary = {
+  totalCustomers: number;
+  repeatCustomers: number;
+  repeatCustomerRate: number;
+  averageOrderValue: number;
+  newCustomersThisMonth: number;
+  topCustomer: {
+    name: string;
+    totalSpent: number;
+    orders: number;
+  };
+  hasData: boolean;
+};
+
+type CustomerInsightRecord = {
+  id: string;
+  name: string;
+  email: string;
+  joinedAt: string;
+  orders: Order[];
+  totalSpent: number;
+  lastActiveAt?: string;
 };
 
 type BestSellerRow = {
@@ -192,12 +222,19 @@ const SAMPLE_INVENTORY_ALERTS: InventoryAlertRow[] = [
   },
 ];
 
-const SAMPLE_CUSTOMER_DOMAINS: CustomerDomainRow[] = [
-  { domain: "gmail.com", count: 5, percentage: 50 },
-  { domain: "outlook.com", count: 2, percentage: 20 },
-  { domain: "brandmail.com", count: 2, percentage: 20 },
-  { domain: "icloud.com", count: 1, percentage: 10 },
-];
+const SAMPLE_CUSTOMER_INSIGHTS: CustomerInsightSummary = {
+  totalCustomers: 10,
+  repeatCustomers: 2,
+  repeatCustomerRate: 20,
+  averageOrderValue: 520.14,
+  newCustomersThisMonth: 3,
+  topCustomer: {
+    name: "Aniket Thakur",
+    totalSpent: 2896,
+    orders: 2,
+  },
+  hasData: false,
+};
 
 const SAMPLE_BEST_SELLERS: BestSellerRow[] = [
   {
@@ -263,6 +300,147 @@ function humanize(value: string) {
     .replace(/\s+/g, " ")
     .trim()
     .replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function getCreatedAtValue(value?: Date | string | null) {
+  const date = value ? new Date(value) : new Date(0);
+  return Number.isNaN(date.getTime()) ? 0 : date.getTime();
+}
+
+function isSameMonth(value: Date | string, reference: Date) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return false;
+  return date.getFullYear() === reference.getFullYear() && date.getMonth() === reference.getMonth();
+}
+
+function normalizeCustomerRole(role: unknown) {
+  const normalized = String(role ?? "customer").trim().toLowerCase();
+  if (normalized === "admin" || normalized === "manager" || normalized === "support" || normalized === "customer") {
+    return normalized;
+  }
+  return "customer";
+}
+
+function buildCustomerInsights(
+  users: DashboardCustomerUser[] | null | undefined,
+  orders: Order[] | null | undefined
+): CustomerInsightSummary {
+  const orderList = Array.isArray(orders) ? [...orders].sort((a, b) => getCreatedAtValue(b.createdAt) - getCreatedAtValue(a.createdAt)) : [];
+  const records = new Map<string, CustomerInsightRecord>();
+  const userIdToKey = new Map<string, string>();
+  const emailToKey = new Map<string, string>();
+
+  const customerUsers = Array.isArray(users) ? users : [];
+
+  customerUsers.forEach((user, index) => {
+    const role = normalizeCustomerRole(user.role);
+
+    if (role !== "customer") return;
+
+    const id = String(user.id ?? `user-${index}`);
+    const email = String(user.email ?? "").trim().toLowerCase();
+    const name = String(user.name ?? "").trim() || (email ? email.split("@")[0] : "Customer");
+    const joinedAt = String(user.joinedAt ?? user.createdAt ?? new Date().toISOString());
+    const key = `user:${id}`;
+
+    records.set(key, {
+      id,
+      name,
+      email,
+      joinedAt,
+      orders: [],
+      totalSpent: 0,
+    });
+
+    userIdToKey.set(id, key);
+    if (email) {
+      emailToKey.set(email, key);
+    }
+  });
+
+  orderList.forEach((order, index) => {
+    const orderEmail = String(order.shipping?.email ?? "").trim().toLowerCase();
+    const orderUserId = String(order.userId ?? "").trim();
+    let key = orderUserId ? userIdToKey.get(orderUserId) : undefined;
+
+    if (!key && orderEmail) {
+      key = emailToKey.get(orderEmail);
+    }
+
+    if (!key) {
+      const fallbackName =
+        String(order.shipping?.fullName ?? "").trim() ||
+        (orderEmail ? orderEmail.split("@")[0] : `Customer ${index + 1}`);
+      key = orderEmail ? `guest:${orderEmail}` : orderUserId ? `user:${orderUserId}` : `order:${order.id}`;
+
+      if (!records.has(key)) {
+        records.set(key, {
+          id: key,
+          name: fallbackName,
+          email: orderEmail,
+          joinedAt: String(order.createdAt ?? new Date().toISOString()),
+          orders: [],
+          totalSpent: 0,
+        });
+      }
+
+      if (orderUserId && !userIdToKey.has(orderUserId)) {
+        userIdToKey.set(orderUserId, key);
+      }
+      if (orderEmail && !emailToKey.has(orderEmail)) {
+        emailToKey.set(orderEmail, key);
+      }
+    }
+
+    const record = records.get(key);
+    if (record) {
+      record.orders.push(order);
+    }
+  });
+
+  const customers = [...records.values()].map((record) => {
+    const sortedOrders = [...record.orders].sort((a, b) => getCreatedAtValue(b.createdAt) - getCreatedAtValue(a.createdAt));
+    const totalSpent = sortedOrders.reduce((sum, order) => sum + (Number(order.totals?.total) || 0), 0);
+
+    return {
+      ...record,
+      orders: sortedOrders,
+      totalSpent,
+      lastActiveAt: sortedOrders[0]?.createdAt ? String(sortedOrders[0].createdAt) : undefined,
+    };
+  });
+
+  const totalCustomers = customers.length;
+  const repeatCustomers = customers.filter((customer) => customer.orders.length > 1).length;
+  const repeatCustomerRate = totalCustomers ? Math.round((repeatCustomers / totalCustomers) * 100) : 0;
+  const totalRevenue = orderList.reduce((sum, order) => sum + (Number(order.totals?.total) || 0), 0);
+  const averageOrderValue = orderList.length ? totalRevenue / orderList.length : 0;
+  const currentMonth = new Date();
+  const newCustomersThisMonth = customers.filter((customer) => isSameMonth(customer.joinedAt, currentMonth)).length;
+  const topCustomer = customers
+    .slice()
+    .sort(
+      (left, right) =>
+        right.totalSpent - left.totalSpent ||
+        right.orders.length - left.orders.length ||
+        getCreatedAtValue(left.joinedAt) - getCreatedAtValue(right.joinedAt)
+    )[0];
+
+  return {
+    totalCustomers,
+    repeatCustomers,
+    repeatCustomerRate,
+    averageOrderValue,
+    newCustomersThisMonth,
+    topCustomer: topCustomer
+      ? {
+          name: topCustomer.name,
+          totalSpent: topCustomer.totalSpent,
+          orders: topCustomer.orders.length,
+        }
+      : { ...SAMPLE_CUSTOMER_INSIGHTS.topCustomer },
+    hasData: totalCustomers > 0 || orderList.length > 0,
+  };
 }
 
 function getOrderStatusMeta(status: string) {
@@ -473,25 +651,6 @@ function InventoryAlertsSkeleton() {
   );
 }
 
-function CustomerDistributionSkeleton() {
-  return (
-    <div className="space-y-3 p-5">
-      {Array.from({ length: 4 }).map((_, index) => (
-        <div key={index} className="space-y-3 rounded-2xl border border-border/60 bg-white p-4 shadow-sm">
-          <div className="flex items-center justify-between gap-3">
-            <div className="space-y-2">
-              <Skeleton className="h-4 w-28 rounded-full" />
-              <Skeleton className="h-3 w-20 rounded-full" />
-            </div>
-            <Skeleton className="h-6 w-12 rounded-full" />
-          </div>
-          <Skeleton className="h-2.5 w-full rounded-full" />
-        </div>
-      ))}
-    </div>
-  );
-}
-
 function BestSellersSkeleton() {
   return (
     <div className="space-y-3 p-5">
@@ -505,6 +664,75 @@ function BestSellersSkeleton() {
           <div className="flex items-center gap-2">
             <Skeleton className="h-6 w-20 rounded-full" />
             <Skeleton className="h-8 w-24 rounded-full" />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+type CustomerInsightRowProps = {
+  icon: LucideIcon;
+  label: string;
+  helper: string;
+  value: string;
+  badge: string;
+  valueClassName?: string;
+  badgeClassName?: string;
+};
+
+function CustomerInsightRow({
+  icon: Icon,
+  label,
+  helper,
+  value,
+  badge,
+  valueClassName,
+  badgeClassName,
+}: CustomerInsightRowProps) {
+  return (
+    <div className="flex items-center justify-between rounded-xl border border-border/60 bg-white p-4 shadow-sm transition-transform duration-200 hover:-translate-y-0.5 hover:shadow-md">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="flex size-10 shrink-0 items-center justify-center rounded-xl bg-[#fbf7f4] text-[#4b0d4b]">
+          <Icon className="size-4" />
+        </div>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-foreground">{label}</p>
+          <p className="truncate text-xs text-muted-foreground">{helper}</p>
+        </div>
+      </div>
+
+      <div className="flex shrink-0 flex-col items-end gap-2 text-right">
+        <p className={cn("truncate text-base font-semibold text-[#4b0d4b]", valueClassName)}>{value}</p>
+        <Badge
+          variant="outline"
+          className={cn(
+            "rounded-full border-border/70 bg-muted/20 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground",
+            badgeClassName
+          )}
+        >
+          {badge}
+        </Badge>
+      </div>
+    </div>
+  );
+}
+
+function CustomerInsightsSkeleton() {
+  return (
+    <div className="space-y-3 p-5">
+      {Array.from({ length: 4 }).map((_, index) => (
+        <div key={index} className="flex items-center justify-between rounded-xl border border-border/60 bg-white p-4 shadow-sm">
+          <div className="flex min-w-0 items-center gap-3">
+            <Skeleton className="size-10 rounded-xl" />
+            <div className="min-w-0 space-y-2">
+              <Skeleton className="h-4 w-36 rounded-full" />
+              <Skeleton className="h-3 w-52 rounded-full" />
+            </div>
+          </div>
+          <div className="flex flex-col items-end gap-2">
+            <Skeleton className="h-5 w-16 rounded-full" />
+            <Skeleton className="h-6 w-12 rounded-full" />
           </div>
         </div>
       ))}
@@ -616,33 +844,48 @@ export default function Dashboard() {
     filterMatches([item.product, item.shade, item.collection, item.stock], deferredQuery)
   );
 
-  const domainCounts = useMemo(() => {
-    if (loading) return [];
+  const customerInsightsSummary = useMemo(
+    () => buildCustomerInsights(users as DashboardCustomerUser[], orders),
+    [orders, users]
+  );
 
-    if (!Array.isArray(users) || users.length === 0) return SAMPLE_CUSTOMER_DOMAINS;
+  const customerInsights = customerInsightsSummary.hasData
+    ? customerInsightsSummary
+    : SAMPLE_CUSTOMER_INSIGHTS;
 
-    const counts = users.reduce<Record<string, number>>((acc, user: any) => {
-      const domain = String(user?.email || "")
-        .split("@")
-        .pop()
-        ?.toLowerCase()
-        .trim() || "unknown";
-      acc[domain] = (acc[domain] || 0) + 1;
-      return acc;
-    }, {});
-
-    const total = users.length || 1;
-    return Object.entries(counts)
-      .map(([domain, count]) => ({
-        domain,
-        count,
-        percentage: Math.max(1, Math.round((count / total) * 100)),
-      }))
-      .sort((a, b) => b.count - a.count);
-  }, [loading, users]);
-
-  const visibleDomains = domainCounts.filter((item) =>
-    filterMatches([item.domain, item.count, item.percentage], deferredQuery)
+  const customerInsightRows = useMemo(
+    () => [
+      {
+        icon: RefreshCcw,
+        label: "Repeat customers",
+        helper: "Customers with more than one order",
+        value: numberFormatter.format(customerInsights.repeatCustomers),
+        badge: `${customerInsights.repeatCustomerRate}%`,
+      },
+      {
+        icon: IndianRupee,
+        label: "Average order value",
+        helper: "Gross revenue divided by total orders",
+        value: formatCurrency(customerInsights.averageOrderValue),
+        badge: "AOV",
+      },
+      {
+        icon: UserPlus,
+        label: "New customers",
+        helper: "Joined this month",
+        value: numberFormatter.format(customerInsights.newCustomersThisMonth),
+        badge: "New",
+      },
+      {
+        icon: Crown,
+        label: "Top customer",
+        helper: `${formatCurrency(customerInsights.topCustomer.totalSpent)} spent · ${numberFormatter.format(customerInsights.topCustomer.orders)} orders`,
+        value: customerInsights.topCustomer.name,
+        badge: "VIP",
+        valueClassName: "max-w-[12rem] truncate",
+      },
+    ],
+    [customerInsights]
   );
 
   const visibleBestSellers = useMemo(() => {
@@ -896,45 +1139,21 @@ export default function Dashboard() {
                 <div className="grid gap-6 xl:grid-cols-12">
                   <Card className="overflow-hidden rounded-[28px] border-border/60 bg-card shadow-sm xl:col-span-5">
                     <PanelHeader
-                      title="Customer Distribution"
-                      description="Top email domains among the people buying Cevonne products."
-                      countLabel={`${numberFormatter.format(visibleDomains.length)} domains`}
+                      title="Customer Insights"
+                      description="A quick view of customer quality, repeat buying, and spending behavior."
+                      countLabel="4 signals"
+                      action={{ label: "View users", href: "/dashboard/users" }}
                     />
-                    {loading && !visibleDomains.length ? (
-                      <CustomerDistributionSkeleton />
-                    ) : visibleDomains.length ? (
-                      <div className="space-y-3 p-5">
-                        {visibleDomains.map((item) => (
-                          <div
-                            key={item.domain}
-                            className="space-y-3 rounded-2xl border border-border/60 bg-white p-4 shadow-sm"
-                          >
-                            <div className="flex items-center justify-between gap-3">
-                              <div>
-                                <p className="text-sm font-semibold text-foreground">{item.domain}</p>
-                                <p className="text-xs text-muted-foreground">
-                                  {numberFormatter.format(item.count)} customers
-                                </p>
-                              </div>
-                              <Badge
-                                variant="outline"
-                                className="rounded-full border-border/70 bg-primary/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-primary"
-                              >
-                                {item.percentage}%
-                              </Badge>
-                            </div>
-                            <Progress
-                              value={item.percentage}
-                              className="h-2 rounded-full bg-secondary/30"
-                              indicatorClassName="bg-primary"
-                            />
-                          </div>
-                        ))}
-                      </div>
+                    {loading && !customerInsightsSummary.hasData ? (
+                      <CustomerInsightsSkeleton />
                     ) : (
-                      <div className="px-5 pb-6 pt-4">
-                        <div className="rounded-2xl border border-dashed border-border/60 bg-muted/10 p-6 text-sm text-muted-foreground">
-                          No customer domains match your search.
+                      <div className="space-y-3 p-5">
+                        {customerInsightRows.map((row) => (
+                          <CustomerInsightRow key={row.label} {...row} />
+                        ))}
+
+                        <div className="rounded-xl border border-[#eadfd8] bg-[#fbf7f4] px-4 py-3 text-xs leading-5 text-muted-foreground">
+                          Customer retention is healthier when repeat buyers increase month over month.
                         </div>
                       </div>
                     )}

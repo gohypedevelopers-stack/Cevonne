@@ -4,13 +4,12 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "@/lib/router";
 
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/context/AuthContext";
 import { useDashboardData } from "@/hooks/useDashboardData";
+import type { Product } from "@/types/product";
 
 import { AppSidebar } from "./app-sidebar";
-import { ProductForm } from "./components/ProductDialog";
+import { ProductEditorPage, ProductEditorSkeleton } from "./components/ProductEditorPage";
 import { API_BASE } from "./utils";
 
 const defaultRequest = (url, options) => fetch(url, options);
@@ -24,9 +23,9 @@ export default function ProductEdit() {
   const { collections, refresh } = useDashboardData(true, request);
   const collectionOptions = Array.isArray(collections) ? collections : [];
 
-  const [product, setProduct] = useState(null);
+  const [product, setProduct] = useState<Product | null>(null);
   const [loadingProduct, setLoadingProduct] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState<string | null>(null);
 
   const handleCancel = () => navigate("/dashboard");
   const handleSuccess = () => navigate("/dashboard");
@@ -55,7 +54,7 @@ export default function ProductEdit() {
       } catch (err) {
         console.error(err);
         if (active) {
-          setError(err.message || "Unable to load product");
+          setError(err instanceof Error ? err.message : "Unable to load product");
         }
       } finally {
         if (active) {
@@ -74,59 +73,45 @@ export default function ProductEdit() {
     <SidebarProvider>
       <div className="flex h-svh w-full overflow-hidden">
         <AppSidebar />
-        <SidebarInset className="flex min-w-0 min-h-0 flex-1 flex-col overflow-hidden bg-[#f5f7fb]">
-          <div className="sticky top-0 z-20 grid grid-cols-[auto,1fr] items-center gap-2 border-b bg-[#f5f7fb]/80 px-3 py-2 backdrop-blur supports-[backdrop-filter]:bg-[#f5f7fb]/60 md:hidden">
-            <SidebarTrigger className="-ml-1" />
-            <span className="text-sm font-medium text-primary/80">Menu</span>
-          </div>
-
-          <header className="flex flex-col gap-4 border-b border-border bg-white/95 px-4 py-5 shadow-sm md:flex-row md:items-center md:justify-between lg:px-6">
-            <div className="flex items-center gap-3 text-primary">
-              <div>
-                <p className="font-serif text-3xl font-semibold leading-tight">Edit product</p>
-                <p className="text-sm text-muted-foreground">
-                  Update product descriptions, media, and pricing before republishing.
-                </p>
+        <SidebarInset className="flex min-h-0 flex-1 flex-col overflow-y-auto bg-[#f8f3ef]">
+          {loadingProduct ? (
+            <ProductEditorSkeleton />
+          ) : error ? (
+            <div className="flex min-h-full items-center justify-center bg-[#f8f3ef] px-6 py-12">
+              <div className="max-w-md rounded-2xl border border-destructive/20 bg-white p-6 shadow-sm">
+                <p className="font-serif text-2xl text-[#4b0d4b]">Unable to load product</p>
+                <p className="mt-2 text-sm text-muted-foreground">{error}</p>
+                <div className="mt-5 flex gap-3">
+                  <button
+                    type="button"
+                    className="inline-flex h-11 items-center justify-center rounded-xl border border-border bg-white px-4 text-sm font-medium text-foreground shadow-sm transition hover:bg-[#fbf7f4]"
+                    onClick={() => window.location.reload()}
+                  >
+                    Retry
+                  </button>
+                  <button
+                    type="button"
+                    className="inline-flex h-11 items-center justify-center rounded-xl bg-[#4b0d4b] px-4 text-sm font-medium text-white shadow-sm transition hover:bg-[#3a083a]"
+                    onClick={handleCancel}
+                  >
+                    Back
+                  </button>
+                </div>
               </div>
             </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-              <Button type="button" variant="outline" className="rounded-full" onClick={handleCancel}>
-                Cancel
-              </Button>
-              <Button
-                type="submit"
-                form="product-edit-form"
-                disabled={loadingProduct}
-                className="rounded-full bg-primary px-5 text-sm font-semibold text-primary-foreground shadow"
-              >
-                Save changes
-              </Button>
-            </div>
-          </header>
-
-          <main className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 pb-0 pt-6 md:px-6">
-            {loadingProduct ? (
-              <Skeleton className="h-[480px] w-full rounded-3xl" />
-            ) : error ? (
-              <div className="rounded-3xl border border-destructive/30 bg-destructive/5 p-6 text-destructive">
-                {error}
-              </div>
-            ) : product ? (
-              <div className="flex flex-col gap-6">
-                <ProductForm
-                  mode="edit"
-                  product={product}
-                  productId={id}
-                  collections={collectionOptions}
-                  request={request}
-                  refresh={refresh}
-                  afterSubmit={handleSuccess}
-                  formId="product-edit-form"
-                  onClose={handleCancel}
-                />
-              </div>
-            ) : null}
-          </main>
+          ) : product ? (
+            <ProductEditorPage
+              mode="edit"
+              product={product}
+              productId={id}
+              collections={collectionOptions}
+              request={request}
+              refresh={refresh}
+              onCancel={handleCancel}
+              onSuccess={handleSuccess}
+              mobileMenuTrigger={<SidebarTrigger className="size-9 rounded-full border border-border/60 bg-white shadow-sm" />}
+            />
+          ) : null}
         </SidebarInset>
       </div>
     </SidebarProvider>

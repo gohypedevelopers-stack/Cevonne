@@ -39,7 +39,7 @@ export const env = Object.freeze({
   r2AccessKeyId: process.env.R2_ACCESS_KEY_ID || "",
   r2SecretAccessKey: process.env.R2_SECRET_ACCESS_KEY || "",
   r2BucketName: process.env.R2_BUCKET_NAME || "",
-  r2PublicUrl: normalizeOriginUrl(process.env.R2_PUBLIC_URL || ""),
+  r2PublicUrl: normalizeOriginUrl(process.env.R2_PUBLIC_BASE_URL || process.env.R2_PUBLIC_URL || ""),
   cevonneN8nEnabled: toBoolean(process.env.CEVONNE_N8N_ENABLED, false),
   cevonneN8nDryRun: toBoolean(process.env.CEVONNE_N8N_DRY_RUN, false),
   cevonneSiteSource: process.env.CEVONNE_SITE_SOURCE || "website",
