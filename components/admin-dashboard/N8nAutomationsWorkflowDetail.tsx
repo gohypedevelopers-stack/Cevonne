@@ -780,8 +780,8 @@ export default function N8nAutomationsWorkflowDetail({ workflowGroup }: { workfl
 
   return (
     <SidebarProvider>
-      <div className="relative flex min-h-screen w-full overflow-hidden bg-[#f6f1ff]">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(109,40,217,0.10),_transparent_30%),radial-gradient(circle_at_top_right,_rgba(99,102,241,0.10),_transparent_28%),linear-gradient(180deg,_rgba(255,255,255,0.85),_rgba(246,241,255,0.95))]" />
+      <div className="relative flex min-h-screen w-full overflow-hidden bg-[#faf5f1]">
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,_rgba(255,255,255,0.82),_rgba(250,245,241,0.96))]" />
         <AppSidebar />
 
         <SidebarInset className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -792,35 +792,35 @@ export default function N8nAutomationsWorkflowDetail({ workflowGroup }: { workfl
 
           <div className="flex flex-1 flex-col overflow-y-auto">
             <main className="space-y-6 px-4 pb-10 pt-6 md:px-8">
-              <header className="overflow-hidden rounded-[2rem] border border-primary/15 bg-[#120f22] text-white shadow-none">
+              <header className="overflow-hidden rounded-[2rem] border border-border/60 bg-white shadow-sm">
                 <div className="flex flex-col gap-6 px-6 py-6 md:px-8 md:py-8 xl:flex-row xl:items-end xl:justify-between">
                   <div className="max-w-3xl space-y-4">
                     <div className="flex flex-wrap items-center gap-2">
-                      <Badge className="rounded-full bg-white/10 text-white hover:bg-white/10">
-                        <Sparkles className="mr-1 h-3.5 w-3.5" />
+                      <Badge className="rounded-full border border-border/70 bg-muted/30 text-foreground hover:bg-muted/30">
+                        <Sparkles className="mr-1 h-3.5 w-3.5 text-muted-foreground" />
                         N8N Automations
                       </Badge>
                       {workflow?.group === "G11" ? (
-                        <Badge className="rounded-full bg-violet-400/15 text-violet-100 hover:bg-violet-400/15">Recommendation-only</Badge>
+                        <Badge className="rounded-full border border-border/70 bg-muted/30 text-muted-foreground hover:bg-muted/30">Recommendation-only</Badge>
                       ) : null}
                     </div>
                     <div className="space-y-2">
-                      <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
+                      <h1 className="text-3xl font-semibold tracking-tight text-foreground md:text-4xl">
                         {workflow?.group || normalizedWorkflowGroup} - {workflow?.name || "Workflow detail"}
                       </h1>
-                      <p className="max-w-3xl text-sm leading-6 text-white/75 md:text-base">
+                      <p className="max-w-3xl text-sm leading-6 text-muted-foreground md:text-base">
                         {workflow?.purpose || "Workflow details"}
                       </p>
                     </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <Button asChild variant="outline" className="rounded-full border-white/20 bg-white/5 text-white hover:bg-white/10">
+                    <Button asChild variant="outline" className="rounded-full border-border/70 bg-white shadow-none">
                       <Link href="/dashboard/n8n-automations">
                         <ArrowLeft className="mr-2 h-4 w-4" />
                         Back to N8N Automations
                       </Link>
                     </Button>
-                    <Button variant="outline" className="rounded-full border-white/20 bg-white/5 text-white hover:bg-white/10" onClick={() => void refreshSection()}>
+                    <Button variant="outline" className="rounded-full border-border/70 bg-white shadow-none" onClick={() => void refreshSection()}>
                       <RefreshCw className="mr-2 h-4 w-4" />
                       Refresh
                     </Button>
@@ -830,7 +830,7 @@ export default function N8nAutomationsWorkflowDetail({ workflowGroup }: { workfl
 
               <div className="grid gap-6 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
                 <section className="min-w-0 space-y-6">
-                  <Card className="border border-primary/15 bg-white/95 shadow-none">
+                  <Card className="border border-border/60 bg-white shadow-sm">
                     <CardHeader className="space-y-4">
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                         <div className="space-y-3">
@@ -839,7 +839,7 @@ export default function N8nAutomationsWorkflowDetail({ workflowGroup }: { workfl
                               {bannerCopy?.statusLabel || "Waiting"}
                             </Badge>
                             {workflow?.group === "G11" ? (
-                              <Badge className="rounded-full border border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-50">
+                              <Badge className="rounded-full border border-border/70 bg-muted/30 text-muted-foreground hover:bg-muted/30">
                                 Recommendation only
                               </Badge>
                             ) : null}
@@ -872,15 +872,15 @@ export default function N8nAutomationsWorkflowDetail({ workflowGroup }: { workfl
                       </div>
 
                       <div className="grid gap-3 md:grid-cols-3">
-                        <div className="rounded-2xl border border-border/60 bg-[#faf8ff] p-4">
+                        <div className="rounded-2xl border border-border/60 bg-muted/30 p-4">
                           <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Current status</p>
                           <p className="mt-2 text-lg font-semibold text-foreground">{bannerCopy?.statusLabel || "Waiting"}</p>
                         </div>
-                        <div className="rounded-2xl border border-border/60 bg-[#faf8ff] p-4">
+                        <div className="rounded-2xl border border-border/60 bg-muted/30 p-4">
                           <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Attention</p>
                           <p className="mt-2 text-lg font-semibold text-foreground">{attentionLabel}</p>
                         </div>
-                        <div className="rounded-2xl border border-border/60 bg-[#faf8ff] p-4">
+                        <div className="rounded-2xl border border-border/60 bg-muted/30 p-4">
                           <p className="text-xs uppercase tracking-[0.18em] text-muted-foreground">Last activity</p>
                           <p className="mt-2 text-lg font-semibold text-foreground">
                             {workflow?.lastRunAt ? formatRelativeTime(workflow.lastRunAt) : "No recent activity"}
@@ -935,7 +935,7 @@ export default function N8nAutomationsWorkflowDetail({ workflowGroup }: { workfl
                                 </div>
                               </div>
 
-                              <div className="rounded-2xl border border-border/60 bg-[#faf8ff] p-4">
+                              <div className="rounded-2xl border border-border/60 bg-muted/30 p-4">
                                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">What this workflow does</p>
                                 <p className="mt-2 text-sm leading-6 text-foreground">{workflowCopy?.description || workflow.description}</p>
                                 <p className="mt-3 text-sm leading-6 text-muted-foreground">{workflowCopy?.approvalPrompt}</p>
@@ -1000,7 +1000,7 @@ export default function N8nAutomationsWorkflowDetail({ workflowGroup }: { workfl
                         <CardContent className="space-y-4">
                           {pendingApprovals.length > 0 ? (
                             <>
-                              <div className="rounded-2xl border border-border/60 bg-[#faf8ff] p-4">
+                              <div className="rounded-2xl border border-border/60 bg-muted/30 p-4">
                                 <p className="text-sm font-semibold text-foreground">{actionPanelCopy?.message}</p>
                                 <p className="mt-2 text-sm leading-6 text-muted-foreground">
                                   Review each item below. Choose Approve if it should continue, or Reject if it should stop here.
@@ -1124,7 +1124,7 @@ export default function N8nAutomationsWorkflowDetail({ workflowGroup }: { workfl
                         </CardHeader>
                         <CardContent className="space-y-4">
                           {selectedApproval && selectedApprovalCopy ? (
-                            <div className="rounded-3xl border border-primary/15 bg-primary/5 p-4">
+                            <div className="rounded-3xl border border-border/60 bg-muted/20 p-4">
                               <div className="flex flex-col gap-4">
                                 <div className="space-y-2">
                                   <p className="text-lg font-semibold text-primary">{selectedApprovalCopy.title}</p>
@@ -1221,7 +1221,7 @@ export default function N8nAutomationsWorkflowDetail({ workflowGroup }: { workfl
                                 <div
                                   key={approval.approvalId}
                                   className={`rounded-2xl border p-4 text-sm ${
-                                    selectedApproval?.approvalId === approval.approvalId ? "border-primary/30 bg-primary/5" : "border-border/60 bg-white"
+                                    selectedApproval?.approvalId === approval.approvalId ? "border-border/60 bg-muted/20" : "border-border/60 bg-white"
                                   }`}
                                 >
                                   <div className="space-y-3">
@@ -1453,7 +1453,7 @@ export default function N8nAutomationsWorkflowDetail({ workflowGroup }: { workfl
                           <CardDescription>Hidden by default in the main flow, but available here when you need it.</CardDescription>
                         </CardHeader>
                         <CardContent className="space-y-4">
-                          <div className="space-y-3 rounded-2xl border border-border/60 bg-[#faf8ff] p-4">
+                          <div className="space-y-3 rounded-2xl border border-border/60 bg-muted/30 p-4">
                             <p className="text-sm font-semibold text-primary">Connected backend routes</p>
                             <div className="flex flex-wrap gap-2">
                               {workflow?.connectedBackendRoutes.map((route) => (
@@ -1549,12 +1549,12 @@ export default function N8nAutomationsWorkflowDetail({ workflowGroup }: { workfl
                         </div>
                       ) : workflow ? (
                         <>
-                          <div className="rounded-2xl border border-border/60 bg-[#faf8ff] p-4">
+                          <div className="rounded-2xl border border-border/60 bg-muted/30 p-4">
                             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">What this workflow is doing</p>
                             <p className="mt-2 text-sm leading-6 text-foreground">{workflowCopy?.description || workflow.description}</p>
                           </div>
 
-                          <div className="rounded-2xl border border-border/60 bg-[#faf8ff] p-4">
+                          <div className="rounded-2xl border border-border/60 bg-muted/30 p-4">
                             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Do you need to act?</p>
                             <p className="mt-2 text-sm leading-6 text-foreground">
                               {attentionCount > 0 ? attentionLabel : "No action is needed right now."}

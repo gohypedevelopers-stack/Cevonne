@@ -395,31 +395,31 @@ export default function Wf1InstagramSchedulerPage() {
         label: "Scheduler status",
         value: workflow?.status || "Loading",
         helper: workflow?.attentionMessage || "Loading workflow...",
-        icon: <Sparkles className="h-5 w-5 text-violet-600" />,
+        icon: <Sparkles className="h-5 w-5 text-muted-foreground" />,
       },
       {
         label: "Next scheduled post",
         value: workflow?.nextScheduledPost || "Loading",
         helper: "Next approved post.",
-        icon: <CalendarClock className="h-5 w-5 text-cyan-600" />,
+        icon: <CalendarClock className="h-5 w-5 text-muted-foreground" />,
       },
       {
         label: "Approval queue",
         value: workflow?.approvalQueueCount ?? 0,
         helper: workflow?.approvalStatus || "Waiting for approval",
-        icon: <BadgeCheck className="h-5 w-5 text-emerald-600" />,
+        icon: <BadgeCheck className="h-5 w-5 text-muted-foreground" />,
       },
       {
         label: "Buffer health",
         value: workflow?.bufferHealth || "Loading",
         helper: bufferHealth?.urgentAction || "Checking buffer...",
-        icon: <Shield className="h-5 w-5 text-amber-600" />,
+        icon: <Shield className="h-5 w-5 text-muted-foreground" />,
       },
       {
         label: "Last safety check",
         value: workflow?.lastSafetyCheck || "Loading",
         helper: workflow?.livePublishing === "Disabled" ? "Live publishing stays off by default." : "Live publishing is enabled.",
-        icon: <Clock3 className="h-5 w-5 text-primary" />,
+        icon: <Clock3 className="h-5 w-5 text-muted-foreground" />,
       },
     ],
     [workflow, bufferHealth],
@@ -660,8 +660,8 @@ export default function Wf1InstagramSchedulerPage() {
 
   return (
     <SidebarProvider>
-      <div className="relative flex min-h-screen w-full overflow-hidden bg-[#f6f1ff]">
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,_rgba(109,40,217,0.10),_transparent_30%),radial-gradient(circle_at_top_right,_rgba(99,102,241,0.10),_transparent_28%),linear-gradient(180deg,_rgba(255,255,255,0.88),_rgba(246,241,255,0.96))]" />
+      <div className="relative flex min-h-screen w-full overflow-hidden bg-[#faf5f1]">
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,_rgba(255,255,255,0.82),_rgba(250,245,241,0.96))]" />
         <AppSidebar />
 
         <SidebarInset className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
@@ -672,7 +672,7 @@ export default function Wf1InstagramSchedulerPage() {
 
           <div className="flex flex-1 flex-col overflow-y-auto">
             <main className="space-y-6 px-4 pb-10 pt-6 md:px-8">
-              <header className="rounded-[2rem] border border-primary/15 bg-[#120f22] text-white shadow-none">
+              <header className="rounded-[2rem] border border-border/60 bg-white shadow-sm">
                 <div className="flex flex-col gap-5 px-6 py-6 md:px-8 md:py-8 xl:flex-row xl:items-end xl:justify-between">
                   <div className="space-y-4">
                     <Breadcrumb className="">
@@ -691,19 +691,19 @@ export default function Wf1InstagramSchedulerPage() {
 
                     <div className="space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
-                        <Badge className="rounded-full bg-white/10 text-white hover:bg-white/10">WF1</Badge>
-                        <Badge className="rounded-full bg-emerald-400/15 text-emerald-100 hover:bg-emerald-400/15">Safe mode</Badge>
-                        <Badge className="rounded-full bg-violet-400/15 text-violet-100 hover:bg-violet-400/15">Publishing off by default</Badge>
+                        <Badge className="rounded-full border border-border/70 bg-muted/30 text-foreground hover:bg-muted/30">WF1</Badge>
+                        <Badge className="rounded-full border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-50">Safe mode</Badge>
+                        <Badge className="rounded-full border border-border/70 bg-muted/30 text-muted-foreground hover:bg-muted/30">Publishing off by default</Badge>
                       </div>
-                      <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">{WF1_WORKFLOW_TITLE}</h1>
-                      <p className="max-w-3xl text-sm leading-6 text-white/75 md:text-base">
+                      <h1 className="text-3xl font-semibold tracking-tight text-foreground md:text-4xl">{WF1_WORKFLOW_TITLE}</h1>
+                      <p className="max-w-3xl text-sm leading-6 text-muted-foreground md:text-base">
                         Keep Instagram posts in review, dry-run, and buffer-safe until you choose to publish.
                       </p>
                     </div>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
-                    <Button asChild variant="outline" className="rounded-full border-white/20 bg-white/5 text-white hover:bg-white/10">
+                    <Button asChild variant="outline" className="rounded-full border-border/70 bg-white shadow-none">
                       <Link href="/dashboard/n8n-automations">
                         <ArrowLeft className="mr-2 h-4 w-4" />
                         Back
@@ -711,7 +711,7 @@ export default function Wf1InstagramSchedulerPage() {
                     </Button>
                     <Button
                       variant="outline"
-                      className="rounded-full border-white/20 bg-white/5 text-white hover:bg-white/10"
+                      className="rounded-full border-border/70 bg-white shadow-none"
                       onClick={() => void loadWorkflow(true)}
                     >
                       <RefreshCw className={cn("mr-2 h-4 w-4", refreshing ? "animate-spin" : "")} />
@@ -724,7 +724,7 @@ export default function Wf1InstagramSchedulerPage() {
               <div className="grid gap-4 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
                 {loading
                   ? Array.from({ length: 5 }).map((_, index) => (
-                      <Card key={index} className="overflow-hidden border-none bg-white/90 shadow-[0_10px_35px_rgba(40,25,74,0.08)]">
+                      <Card key={index} className="overflow-hidden border border-border/60 bg-white shadow-sm">
                         <CardContent className="space-y-3 p-4">
                           <Skeleton className="h-4 w-24" />
                           <Skeleton className="h-8 w-full" />
@@ -733,7 +733,7 @@ export default function Wf1InstagramSchedulerPage() {
                       </Card>
                     ))
                   : summaryCards.map((card) => (
-                      <Card key={card.label} className="overflow-hidden border-none bg-white/90 shadow-[0_10px_35px_rgba(40,25,74,0.08)]">
+                      <Card key={card.label} className="overflow-hidden border border-border/60 bg-white shadow-sm">
                         <CardContent className="flex min-w-0 flex-col gap-3 p-4">
                           <div className="flex min-w-0 items-start justify-between gap-3">
                             <div className="min-w-0 space-y-1">
@@ -741,16 +741,15 @@ export default function Wf1InstagramSchedulerPage() {
                               <p className="break-words text-lg font-semibold text-foreground">{card.value}</p>
                               <p className="break-words text-xs text-muted-foreground">{card.helper}</p>
                             </div>
-                            <div className="rounded-full bg-primary/10 p-3">{card.icon}</div>
+                            <div className="rounded-full bg-muted/30 p-3">{card.icon}</div>
                           </div>
-                          <div className="h-1.5 w-full rounded-full bg-gradient-to-r from-primary/80 via-violet-500/70 to-cyan-400/80" />
                         </CardContent>
                       </Card>
                     ))}
               </div>
 
               {settings?.livePublishingEnabled === false ? (
-                <Alert variant="default" className="border-violet-200 bg-violet-50 text-violet-900">
+                <Alert variant="default" className="border-border/60 bg-muted/20 text-foreground">
                   <TriangleAlert className="h-4 w-4" />
                   <AlertTitle className="">Live publishing is off.</AlertTitle>
                   <AlertDescription className="">WF1 stays in safe dry-run mode until you turn it on in Settings.</AlertDescription>
@@ -1233,14 +1232,14 @@ export default function Wf1InstagramSchedulerPage() {
                       </CardHeader>
                       <CardContent className="space-y-4">
                         <div className="grid gap-3 md:grid-cols-2">
-                          <div className="rounded-2xl border border-border/60 bg-[#faf8ff] p-4">
+                          <div className="rounded-2xl border border-border/60 bg-muted/30 p-4">
                             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Approved buffer days</p>
                             <p className="mt-2 text-3xl font-semibold text-foreground">{bufferHealth?.approvedBufferDays ?? 0}</p>
                             <p className="mt-2 text-sm text-muted-foreground">
                               WF1 needs at least {settings?.minimumBufferDays ?? 3} days of approved posts.
                             </p>
                           </div>
-                          <div className="rounded-2xl border border-border/60 bg-[#faf8ff] p-4">
+                          <div className="rounded-2xl border border-border/60 bg-muted/30 p-4">
                             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Fallback posts</p>
                             <p className="mt-2 text-3xl font-semibold text-foreground">{bufferHealth?.evergreenFallbackCount ?? 0}</p>
                             <p className="mt-2 text-sm text-muted-foreground">
@@ -1379,7 +1378,7 @@ export default function Wf1InstagramSchedulerPage() {
                       <CardDescription>Edit WF1 defaults and save them back to the workflow store. Live publishing starts off.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-6">
-                      <Alert variant="default" className="border-violet-200 bg-violet-50 text-violet-900">
+                      <Alert variant="default" className="border-border/60 bg-muted/20 text-foreground">
                         <Shield className="h-4 w-4" />
                         <AlertTitle className="">{settingsDraft.livePublishingEnabled ? "Live publishing is on." : "Live publishing is off."}</AlertTitle>
                         <AlertDescription className="">
@@ -1497,7 +1496,7 @@ export default function Wf1InstagramSchedulerPage() {
                         </FieldGroup>
 
                         <div className="space-y-4">
-                          <FieldSet className="rounded-3xl border border-border/60 bg-[#faf8ff] p-4 shadow-[0_10px_30px_rgba(40,25,74,0.05)]">
+                          <FieldSet className="rounded-3xl border border-border/60 bg-muted/30 p-4 shadow-sm">
                             <FieldLegend variant="label" className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                               Publishing controls
                             </FieldLegend>
@@ -1629,7 +1628,7 @@ export default function Wf1InstagramSchedulerPage() {
                     <CardDescription>Plain-language guidance for the current workflow state.</CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-3">
-                    <div className="rounded-2xl border border-border/60 bg-[#faf8ff] p-4">
+                    <div className="rounded-2xl border border-border/60 bg-muted/30 p-4">
                       <p className="text-sm font-semibold text-primary">Current guidance</p>
                       <p className="mt-2 text-sm leading-6 text-foreground">{workflow?.attentionMessage || "Review the current queue."}</p>
                     </div>
@@ -1675,7 +1674,7 @@ export default function Wf1InstagramSchedulerPage() {
                   <SheetDescription>Plain-language post details with hidden developer data below.</SheetDescription>
                 </SheetHeader>
 
-                <div className="space-y-4 rounded-2xl border border-border/60 bg-[#faf8ff] p-4">
+                <div className="space-y-4 rounded-2xl border border-border/60 bg-muted/30 p-4">
                   <div className="flex flex-wrap gap-2">
                     {statusBadge(selectedQueueItem.status)}
                     {statusBadge(selectedQueueItem.dryRunStatus)}

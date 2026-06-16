@@ -45,18 +45,18 @@ export function NavUser({ user }: NavUserProps) {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
-              className="group h-auto min-h-[4.75rem] items-center gap-3 rounded-2xl px-3 py-3 text-left text-[#4b0d4b] transition-colors duration-200 hover:text-[#4b0d4b] data-[state=open]:text-[#4b0d4b] group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:min-h-0 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:py-0 group-data-[collapsible=icon]:self-center">
-              <Avatar className="size-11 rounded-xl bg-transparent group-data-[collapsible=icon]:size-8">
+              className="group h-auto min-h-[4.2rem] items-center gap-3 rounded-2xl px-2.5 py-2.5 text-left text-[#4b0d4b] transition-colors duration-200 hover:text-[#4b0d4b] data-[state=open]:text-[#4b0d4b] group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:min-h-0 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:py-0 group-data-[collapsible=icon]:self-center">
+              <Avatar className="size-10 rounded-xl bg-transparent group-data-[collapsible=icon]:size-8">
                 <AvatarImage src={user.avatar} alt="Cevonne" className="rounded-xl object-contain p-1.5 brightness-0" />
                 <AvatarFallback className="rounded-xl bg-transparent text-[10px] font-semibold text-[#4b0d4b]">
                   {initials}
                 </AvatarFallback>
               </Avatar>
-              <div className="grid flex-1 text-left text-sm leading-tight group-data-[collapsible=icon]:hidden">
-                <span className="truncate font-serif text-base font-semibold leading-none tracking-tight text-[#4b0d4b]">
+              <div className="grid flex-1 text-left leading-tight group-data-[collapsible=icon]:hidden">
+                <span className="truncate font-serif text-[18px] font-semibold leading-none tracking-tight text-[#4b0d4b]">
                   {user.name}
                 </span>
-                <span className="truncate text-xs text-muted-foreground">
+                <span className="truncate text-[11px] text-muted-foreground">
                   {user.email}
                 </span>
               </div>
