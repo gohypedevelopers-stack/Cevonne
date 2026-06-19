@@ -1088,8 +1088,104 @@ export default function N8nAutomationsOverview() {
                     : stats.map((card) => <StatCard key={card.label} {...card} />)}
                 </div>
 
-                <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_300px] 2xl:grid-cols-[minmax(0,1fr)_320px]">
-                  <Card className="min-w-0 self-start h-fit overflow-hidden rounded-[28px] border-border/60 bg-white shadow-sm">
+                <div className="space-y-6">
+                  <div className="grid items-start gap-4 xl:grid-cols-2">
+                    <Card className="overflow-hidden rounded-[24px] border-border/60 bg-white shadow-sm">
+                      <CardHeader className="flex flex-row items-start justify-between gap-3 px-4 py-4 lg:px-5 lg:py-4">
+                        <div className="space-y-1">
+                          <CardTitle className="font-serif text-lg font-semibold tracking-tight text-primary lg:text-xl">
+                            Attention Queue
+                          </CardTitle>
+                          <CardDescription className="text-xs leading-5 text-muted-foreground lg:text-sm">
+                            Workflows that need a closer look.
+                          </CardDescription>
+                        </div>
+                        <Badge
+                          variant="outline"
+                          className="rounded-full border-border/70 bg-muted/20 px-2.5 py-0.5 text-[10px] font-semibold normal-case text-muted-foreground"
+                        >
+                          {numberFormatter.format(attentionQueue.length)} items
+                        </Badge>
+                      </CardHeader>
+                      <CardContent className="space-y-2.5 px-4 pb-4 pt-0 lg:px-5 lg:pb-5">
+                        {loading ? (
+                          <div className="space-y-2.5">
+                            {Array.from({ length: 3 }).map((_, index) => (
+                              <Skeleton key={index} className="h-16 rounded-2xl" />
+                            ))}
+                          </div>
+                        ) : attentionQueue.length ? (
+                          attentionQueue.map((row) => (
+                            <div key={row.id} className="rounded-2xl border border-border/60 bg-muted/20 p-3.5">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0 space-y-0.5">
+                                  <p className="truncate text-sm font-semibold text-foreground">{row.name}</p>
+                                  <p className="truncate text-xs text-muted-foreground">{row.category}</p>
+                                </div>
+                                <StatusBadge label={getAttentionLabel(row.attention)} tone={row.attentionTone} compact />
+                              </div>
+                              <p className="mt-2.5 text-xs leading-5 text-muted-foreground">{row.description}</p>
+                              <Button asChild variant="outline" className="mt-3 h-8 rounded-full border-border/70 bg-white px-3 text-xs shadow-none">
+                                <Link href={row.detailHref}>
+                                  View details
+                                  <ArrowRight data-icon="inline-end" />
+                                </Link>
+                              </Button>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="rounded-2xl border border-dashed border-border/70 bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
+                            No workflows need attention right now.
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+
+                    <Card className="overflow-hidden rounded-[24px] border-border/60 bg-white shadow-sm">
+                      <CardHeader className="flex flex-row items-start justify-between gap-3 px-4 py-4 lg:px-5 lg:py-4">
+                        <div className="space-y-1">
+                          <CardTitle className="font-serif text-lg font-semibold tracking-tight text-primary lg:text-xl">
+                            Recent Activity
+                          </CardTitle>
+                          <CardDescription className="text-xs leading-5 text-muted-foreground lg:text-sm">
+                            The latest workflow updates from the admin store.
+                          </CardDescription>
+                        </div>
+                        <Activity className="mt-1 h-4 w-4 text-primary lg:h-5 lg:w-5" />
+                      </CardHeader>
+                      <CardContent className="space-y-2.5 px-4 pb-4 pt-0 lg:px-5 lg:pb-5">
+                        {loading ? (
+                          <div className="space-y-2.5">
+                            {Array.from({ length: 4 }).map((_, index) => (
+                              <Skeleton key={index} className="h-14 rounded-2xl" />
+                            ))}
+                          </div>
+                        ) : recentActivity.length ? (
+                          recentActivity.map((row) => (
+                            <div key={row.id} className="rounded-2xl border border-border/60 bg-white p-3.5 shadow-sm">
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0 space-y-0.5">
+                                  <p className="truncate text-sm font-semibold text-foreground">{row.name}</p>
+                                  <p className="truncate text-xs text-muted-foreground">{row.category}</p>
+                                </div>
+                                <StatusBadge label={row.status} tone={row.statusTone} compact />
+                              </div>
+                              <div className="mt-2.5 flex items-center justify-between gap-3 text-xs text-muted-foreground">
+                                <span>{row.lastActivityLabel}</span>
+                                <span>{row.nextRunLabel}</span>
+                              </div>
+                            </div>
+                          ))
+                        ) : (
+                          <div className="rounded-2xl border border-dashed border-border/70 bg-muted/10 px-4 py-5 text-sm text-muted-foreground">
+                            No recent activity yet.
+                          </div>
+                        )}
+                      </CardContent>
+                    </Card>
+                  </div>
+
+                  <Card className="min-w-0 overflow-hidden rounded-[28px] border-border/60 bg-white shadow-sm">
                     <CardHeader className="flex flex-col gap-4 px-5 py-5 lg:flex-row lg:items-start lg:justify-between">
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-3">
@@ -1108,12 +1204,12 @@ export default function N8nAutomationsOverview() {
                         </CardDescription>
                       </div>
 
-                          <Badge
-                            variant="outline"
-                            className="rounded-full border-border/70 bg-muted/20 px-3 py-1 text-[11px] font-semibold normal-case text-muted-foreground"
-                          >
-                            {syncBadgeLabel}
-                          </Badge>
+                      <Badge
+                        variant="outline"
+                        className="rounded-full border-border/70 bg-muted/20 px-3 py-1 text-[11px] font-semibold normal-case text-muted-foreground"
+                      >
+                        {syncBadgeLabel}
+                      </Badge>
                     </CardHeader>
 
                     <Separator className="bg-border/70" />
@@ -1122,99 +1218,6 @@ export default function N8nAutomationsOverview() {
                       <WorkflowTable loading={loading} rows={hasWorkflowData ? workflowRows : []} onRefresh={handleRefresh} />
                     </CardContent>
                   </Card>
-
-                  <aside className="min-w-0 space-y-4 xl:sticky xl:top-6 xl:self-start">
-                    <Card className="overflow-hidden rounded-[28px] border-border/60 bg-white shadow-sm">
-                      <CardHeader className="flex flex-row items-start justify-between gap-3">
-                        <div className="space-y-1">
-                          <CardTitle className="font-serif text-xl font-semibold tracking-tight text-primary">
-                            Attention Queue
-                          </CardTitle>
-                          <CardDescription>Workflows that need a closer look.</CardDescription>
-                        </div>
-                        <Badge
-                          variant="outline"
-                          className="rounded-full border-border/70 bg-muted/20 px-3 py-1 text-[11px] font-semibold normal-case text-muted-foreground"
-                        >
-                          {numberFormatter.format(attentionQueue.length)} items
-                        </Badge>
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        {loading ? (
-                          <div className="space-y-3">
-                            {Array.from({ length: 3 }).map((_, index) => (
-                              <Skeleton key={index} className="h-20 rounded-2xl" />
-                            ))}
-                          </div>
-                        ) : attentionQueue.length ? (
-                          attentionQueue.map((row) => (
-                            <div key={row.id} className="rounded-2xl border border-border/60 bg-muted/20 p-4">
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0 space-y-1">
-                                  <p className="truncate text-sm font-semibold text-foreground">{row.name}</p>
-                                  <p className="truncate text-xs text-muted-foreground">{row.category}</p>
-                                </div>
-                                <StatusBadge label={getAttentionLabel(row.attention)} tone={row.attentionTone} compact />
-                              </div>
-                              <p className="mt-3 text-sm leading-6 text-muted-foreground">{row.description}</p>
-                              <Button asChild variant="outline" className="mt-4 h-9 rounded-full border-border/70 bg-white px-3 shadow-none">
-                                <Link href={row.detailHref}>
-                                  View details
-                                  <ArrowRight data-icon="inline-end" />
-                                </Link>
-                              </Button>
-                            </div>
-                          ))
-                        ) : (
-                          <div className="rounded-2xl border border-dashed border-border/70 bg-muted/10 px-4 py-6 text-sm text-muted-foreground">
-                            No workflows need attention right now.
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-
-                    <Card className="overflow-hidden rounded-[28px] border-border/60 bg-white shadow-sm">
-                      <CardHeader className="flex flex-row items-start justify-between gap-3">
-                        <div className="space-y-1">
-                          <CardTitle className="font-serif text-xl font-semibold tracking-tight text-primary">
-                            Recent Activity
-                          </CardTitle>
-                          <CardDescription>The latest workflow updates from the admin store.</CardDescription>
-                        </div>
-                        <Activity className="mt-1 h-5 w-5 text-primary" />
-                      </CardHeader>
-                      <CardContent className="space-y-3">
-                        {loading ? (
-                          <div className="space-y-3">
-                            {Array.from({ length: 4 }).map((_, index) => (
-                              <Skeleton key={index} className="h-16 rounded-2xl" />
-                            ))}
-                          </div>
-                        ) : recentActivity.length ? (
-                          recentActivity.map((row) => (
-                            <div key={row.id} className="rounded-2xl border border-border/60 bg-white p-4 shadow-sm">
-                              <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0 space-y-1">
-                                  <p className="truncate text-sm font-semibold text-foreground">{row.name}</p>
-                                  <p className="truncate text-xs text-muted-foreground">{row.category}</p>
-                                </div>
-                                <StatusBadge label={row.status} tone={row.statusTone} compact />
-                              </div>
-                              <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                                <span>{row.lastActivityLabel}</span>
-                                <span>{row.nextRunLabel}</span>
-                              </div>
-                            </div>
-                          ))
-                        ) : (
-                          <div className="rounded-2xl border border-dashed border-border/70 bg-muted/10 px-4 py-6 text-sm text-muted-foreground">
-                            No recent activity yet.
-                          </div>
-                        )}
-                      </CardContent>
-                    </Card>
-
-                  </aside>
                 </div>
               </div>
             </main>
