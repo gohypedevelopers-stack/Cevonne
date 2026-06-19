@@ -2,7 +2,7 @@
 
 **File suggestion:** `docs/Cevonne_Website_n8n_Integration_for_Codex.md`  
 **Purpose:** Guide Codex while integrating the completed Cevonne n8n workflow system into the website codebase.  
-**Integration mode:** Website backend -> n8n webhooks -> Supabase/Neon/compliance workflow.  
+**Integration mode:** Website backend -> n8n webhooks -> Neon/compliance workflow.  
 **Core rule:** The website must never bypass G1/G3/G6/G9/G10/G11 safety rules.
 
 ---
@@ -33,7 +33,6 @@ Do not build direct frontend calls to n8n webhooks. Use backend/server API route
 
 Do not expose these in client-side code:
 
-- Supabase service role key
 - Neon database URL
 - n8n credentials
 - Meta tokens

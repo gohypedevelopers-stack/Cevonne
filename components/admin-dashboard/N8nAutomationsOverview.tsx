@@ -31,6 +31,14 @@ import {
   type N8nWorkflowCard,
 } from "@/components/admin-dashboard/n8n-automations-common";
 import { CevonneWorkflowGroup } from "@/lib/cevonne/admin-model";
+import {
+  G12_TREND_FETCHER_PURPOSE,
+  G12_TREND_FETCHER_ROUTE,
+  G12_TREND_FETCHER_TITLE,
+  buildG12FallbackSnapshot,
+  type G12TrendFetcherSnapshot,
+  type G12TrendFetcherSnapshotResponse,
+} from "@/lib/g12-trend-fetcher";
 import { WF1_WORKFLOW_ROUTE, WF1_WORKFLOW_TITLE, type Wf1DetailResponse } from "@/lib/wf1";
 
 const buildRouteUrl = (path: string) => new URL(path.startsWith("/") ? path : `/${path}`, window.location.origin).toString();
@@ -159,6 +167,9 @@ const WORKFLOW_SUMMARY_COPY: Record<CevonneWorkflowGroup, string> = {
   G10: "Reviews SEO and conversion ideas safely.",
   G11: "Generates recommendations without live writes.",
 };
+
+const G12_WORKFLOW_CATEGORY = "Trend fetcher";
+const G12_WORKFLOW_DESCRIPTION = G12_TREND_FETCHER_PURPOSE;
 
 const createEmptyOverview = (): N8nOverviewResponse => ({
   summary: { ...EMPTY_OVERVIEW.summary },
@@ -405,6 +416,62 @@ const sortByAttentionPriority = (label: AttentionStatus) => {
 };
 
 const getAttentionLabel = (label: AttentionStatus) => ATTENTION_LABELS[label] ?? label;
+
+const getG12WorkflowStatus = (snapshot: G12TrendFetcherSnapshot): WorkflowStatus => {
+  switch (snapshot.card_status) {
+    case "Live":
+      return "Working";
+    case "Testing":
+      return "Waiting";
+    case "Needs Action":
+      return "Blocked";
+    default:
+      return "Waiting";
+  }
+};
+
+const getG12WorkflowAttention = (snapshot: G12TrendFetcherSnapshot): AttentionStatus => {
+  switch (snapshot.card_status) {
+    case "Live":
+      return "No action needed";
+    case "Testing":
+      return "Waiting for approval";
+    case "Needs Action":
+      return "Blocked";
+    default:
+      return "Review required";
+  }
+};
+
+const getG12NextRunLabel = (snapshot: G12TrendFetcherSnapshot) => {
+  const nextRunAt = snapshot.branch_rows
+    .map((row) => row.next_run_at)
+    .filter((value): value is string => Boolean(value))
+    .sort((left, right) => new Date(left).getTime() - new Date(right).getTime())[0];
+
+  return nextRunAt ? formatDateTime(nextRunAt) : "Not scheduled";
+};
+
+const buildG12Row = (snapshot: G12TrendFetcherSnapshot): WorkflowRow => {
+  const status = getG12WorkflowStatus(snapshot);
+  const attention = getG12WorkflowAttention(snapshot);
+
+  return {
+    id: "g12-trend-fetcher",
+    name: G12_TREND_FETCHER_TITLE,
+    category: G12_WORKFLOW_CATEGORY,
+    description: G12_WORKFLOW_DESCRIPTION,
+    status,
+    statusTone: WORKFLOW_STATUS_TONES[status],
+    attention,
+    attentionTone: ATTENTION_TONES[attention],
+    lastActivityLabel: formatActivityLabel(snapshot.last_run_time),
+    lastActivityTimestamp: parseActivityTimestamp(snapshot.last_run_time),
+    nextRunLabel: getG12NextRunLabel(snapshot),
+    detailHref: G12_TREND_FETCHER_ROUTE,
+    n8nUrl: null,
+  };
+};
 
 function StatCard({ label, value, helper, icon, accentClass }: StatCardProps) {
   return (
@@ -729,8 +796,10 @@ export default function N8nAutomationsOverview() {
 
   const [overview, setOverview] = useState<N8nOverviewResponse>(() => createEmptyOverview());
   const [wf1Detail, setWf1Detail] = useState<Wf1DetailResponse | null>(null);
+  const [g12Snapshot, setG12Snapshot] = useState<G12TrendFetcherSnapshot>(() => buildG12FallbackSnapshot());
   const [loading, setLoading] = useState(true);
   const [wf1Loading, setWf1Loading] = useState(true);
+  const [g12Loading, setG12Loading] = useState(true);
 
   const loadOverview = useCallback(async () => {
     setLoading(true);
@@ -776,6 +845,26 @@ export default function N8nAutomationsOverview() {
     }
   }, [request]);
 
+  const loadG12 = useCallback(async () => {
+    setG12Loading(true);
+
+    try {
+      const response = await request(buildRouteUrl("/api/cevonne/admin/g12-trend-fetcher"), {
+        cache: "no-store",
+      });
+      const body = await parseJsonResponse<G12TrendFetcherSnapshotResponse>(response);
+
+      if (response.ok && body?.snapshot) {
+        setG12Snapshot(body.snapshot);
+        return;
+      }
+    } catch {
+      // Keep the current G12 snapshot visible if the request fails.
+    } finally {
+      setG12Loading(false);
+    }
+  }, [request]);
+
   useEffect(() => {
     void loadOverview();
   }, [loadOverview]);
@@ -784,6 +873,10 @@ export default function N8nAutomationsOverview() {
     void loadWf1();
   }, [loadWf1]);
 
+  useEffect(() => {
+    void loadG12();
+  }, [loadG12]);
+
   const workflowRows = useMemo(() => {
     const rows = (overview.workflows ?? []).map(buildOverviewRow);
 
@@ -791,8 +884,10 @@ export default function N8nAutomationsOverview() {
       rows.push(buildWf1Row(wf1Detail.workflow));
     }
 
+    rows.push(buildG12Row(g12Snapshot));
+
     return rows;
-  }, [overview.workflows, wf1Detail]);
+  }, [g12Snapshot, overview.workflows, wf1Detail]);
 
   const latestRow = useMemo(() => {
     return workflowRows.reduce<WorkflowRow | null>((current, row) => {
@@ -843,7 +938,7 @@ export default function N8nAutomationsOverview() {
       {
         label: "Total Workflows",
         value: numberFormatter.format(workflowRows.length),
-        helper: "G1 through G11 plus WF1",
+        helper: "G1 through G11 plus WF1 and G12",
         icon: <Workflow className="h-5 w-5" />,
         accentClass: "bg-primary",
       },
@@ -902,9 +997,11 @@ export default function N8nAutomationsOverview() {
   const handleRefresh = useCallback(() => {
     void loadOverview();
     void loadWf1();
-  }, [loadOverview, loadWf1]);
+    void loadG12();
+  }, [loadG12, loadOverview, loadWf1]);
 
   const hasWorkflowData = workflowRows.length > 0;
+  const syncBadgeLabel = wf1Loading || g12Loading ? "Syncing WF1 + G12..." : "WF1 + G12 included";
 
   return (
     <SidebarProvider>
@@ -1011,12 +1108,12 @@ export default function N8nAutomationsOverview() {
                         </CardDescription>
                       </div>
 
-                      <Badge
-                        variant="outline"
-                        className="rounded-full border-border/70 bg-muted/20 px-3 py-1 text-[11px] font-semibold normal-case text-muted-foreground"
-                      >
-                        {wf1Loading ? "Syncing WF1..." : "WF1 included"}
-                      </Badge>
+                          <Badge
+                            variant="outline"
+                            className="rounded-full border-border/70 bg-muted/20 px-3 py-1 text-[11px] font-semibold normal-case text-muted-foreground"
+                          >
+                            {syncBadgeLabel}
+                          </Badge>
                     </CardHeader>
 
                     <Separator className="bg-border/70" />
