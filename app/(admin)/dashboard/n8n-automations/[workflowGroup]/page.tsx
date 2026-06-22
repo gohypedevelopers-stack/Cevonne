@@ -15,5 +15,9 @@ export default async function Page({
     redirect("/dashboard/n8n-automations");
   }
 
+  if (workflowGroup === "G1") {
+    redirect("/admin/ai-automations/g1-compliance-guard");
+  }
+
   return <N8nAutomationsWorkflowDetail workflowGroup={workflowGroup} />;
 }

@@ -59,6 +59,12 @@ export type N8nExecutionRecord = {
   status: CevonneWorkflowStatus;
   responseType: string;
   failureReason?: string | null;
+  requestedByWorkflow?: string | null;
+  requestedByWorkflowGroup?: CevonneWorkflowGroup | null;
+  workflowId?: string | null;
+  actionType?: string | null;
+  actionTypeLabel?: string | null;
+  platform?: string | null;
   executedAt: string;
   actor: "website" | "admin";
   adminUserId?: string | null;

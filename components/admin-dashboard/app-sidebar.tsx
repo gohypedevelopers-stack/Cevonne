@@ -73,7 +73,7 @@ const data = {
       title: "N8N Automations",
       href: "/dashboard/n8n-automations",
       icon: Workflow,
-      match: ["/dashboard/n8n-automations"],
+      match: ["/dashboard/n8n-automations", "/admin/ai-automations"],
     },
   ],
 }

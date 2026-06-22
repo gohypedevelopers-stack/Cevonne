@@ -155,7 +155,7 @@ const EMPTY_OVERVIEW: N8nOverviewResponse = {
 };
 
 const WORKFLOW_SUMMARY_COPY: Record<CevonneWorkflowGroup, string> = {
-  G1: "Blocks unsafe actions before they can continue.",
+  G1: "Safety gate for all risky actions before execution.",
   G2: "Monitors account and policy health.",
   G3: "Keeps consent, attribution, and privacy events in sync.",
   G4: "Reviews claims, captions, and creative before approval.",
@@ -373,8 +373,11 @@ const buildOverviewRow = (workflow: N8nWorkflowCard): WorkflowRow => {
     lastActivityLabel: formatActivityLabel(workflow.lastRunAt),
     lastActivityTimestamp: parseActivityTimestamp(workflow.lastRunAt),
     nextRunLabel: nextRunValue ? (Number.isNaN(new Date(nextRunValue).getTime()) ? nextRunValue : formatDateTime(nextRunValue)) : "Not scheduled",
-    detailHref: `/dashboard/n8n-automations/${workflow.group.toLowerCase()}`,
-    n8nUrl: getExternalWorkflowUrl(source),
+    detailHref:
+      workflow.group === "G1"
+        ? "/admin/ai-automations/g1-compliance-guard"
+        : `/dashboard/n8n-automations/${workflow.group.toLowerCase()}`,
+    n8nUrl: workflow.group === "G1" ? null : getExternalWorkflowUrl(source),
   };
 };
 
