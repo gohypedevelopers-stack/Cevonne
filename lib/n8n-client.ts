@@ -9,7 +9,7 @@ import {
 } from "@/lib/cevonne/response";
 import { env } from "@/server/config";
 
-export type N8nWebhookStatus = "PASS" | "BLOCK" | "MANUAL_ONLY" | "ERROR";
+export type N8nWebhookStatus = "PASS" | "BLOCK" | "MANUAL_ONLY" | "PENDING_APPROVAL" | "NEEDS_EVIDENCE" | "ERROR";
 
 export type N8nWebhookResult = {
   status: N8nWebhookStatus;
@@ -19,9 +19,15 @@ export type N8nWebhookResult = {
   failure_reasons?: string[] | null;
   id?: string | null;
   event_id?: string | null;
+  review_id?: string | null;
+  draft_id?: string | null;
+  content_review_id?: string | null;
+  content_draft_id?: string | null;
   dry_run?: boolean | null;
   not_executed?: boolean | null;
   handled_at?: string | null;
+  http_status?: number | null;
+  response_text?: string | null;
   request_id: string;
   sent_at: string;
   webhook_url: string;
@@ -61,7 +67,14 @@ const buildWebhookUrl = (input: Pick<PostN8nWebhookInput, "path" | "url">) => {
 };
 
 const normalizeStatus = (value: unknown): N8nWebhookStatus => {
-  if (value === "PASS" || value === "BLOCK" || value === "MANUAL_ONLY" || value === "ERROR") {
+  if (
+    value === "PASS" ||
+    value === "BLOCK" ||
+    value === "MANUAL_ONLY" ||
+    value === "PENDING_APPROVAL" ||
+    value === "NEEDS_EVIDENCE" ||
+    value === "ERROR"
+  ) {
     return value;
   }
 
@@ -80,6 +93,10 @@ const normalizeMessage = (status: N8nWebhookStatus, value: unknown) => {
       return CEVONNE_SAFE_RESPONSE_MESSAGE;
     case "MANUAL_ONLY":
       return CEVONNE_MANUAL_REVIEW_MESSAGE;
+    case "PENDING_APPROVAL":
+      return "Waiting for human approval.";
+    case "NEEDS_EVIDENCE":
+      return "More evidence is required before this can continue.";
     case "ERROR":
     default:
       return CEVONNE_TEMPORARY_FAILURE_MESSAGE;
@@ -174,6 +191,8 @@ export const postN8nWebhook = async (input: PostN8nWebhookInput): Promise<N8nWeb
         request_id: requestId,
         sent_at: sentAt,
         webhook_url: webhookUrl,
+        http_status: response.status,
+        response_text: text,
       });
     }
 
@@ -185,6 +204,8 @@ export const postN8nWebhook = async (input: PostN8nWebhookInput): Promise<N8nWeb
         request_id: requestId,
         sent_at: sentAt,
         webhook_url: webhookUrl,
+        http_status: response.status,
+        response_text: text,
       });
     }
 
@@ -193,6 +214,8 @@ export const postN8nWebhook = async (input: PostN8nWebhookInput): Promise<N8nWeb
         request_id: requestId,
         sent_at: sentAt,
         webhook_url: webhookUrl,
+        http_status: response.status,
+        response_text: text,
       });
     }
 
@@ -208,9 +231,15 @@ export const postN8nWebhook = async (input: PostN8nWebhookInput): Promise<N8nWeb
         : null,
       id: typeof raw.id === "string" ? raw.id : null,
       event_id: typeof raw.event_id === "string" ? raw.event_id : null,
+      review_id: typeof raw.review_id === "string" ? raw.review_id : null,
+      draft_id: typeof raw.draft_id === "string" ? raw.draft_id : null,
+      content_review_id: typeof raw.content_review_id === "string" ? raw.content_review_id : null,
+      content_draft_id: typeof raw.content_draft_id === "string" ? raw.content_draft_id : null,
       dry_run: typeof raw.dry_run === "boolean" ? raw.dry_run : null,
       not_executed: typeof raw.not_executed === "boolean" ? raw.not_executed : null,
       handled_at: typeof raw.handled_at === "string" ? raw.handled_at : null,
+      http_status: response.status,
+      response_text: text,
       request_id: requestId,
       sent_at: sentAt,
       webhook_url: webhookUrl,
@@ -222,6 +251,7 @@ export const postN8nWebhook = async (input: PostN8nWebhookInput): Promise<N8nWeb
         request_id: requestId,
         sent_at: sentAt,
         webhook_url: webhookUrl,
+        http_status: null,
       });
     }
 
@@ -229,6 +259,7 @@ export const postN8nWebhook = async (input: PostN8nWebhookInput): Promise<N8nWeb
       request_id: requestId,
       sent_at: sentAt,
       webhook_url: webhookUrl,
+      http_status: null,
       raw: {
         error: error?.message || String(error),
       },

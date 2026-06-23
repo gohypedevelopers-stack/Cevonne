@@ -63,7 +63,7 @@ type QueueSeed = {
 
 type Wf1QueuedApprovalStatus = "Waiting for approval" | "Approved" | "Rejected" | "Changes requested";
 
-type Wf1ActionStatus = "PASS" | "BLOCK" | "MANUAL_ONLY" | "ERROR";
+type Wf1ActionStatus = "PASS" | "BLOCK" | "MANUAL_ONLY" | "PENDING_APPROVAL" | "NEEDS_EVIDENCE" | "ERROR";
 
 const NOW = Date.now();
 const minutesAgo = (minutes: number) => new Date(NOW - minutes * 60_000).toISOString();

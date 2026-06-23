@@ -2,6 +2,7 @@
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowRight, ArrowUpRight, Clock3, Eye, Play, RefreshCcw, Search } from "lucide-react";
+import Link from "next/link";
 import { toast } from "sonner";
 
 import WorkflowDashboardShell from "@/components/admin-dashboard/WorkflowDashboardShell";
@@ -172,13 +173,25 @@ type G12RunResponse = {
 };
 
 type G12SendResponse = {
-  status: string;
+  status: "PASS" | "BLOCK" | "MANUAL_ONLY" | "PENDING_APPROVAL" | "NEEDS_EVIDENCE" | "ERROR";
   message: string;
+  summary?: string | null;
+  action_needed?: string | null;
+  already_sent?: boolean;
+  g4_detail_href?: string | null;
+  review_id?: string | null;
+  g4_review_id?: string | null;
+  asset_id?: string | null;
+  approval_state?: string | null;
+  safe_rewrite?: string | null;
+  caption_suggestions?: string[];
+  hook_suggestions?: string[];
+  content_draft_id?: string | null;
+  insight_id?: string | null;
+  fetch_run_id?: string | null;
   request_id?: string | null;
   sent_at?: string | null;
-  content_draft_id?: string | null;
-  trend_insight_id?: string | null;
-  fetch_run_id?: string | null;
+  handled_at?: string | null;
 };
 
 type TrendActionState = {
@@ -521,6 +534,60 @@ const getApprovalTone = (label: string) => {
       return "border-amber-200 bg-amber-50 text-amber-700";
     default:
       return "border-border/70 bg-muted/20 text-muted-foreground";
+  }
+};
+
+const getSendOutcomeTone = (status: string) => {
+  switch (status) {
+    case "PASS":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "PENDING_APPROVAL":
+      return "border-sky-200 bg-sky-50 text-sky-700";
+    case "NEEDS_EVIDENCE":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    case "MANUAL_ONLY":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    case "BLOCK":
+    case "ERROR":
+      return "border-rose-200 bg-rose-50 text-rose-700";
+    default:
+      return "border-border/70 bg-secondary/20 text-muted-foreground";
+  }
+};
+
+const getSendOutcomeDisplayStatus = (outcome: G12SendResponse) => {
+  const approvalState = (outcome.approval_state ?? "").trim().toUpperCase();
+  if (outcome.status === "PASS" && approvalState === "PENDING_HUMAN_APPROVAL") {
+    return "PENDING_APPROVAL";
+  }
+
+  return outcome.status;
+};
+
+const getSendOutcomeLabel = (outcome: G12SendResponse) => {
+  const approvalState = (outcome.approval_state ?? "").trim().toUpperCase();
+  if (outcome.status === "PASS" && approvalState === "PENDING_HUMAN_APPROVAL") {
+    return "Pending human approval";
+  }
+
+  if (outcome.status === "PASS" && outcome.already_sent) {
+    return "Already sent";
+  }
+
+  switch (outcome.status) {
+    case "PASS":
+      return "Content check passed";
+    case "PENDING_APPROVAL":
+      return "Pending human approval";
+    case "NEEDS_EVIDENCE":
+      return "Needs evidence";
+    case "MANUAL_ONLY":
+      return "Manual review";
+    case "BLOCK":
+      return "Blocked safely";
+    case "ERROR":
+    default:
+      return "Needs attention";
   }
 };
 
@@ -985,6 +1052,28 @@ function DetailLine({
   );
 }
 
+function SuggestionList({
+  items,
+  emptyText,
+}: {
+  items: string[];
+  emptyText: string;
+}) {
+  if (!items.length) {
+    return <p className="text-sm leading-6 text-muted-foreground">{emptyText}</p>;
+  }
+
+  return (
+    <ul className="space-y-2">
+      {items.map((item, index) => (
+        <li key={`${item}-${index}`} className="rounded-xl border border-border/60 bg-white px-3 py-2 text-sm leading-6 text-foreground text-pretty">
+          {item}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 function TrendMetricChip({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="rounded-xl border border-border/60 bg-secondary/15 px-3 py-2">
@@ -1306,6 +1395,7 @@ export default function G12PublicTrendFetcherPageReworked() {
   const [submittingRun, setSubmittingRun] = useState(false);
   const [awaitingFetchRunId, setAwaitingFetchRunId] = useState<string | null>(null);
   const [sendingTrendId, setSendingTrendId] = useState<string | null>(null);
+  const [sendOutcome, setSendOutcome] = useState<G12SendResponse | null>(null);
   const [platformFilter, setPlatformFilter] = useState<"ALL" | "INSTAGRAM" | "TIKTOK">("ALL");
   const [approvalFilter, setApprovalFilter] = useState<"ALL" | "NEEDS_REVIEW" | "SENT" | "DRAFT" | "APPROVED" | "REJECTED">("ALL");
   const [sortBy, setSortBy] = useState<"newest" | "views" | "trend_strength">("newest");
@@ -1616,59 +1706,51 @@ export default function G12PublicTrendFetcherPageReworked() {
 
       setSendingTrendId(record.id);
       try {
-        const response = await request(buildRouteUrl("/api/admin/g12-trend-fetcher/send-to-content-draft"), {
+        const response = await request(buildRouteUrl("/api/admin/automations/g12/send-to-content-draft"), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            requested_by_workflow: "G12",
-            target_workflow_group: "G4",
-            action_type: "CREATE_CONTENT_DRAFT_FROM_TREND",
-            platform: "INTERNAL",
-            trend_insight_id: record.insight.id,
-            fetch_run_id: record.fetchRunId ?? "",
-            trend_title: record.trendTitle,
-            source_platform: record.platformCode,
-            source_account_name: record.sourceAccountName,
-            source_url: record.sourceUrl ?? "",
-            original_caption_preview: record.captionExcerpt,
-            hook_angle: record.hookAngle ?? record.trendTitle,
-            saved_insight_text: record.savedInsightText,
-            caption_summary: record.savedInsightText,
-            content_recommendation: record.contentRecommendation,
-            clean_metric_summary: record.cleanMetricSummary,
-            views: record.views ?? 0,
-            likes: record.likes ?? 0,
-            comments: record.comments ?? 0,
-            shares: record.shares ?? 0,
-            engagement_rate: record.engagementRate ?? 0,
-            brand_fit_score: record.brandFitScore ?? 0,
-            risk_score: record.riskScore ?? 0,
-            actor: "admin_dashboard",
+            insight_id: record.insight.id,
+            fetch_run_id: record.fetchRunId ?? undefined,
           }),
           cache: "no-store",
           silent: true,
         });
 
         const body = await parseJsonResponse<G12SendResponse>(response);
-        if (!response.ok || !body) {
-          throw new Error(body?.message ?? "Unable to send the selected trend.");
+        if (!body) {
+          throw new Error("Unable to send the selected trend.");
         }
 
-        if (body.status === "PASS") {
-          toast.success(body.message || "Sent to Content Draft.");
-        } else if (body.status === "MANUAL_ONLY") {
+        setSendOutcome(body);
+        const approvalState = (body.approval_state ?? "").trim().toUpperCase();
+        const pendingHumanApproval = body.status === "PASS" && approvalState === "PENDING_HUMAN_APPROVAL";
+
+        if (pendingHumanApproval) {
+          toast.info(body.message || "Content check passed. Human approval is still required before this can be used.");
+        } else if (body.status === "PASS") {
+          if (body.already_sent) {
+            toast.info(body.message || "Content draft/check already exists in G4.");
+          } else {
+            toast.success(body.message || "Content draft/check created in G4.");
+          }
+        } else if (body.status === "PENDING_APPROVAL" || body.status === "MANUAL_ONLY") {
           toast.info(body.message || "The draft now needs review.");
-        } else if (body.status === "BLOCK") {
-          toast.error(body.message || "The draft was rejected.");
+        } else if (body.status === "NEEDS_EVIDENCE" || body.status === "BLOCK") {
+          toast.warning(body.message || (body.status === "NEEDS_EVIDENCE" ? "More evidence is required." : "Blocked safely."));
+        } else if (body.status === "ERROR") {
+          toast.error(body.message || "Unable to send the selected trend.");
         } else {
           toast.info(body.message || "The selected trend was updated.");
         }
 
-        window.setTimeout(() => {
-          void loadDashboard();
-        }, 1200);
+        if (body.status !== "ERROR") {
+          window.setTimeout(() => {
+            void loadDashboard();
+          }, 1200);
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unable to send the selected trend.";
         toast.error(message);
@@ -1880,6 +1962,84 @@ export default function G12PublicTrendFetcherPageReworked() {
       }
       actions={headerActions}
     >
+      {sendOutcome ? (
+        <Card role="status" className={cn("rounded-[24px] border shadow-sm", getSendOutcomeTone(getSendOutcomeDisplayStatus(sendOutcome)))}>
+          <CardContent className="space-y-5 p-4 md:p-5">
+            <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+              <div className="space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge
+                    variant="outline"
+                    className={cn(
+                      "rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]",
+                      getSendOutcomeTone(getSendOutcomeDisplayStatus(sendOutcome)),
+                    )}
+                  >
+                    {getSendOutcomeLabel(sendOutcome)}
+                  </Badge>
+                  {sendOutcome.already_sent ? (
+                    <Badge variant="outline" className="rounded-full border-border/70 bg-secondary/20 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
+                      Already sent
+                    </Badge>
+                  ) : null}
+                  {sendOutcome.review_id ? (
+                    <Badge variant="outline" className="rounded-full border-border/70 bg-white px-3 py-1 text-[11px] font-semibold text-muted-foreground">
+                      Review linked
+                    </Badge>
+                  ) : null}
+                </div>
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold leading-6 text-foreground">{sendOutcome.message}</p>
+                  {sendOutcome.summary ? <p className="text-sm leading-6 text-muted-foreground">{sendOutcome.summary}</p> : null}
+                </div>
+              </div>
+
+              {sendOutcome.status !== "ERROR" && sendOutcome.g4_detail_href ? (
+                <Button asChild type="button" className="rounded-full px-4">
+                  <Link href={sendOutcome.g4_detail_href}>{sendOutcome.action_needed ?? "View G4 Review"}</Link>
+                </Button>
+              ) : null}
+            </div>
+
+            {sendOutcome.status !== "ERROR" ? (
+              <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <DetailLine
+                    label="Review ID"
+                    value={<span className="font-mono text-xs leading-6 text-foreground">{sendOutcome.review_id ?? sendOutcome.g4_review_id ?? "—"}</span>}
+                  />
+                  <DetailLine
+                    label="Asset ID"
+                    value={<span className="font-mono text-xs leading-6 text-foreground">{sendOutcome.asset_id ?? "—"}</span>}
+                  />
+                  <DetailLine
+                    label="Approval state"
+                    value={<span className="font-mono text-xs leading-6 text-foreground">{sendOutcome.approval_state ?? "—"}</span>}
+                  />
+                  <DetailLine
+                    label="Action needed"
+                    value={<span className="text-sm leading-6 text-foreground">{sendOutcome.action_needed ?? "View G4 Review"}</span>}
+                  />
+                </div>
+
+                <div className="space-y-3">
+                  <DetailLine
+                    label="Safe rewrite"
+                    value={
+                      <p className={cn("whitespace-pre-wrap text-sm leading-6 text-foreground", sendOutcome.safe_rewrite ? "text-pretty" : "text-muted-foreground")}>
+                        {sendOutcome.safe_rewrite ?? "No safe rewrite was returned."}
+                      </p>
+                    }
+                  />
+                  <DetailLine label="Caption suggestions" value={<SuggestionList items={sendOutcome.caption_suggestions ?? []} emptyText="No caption suggestions were returned." />} />
+                  <DetailLine label="Hook suggestions" value={<SuggestionList items={sendOutcome.hook_suggestions ?? []} emptyText="No hook suggestions were returned." />} />
+                </div>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
+
       {loadError && !dashboard ? (
         <Card role="alert" className="rounded-[24px] border-rose-200 bg-rose-50 shadow-sm">
           <CardContent className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">

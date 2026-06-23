@@ -159,13 +159,19 @@ type G12RunResponse = {
 };
 
 type G12SendResponse = {
-  status: string;
+  status: "PASS" | "BLOCK" | "MANUAL_ONLY" | "ERROR";
   message: string;
+  summary?: string | null;
+  action_needed?: string | null;
+  already_sent?: boolean;
+  g4_detail_href?: string | null;
+  g4_review_id?: string | null;
   request_id?: string | null;
   sent_at?: string | null;
   content_draft_id?: string | null;
-  trend_insight_id?: string | null;
+  insight_id?: string | null;
   fetch_run_id?: string | null;
+  handled_at?: string | null;
 };
 
 type TrendActionState = {
@@ -1498,59 +1504,45 @@ export default function G12PublicTrendFetcherPage() {
 
       setSendingTrendId(trend.insight.id);
       try {
-        const response = await request(buildRouteUrl("/api/admin/g12-trend-fetcher/send-to-content-draft"), {
+        const response = await request(buildRouteUrl("/api/admin/automations/g12/send-to-content-draft"), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            requested_by_workflow: "G12",
-            target_workflow_group: "G4",
-            action_type: "CREATE_CONTENT_DRAFT_FROM_TREND",
-            platform: "INTERNAL",
-            trend_insight_id: trend.insight.id,
-            fetch_run_id: trend.fetchRunId ?? "",
-            trend_title: trend.title,
-            source_platform: trend.sourcePlatformCode,
-            source_account_name: trend.sourceAccountName,
-            source_url: trend.sourceUrl ?? "",
-            original_caption_preview: trend.originalCaptionPreview,
-            hook_angle: trend.hookAngle ?? trend.title,
-            saved_insight_text: trend.savedInsightText,
-            caption_summary: trend.savedInsightText,
-            content_recommendation: trend.contentRecommendation,
-            clean_metric_summary: trend.cleanMetricSummary,
-            views: trend.views ?? 0,
-            likes: trend.likes ?? 0,
-            comments: trend.comments ?? 0,
-            shares: trend.shares ?? 0,
-            engagement_rate: trend.engagementRate ?? 0,
-            brand_fit_score: trend.brandFitScore ?? 0,
-            risk_score: trend.riskScore ?? 0,
-            actor: "admin_dashboard",
+            insight_id: trend.insight.id,
+            fetch_run_id: trend.fetchRunId ?? undefined,
           }),
           cache: "no-store",
           silent: true,
         });
 
         const body = await parseJsonResponse<G12SendResponse>(response);
-        if (!response.ok || !body) {
-          throw new Error(body?.message ?? "Unable to send the selected trend.");
+        if (!body) {
+          throw new Error("Unable to send the selected trend.");
         }
 
         if (body.status === "PASS") {
-          toast.success(body.message || "Sent to Content Draft.");
+          if (body.already_sent) {
+            toast.info(body.message || "Content draft/check already exists in G4.");
+          } else {
+            toast.success(body.message || "Content draft/check created in G4.");
+          }
         } else if (body.status === "MANUAL_ONLY") {
           toast.info(body.message || "The draft now needs review.");
         } else if (body.status === "BLOCK") {
-          toast.error(body.message || "The draft was rejected.");
+          toast.error(body.message || "Blocked safely.");
+        } else if (body.status === "ERROR") {
+          toast.error(body.message || "Unable to send the selected trend.");
         } else {
           toast.info(body.message || "The selected trend was updated.");
         }
 
-        window.setTimeout(() => {
-          void loadLatest();
-        }, 1500);
+        if (body.status !== "ERROR") {
+          window.setTimeout(() => {
+            void loadLatest();
+          }, 1500);
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unable to send the selected trend.";
         toast.error(message);

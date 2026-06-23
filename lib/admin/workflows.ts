@@ -28,6 +28,7 @@ export const WORKFLOW_UI_STATUSES = [
   "DO_NOT_SCALE",
   "FIX_FIRST",
   "NEEDS_EVIDENCE",
+  "NOT_RUN_YET",
   "ERROR",
 ] as const;
 
@@ -315,7 +316,7 @@ export const WORKFLOW_CATALOG: Record<AdminWorkflowId, WorkflowCatalogEntry> = {
     runEnabled: false,
     runDisabledReason: "This workflow is inspect-only and cannot be run manually.",
     emptyStateCopy: "This workflow is ready. View Safety Checks to inspect the first compliance gate decision.",
-    fallbackStatus: "PENDING_APPROVAL",
+    fallbackStatus: "NOT_RUN_YET",
     runFields: [
       ...commonRunFields,
       textField({
@@ -528,9 +529,9 @@ export const WORKFLOW_CATALOG: Record<AdminWorkflowId, WorkflowCatalogEntry> = {
     detailHref: "/dashboard/n8n-automations/g5",
     runLabel: "Review Pending Asset",
     runEnabled: false,
-    runDisabledReason: "G5 is controlled through asset review, dry-run, and scheduling checks.",
-    emptyStateCopy: "No approved asset is ready yet. Review the pending asset to continue.",
-    fallbackStatus: "PENDING_APPROVAL",
+    runDisabledReason: "G5 is controlled through evidence, approval, dry-run, and live safety checks.",
+    emptyStateCopy: "No real G5 outcomes have been recorded yet. Publishing stays blocked until the required evidence is present.",
+    fallbackStatus: "NOT_RUN_YET",
     runFields: [
       ...commonRunFields,
       textField({
@@ -940,6 +941,8 @@ export const getWorkflowStatusTone = (status: WorkflowUiStatus) => {
       return "border-rose-200 bg-rose-100 text-rose-800";
     case "NEEDS_EVIDENCE":
       return "border-amber-200 bg-amber-100 text-amber-800";
+    case "NOT_RUN_YET":
+      return "border-slate-200 bg-slate-100 text-slate-700";
     case "ERROR":
     default:
       return "border-rose-200 bg-rose-100 text-rose-800";
@@ -966,6 +969,8 @@ export const getWorkflowStatusMessage = (status: WorkflowUiStatus) => {
       return "Fix the issue before continuing.";
     case "NEEDS_EVIDENCE":
       return "More proof is needed before this can continue.";
+    case "NOT_RUN_YET":
+      return "No real workflow outcome has been recorded yet.";
     case "ERROR":
     default:
       return "Something failed while running the workflow. Admin/developer review is needed.";
@@ -992,6 +997,8 @@ export const getWorkflowStatusLabel = (status: WorkflowUiStatus) => {
       return "Fix first";
     case "NEEDS_EVIDENCE":
       return "Needs evidence";
+    case "NOT_RUN_YET":
+      return "Not run yet";
     case "ERROR":
     default:
       return "Error";
@@ -1008,6 +1015,7 @@ const genericActionNeededByStatus: Record<WorkflowUiStatus, string> = {
   DO_NOT_SCALE: "Do not scale this right now.",
   FIX_FIRST: "Fix the issue before continuing.",
   NEEDS_EVIDENCE: "Add proof or evidence first.",
+  NOT_RUN_YET: "Run the workflow to create the first outcome.",
   ERROR: "Ask developer/admin to check the workflow run.",
 };
 
@@ -1155,6 +1163,10 @@ export const normalizeWorkflowUiStatus = (value: unknown, fallback: WorkflowUiSt
     case "PROOF_REQUIRED":
     case "MISSING_EVIDENCE":
       return "NEEDS_EVIDENCE";
+    case "NOT_RUN_YET":
+    case "NOT_RUN":
+    case "NO_RUN":
+      return "NOT_RUN_YET";
     case "ERROR":
     case "FAILED_SYSTEM":
     case "SYSTEM_ERROR":
@@ -1356,7 +1368,7 @@ export const getWorkflowEmptyStateActionNeeded = (workflowId: AdminWorkflowId) =
     case "G4":
       return "Check content to see the latest result.";
     case "G5":
-      return "Review the pending asset to continue the publishing flow.";
+      return "Review publishing readiness before trying to schedule or publish.";
     case "G6":
       return "Run Quiz Dry Run to check the safe messaging route.";
     case "G7":

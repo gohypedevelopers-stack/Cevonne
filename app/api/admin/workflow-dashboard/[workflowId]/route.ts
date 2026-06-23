@@ -51,6 +51,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ work
         savedInsights: detail.savedInsights ?? [],
         recentOutcomes: detail.recentOutcomes ?? [],
         g4Detail: detail.g4Detail ?? null,
+        g5Detail: detail.g5Detail ?? null,
       },
       200,
     );

@@ -18,6 +18,36 @@ const toBoolean = (value: string | boolean | null | undefined, fallback = false)
   return ["1", "true", "yes", "on"].includes(String(value).trim().toLowerCase());
 };
 
+const n8nBaseUrl = normalizeOriginUrl(process.env.N8N_BASE_URL || "https://n8n.cevonne.com/webhook");
+
+const resolveWebhookUrl = (urlValue: string | undefined, pathValue: string | undefined) => {
+  const directUrl = urlValue?.trim();
+  if (directUrl) {
+    return directUrl;
+  }
+
+  const path = pathValue?.trim();
+  if (!path) {
+    return "";
+  }
+
+  return `${n8nBaseUrl.replace(/\/+$/, "")}/${path.replace(/^\/+/, "")}`;
+};
+
+const resolveG4ContentCheckPath = () => {
+  const landingPath = process.env.N8N_G4_CONTENT_LANDING_CHECK_PATH?.trim();
+  if (landingPath) {
+    return landingPath;
+  }
+
+  const legacyPath = process.env.N8N_G4_CONTENT_CHECK_PATH?.trim();
+  if (legacyPath && !["g4-content-check", "g4-content-review"].includes(legacyPath)) {
+    return legacyPath;
+  }
+
+  return "g4-content-landing-check";
+};
+
 export const env = Object.freeze({
   port: toNumber(process.env.PORT, 3000),
   nodeEnv: process.env.NODE_ENV || "development",
@@ -44,16 +74,24 @@ export const env = Object.freeze({
   cevonneN8nDryRun: toBoolean(process.env.CEVONNE_N8N_DRY_RUN, false),
   cevonneSiteSource: process.env.CEVONNE_SITE_SOURCE || "website",
   cevonnePrivacyPolicyVersion: process.env.CEVONNE_PRIVACY_POLICY_VERSION || "2026-website-v1",
-  cevonneN8nConsentIngestUrl: process.env.N8N_G3_CONSENT_INGEST_URL || "",
-  cevonneN8nOptOutUrl: process.env.N8N_G3_OPT_OUT_URL || "",
-  cevonneN8nAttributionEventUrl: process.env.N8N_G3_ATTRIBUTION_EVENT_URL || "",
-  cevonneN8nPurchaseEventUrl: process.env.N8N_G3_PURCHASE_EVENT_URL || "",
-  cevonneN8nPrivacyRequestUrl: process.env.N8N_G3_PRIVACY_REQUEST_URL || "",
+  cevonneN8nConsentIngestPath: process.env.N8N_G3_CONSENT_INGEST_PATH || "g3-consent-ingest",
+  cevonneN8nConsentIngestUrl: resolveWebhookUrl(process.env.N8N_G3_CONSENT_INGEST_URL, process.env.N8N_G3_CONSENT_INGEST_PATH || "g3-consent-ingest"),
+  cevonneN8nOptOutPath: process.env.N8N_G3_OPT_OUT_PATH || "g3-opt-out",
+  cevonneN8nOptOutUrl: resolveWebhookUrl(process.env.N8N_G3_OPT_OUT_URL, process.env.N8N_G3_OPT_OUT_PATH || "g3-opt-out"),
+  cevonneN8nAttributionEventPath: process.env.N8N_G3_ATTRIBUTION_EVENT_PATH || "g3-attribution-event",
+  cevonneN8nAttributionEventUrl: resolveWebhookUrl(
+    process.env.N8N_G3_ATTRIBUTION_EVENT_URL,
+    process.env.N8N_G3_ATTRIBUTION_EVENT_PATH || "g3-attribution-event",
+  ),
+  cevonneN8nPurchaseEventPath: process.env.N8N_G3_PURCHASE_EVENT_PATH || "g3-purchase-event",
+  cevonneN8nPurchaseEventUrl: resolveWebhookUrl(process.env.N8N_G3_PURCHASE_EVENT_URL, process.env.N8N_G3_PURCHASE_EVENT_PATH || "g3-purchase-event"),
+  cevonneN8nPrivacyRequestPath: process.env.N8N_G3_PRIVACY_REQUEST_PATH || "g3-privacy-request",
+  cevonneN8nPrivacyRequestUrl: resolveWebhookUrl(process.env.N8N_G3_PRIVACY_REQUEST_URL, process.env.N8N_G3_PRIVACY_REQUEST_PATH || "g3-privacy-request"),
   cevonneN8nPrivacyExecuteUrl: process.env.N8N_G3_PRIVACY_EXECUTE_URL || "",
   cevonneN8nWeeklyDigestUrl: process.env.N8N_G11_WEEKLY_DIGEST_URL || "",
   cevonneN8nDecisionRecommendationUrl: process.env.N8N_G11_DECISION_RECOMMENDATION_URL || "",
   cevonneN8nDraftActionPacketUrl: process.env.N8N_G11_DRAFT_ACTION_PACKET_URL || "",
-  n8nBaseUrl: normalizeOriginUrl(process.env.N8N_BASE_URL || "https://n8n.cevonne.com/webhook"),
+  n8nBaseUrl,
   n8nWebhookSecret: process.env.N8N_WEBHOOK_SECRET || process.env.N8N_WEBHOOK_SHARED_SECRET || "",
   n8nG1ComplianceGuardPath: process.env.N8N_G1_COMPLIANCE_GUARD_PATH || "g1-compliance-guard",
   n8nG2StatusSummaryPath: process.env.N8N_G2_STATUS_SUMMARY_PATH || "g2-status-summary",
@@ -63,7 +101,7 @@ export const env = Object.freeze({
   n8nG2DisableAccountPath: process.env.N8N_G2_DISABLE_ACCOUNT_PATH || "g2-disable-account",
   n8nG2AccountHealthUpdatePath: process.env.N8N_G2_ACCOUNT_HEALTH_UPDATE_PATH || "g2-account-health-update",
   n8nG2OfficialEvidencePath: process.env.N8N_G2_OFFICIAL_EVIDENCE_PATH || "g2-official-evidence",
-  n8nG4ContentCheckPath: process.env.N8N_G4_CONTENT_CHECK_PATH || "g4-content-check",
+  n8nG4ContentCheckPath: resolveG4ContentCheckPath(),
   n8nG5PublishingSchedulerPath: process.env.N8N_G5_PUBLISHING_SCHEDULER_PATH || "g5-publishing-scheduler",
   n8nG6MessagingRouterPath: process.env.N8N_G6_MESSAGING_ROUTER_PATH || "g6-messaging-router",
   n8nG7InventoryOfferSafetyPath: process.env.N8N_G7_INVENTORY_OFFER_SAFETY_PATH || "g7-inventory-offer-safety",

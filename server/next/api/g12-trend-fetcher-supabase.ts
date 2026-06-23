@@ -208,6 +208,9 @@ export type G12SupabaseRun = {
 
 export type G12SupabaseInsight = {
   id: string;
+  asset_id: string | null;
+  trend_id: string | null;
+  insight_id: string | null;
   metric_id: string | null;
   fetch_run_id: string | null;
   raw_id: string | null;
@@ -580,6 +583,9 @@ export const normalizeG12SupabaseInsightRow = (row: Row, index = 0): G12Supabase
 
   return {
     id,
+    asset_id: pickStringFromRows(candidates, ["asset_id", "assetId"]),
+    trend_id: pickStringFromRows(candidates, ["trend_id", "trendId"]),
+    insight_id: pickStringFromRows(candidates, ["insight_id", "insightId"]),
     metric_id: pickStringFromRows(candidates, ["metric_id", "metricId"]),
     fetch_run_id: pickStringFromRows(candidates, ["fetch_run_id", "fetchRunId", "run_id", "runId", "source_fetch_run_id"]),
     raw_id: pickStringFromRows(candidates, ["raw_id", "rawId"]),

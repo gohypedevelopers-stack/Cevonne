@@ -17,6 +17,12 @@ import {
 } from "@/lib/admin/g4-content-review";
 import { getG4WorkflowDetail } from "@/server/next/api/g4-content-check-adapter";
 import {
+  buildG5PublishingSchedulerMessage,
+  buildG5WorkflowViewFromDetail,
+  loadG5PublishingSchedulerDetail,
+  type G5PublishingSchedulerDetail,
+} from "@/server/next/api/g5-publishing-scheduler-adapter";
+import {
   ADMIN_WORKFLOW_IDS,
   WORKFLOW_CATALOG,
   getWorkflowActionNeeded,
@@ -1451,8 +1457,9 @@ const loadWorkflowOutcomes = async (workflowId: AdminWorkflowId) => {
   }
 
   if (workflowId === "G5") {
-    const bundles = await queryWorkflowTables(workflowId);
-    return buildG5Outcomes(bundles);
+    const detail = await loadG5PublishingSchedulerDetail();
+    const workflow = buildG5WorkflowViewFromDetail(detail);
+    return workflow.latestOutcome ? [workflow.latestOutcome, ...workflow.recentOutcomes] : workflow.recentOutcomes;
   }
 
   const bundles = await queryWorkflowTables(workflowId);
@@ -1506,6 +1513,7 @@ export type WorkflowDashboardDetailResponse = {
   recentOutcomes?: WorkflowOutcomeSummary[] | G12RecentOutcomeView[];
   savedInsights?: G12SavedInsightView[];
   g4Detail?: G4WorkflowDetail | null;
+  g5Detail?: G5PublishingSchedulerDetail | null;
 };
 
 export type WorkflowDashboardRunResponse = {
@@ -1567,6 +1575,21 @@ export const loadWorkflowDashboardDetail = async (workflowIdInput: string): Prom
 
   if (workflowId === "G4") {
     return buildG4DetailResponse();
+  }
+
+  if (workflowId === "G5") {
+    const detail = await loadG5PublishingSchedulerDetail();
+    const workflow = buildG5WorkflowViewFromDetail(detail);
+
+    return {
+      status: workflow.status,
+      message: buildG5PublishingSchedulerMessage(detail),
+      workflowGroup: "G5",
+      workflow,
+      latestOutcome: workflow.latestOutcome ?? null,
+      recentOutcomes: workflow.recentOutcomes,
+      g5Detail: detail,
+    };
   }
 
   const workflow = buildWorkflowView(workflowId, await loadWorkflowOutcomes(workflowId));
