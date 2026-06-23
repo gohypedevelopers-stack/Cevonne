@@ -27,7 +27,14 @@ export type G12TrendPlatform = keyof typeof G12_TREND_FETCHER_PLATFORM_CAPS;
 export const G12_TREND_FETCHER_PLATFORM_OPTIONS = ["INSTAGRAM", "TIKTOK"] as const satisfies readonly G12TrendPlatform[];
 
 export type G12TrendFetcherPlatformSelection = "both" | "instagram" | "tiktok";
-export type G12TrendFetcherRunStatus = "ACCEPTED" | "PASS" | "BLOCK" | "ERROR";
+export type G12TrendFetcherRunStatus =
+  | "ACCEPTED"
+  | "PASS"
+  | "PARTIAL_PASS"
+  | "BLOCK"
+  | "ERROR"
+  | "RUNNING"
+  | "STARTED";
 export type G12TrendFetcherCardStatus = "Live" | "Testing" | "Needs Action";
 export type G12TrendFetcherSource = "neon" | "fallback";
 export type G12TrendFetcherBranchStatus = G12TrendFetcherCardStatus | "Needs Access";
@@ -246,6 +253,73 @@ export const G12_COMPLIANCE_NOTES = [
   "Private scraping, login/cookie scraping, fake accounts, and unsafe Google scraping are not allowed.",
 ] as const;
 
+export const G12_PUBLIC_TREND_FETCHER_DEFAULT_QUERY = "viral lipstick makeup trend" as const;
+export const G12_PUBLIC_TREND_FETCHER_DEFAULT_FETCH_LIMIT = 50;
+export const G12_PUBLIC_TREND_FETCHER_DEFAULT_MIN_INSIGHTS_TO_STORE = 5;
+export const G12_PUBLIC_TREND_FETCHER_DEFAULT_MAX_INSIGHTS_TO_STORE = 10;
+export const G12_PUBLIC_TREND_FETCHER_DEFAULT_QUALITY_MODE = "BALANCED_HIGH_SIGNAL" as const;
+export const G12_PUBLIC_TREND_FETCHER_DEFAULT_TRIGGER_MODE = "MANUAL" as const;
+export const G12_PUBLIC_TREND_FETCHER_DEFAULT_BRANCH_KEY = "viral_reel_hooks_formats" as const;
+export const G12_PUBLIC_TREND_FETCHER_DEFAULT_BRANCH_NAME = "Viral Reel hooks/formats" as const;
+export const G12_PUBLIC_TREND_FETCHER_DEFAULT_BUSINESS_CATEGORY = "beauty" as const;
+export const G12_PUBLIC_TREND_FETCHER_DEFAULT_SUBCATEGORY = "lipsticks" as const;
+export const G12_PUBLIC_TREND_FETCHER_DEFAULT_KEYWORDS = [
+  "viral lipstick",
+  "lip combo",
+  "lipstick tutorial",
+  "makeup reel",
+  "makeup trend",
+  "GRWM lipstick",
+  "lip swatch",
+] as const;
+export const G12_PUBLIC_TREND_FETCHER_DEFAULT_HASHTAGS = [
+  "lipsticktrend",
+  "lipcombo",
+  "viralmakeup",
+  "makeuptutorial",
+  "makeupreels",
+  "beautytrends",
+] as const;
+export const G12_PUBLIC_TREND_FETCHER_DEFAULT_INSTAGRAM_SOURCE_URL_COUNT = 5;
+export const G12_PUBLIC_TREND_FETCHER_DEFAULT_TIKTOK_SEARCH_QUERY_COUNT = 5;
+export const G12_PUBLIC_TREND_FETCHER_DEFAULT_MIN_VIEWS_FLOOR = 100000;
+export const G12_PUBLIC_TREND_FETCHER_DEFAULT_MIN_LIKES_FLOOR = 10000;
+export const G12_PUBLIC_TREND_FETCHER_DEFAULT_MIN_SHARES_FLOOR = 1000;
+export const G12_PUBLIC_TREND_FETCHER_DEFAULT_MIN_COMMENTS_FLOOR = 250;
+export const G12_PUBLIC_TREND_FETCHER_DEFAULT_MIN_INTERACTIONS_FLOOR = 10000;
+export const G12_PUBLIC_TREND_FETCHER_DEFAULT_MIN_TREND_STRENGTH_TO_STORE = 50;
+export const G12_PUBLIC_TREND_FETCHER_DEFAULT_MIN_BRAND_FIT_TO_STORE = 60;
+export const G12_PUBLIC_TREND_FETCHER_DEFAULT_TOP_COMMENTS_LIMIT = 0;
+export const G12_PUBLIC_TREND_FETCHER_DEFAULT_LOOKBACK_DAYS = 30;
+
+export type G12PublicTrendFetchPayload = {
+  trigger_mode: typeof G12_PUBLIC_TREND_FETCHER_DEFAULT_TRIGGER_MODE;
+  branch_key: typeof G12_PUBLIC_TREND_FETCHER_DEFAULT_BRANCH_KEY;
+  branch_name: typeof G12_PUBLIC_TREND_FETCHER_DEFAULT_BRANCH_NAME;
+  business_category: typeof G12_PUBLIC_TREND_FETCHER_DEFAULT_BUSINESS_CATEGORY;
+  subcategory: typeof G12_PUBLIC_TREND_FETCHER_DEFAULT_SUBCATEGORY;
+  keywords: string[];
+  hashtags: string[];
+  instagram_source_url_count: number;
+  tiktok_search_query_count: number;
+  quality_mode: string;
+  min_views_floor: number;
+  min_likes_floor: number;
+  min_shares_floor: number;
+  min_comments_floor: number;
+  min_interactions_floor: number;
+  min_trend_strength_to_store: number;
+  min_brand_fit_to_store: number;
+  top_comments_limit: number;
+  lookback_days: number;
+  platforms: G12TrendPlatform[];
+  query: string;
+  fetch_limit: number;
+  min_insights_to_store: number;
+  max_insights_to_store: number;
+  actor: typeof G12_TREND_FETCHER_ACTOR;
+};
+
 export const G12_GOOGLE_SEARCH_ALLOWED_SOURCES = [
   "Google Search Console",
   "Google Ads Keyword Planner",
@@ -333,21 +407,6 @@ export const getG12CardStatusTone = (status: G12TrendFetcherCardStatus) => {
   }
 };
 
-export const getG12RunStatusTone = (status: G12TrendFetcherRunStatus) => {
-  switch (status) {
-    case "PASS":
-      return "border-emerald-200 bg-emerald-50 text-emerald-700";
-    case "ACCEPTED":
-      return "border-sky-200 bg-sky-50 text-sky-700";
-    case "BLOCK":
-      return "border-rose-200 bg-rose-50 text-rose-700";
-    case "ERROR":
-      return "border-rose-200 bg-rose-50 text-rose-700";
-    default:
-      return "border-border/70 bg-muted/20 text-muted-foreground";
-  }
-};
-
 export const getG12BranchStatusTone = (status: G12TrendFetcherBranchStatus) => {
   switch (status) {
     case "Live":
@@ -363,13 +422,18 @@ export const getG12BranchStatusTone = (status: G12TrendFetcherBranchStatus) => {
   }
 };
 
-export const isG12TerminalStatus = (status: G12TrendFetcherRunStatus | null | undefined) =>
-  status === "PASS" || status === "BLOCK" || status === "ERROR";
-
 export const normalizeG12TrendFetcherRunStatus = (value: unknown): G12TrendFetcherRunStatus => {
   const normalized = typeof value === "string" ? value.trim().toUpperCase() : "";
 
-  if (normalized === "ACCEPTED" || normalized === "PASS" || normalized === "BLOCK" || normalized === "ERROR") {
+  if (
+    normalized === "ACCEPTED" ||
+    normalized === "PASS" ||
+    normalized === "PARTIAL_PASS" ||
+    normalized === "BLOCK" ||
+    normalized === "ERROR" ||
+    normalized === "RUNNING" ||
+    normalized === "STARTED"
+  ) {
     return normalized;
   }
 
@@ -382,6 +446,80 @@ export const normalizeG12TrendFetcherRunStatus = (value: unknown): G12TrendFetch
   }
 
   return "ERROR";
+};
+
+export const isG12TerminalStatus = (status: G12TrendFetcherRunStatus | null | undefined) =>
+  status === "PASS" || status === "PARTIAL_PASS" || status === "BLOCK" || status === "ERROR";
+
+export const getG12RunStatusTone = (status: G12TrendFetcherRunStatus) => {
+  switch (status) {
+    case "PASS":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "PARTIAL_PASS":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    case "ACCEPTED":
+    case "RUNNING":
+    case "STARTED":
+      return "border-sky-200 bg-sky-50 text-sky-700";
+    case "BLOCK":
+    case "ERROR":
+      return "border-rose-200 bg-rose-50 text-rose-700";
+    default:
+      return "border-border/70 bg-muted/20 text-muted-foreground";
+  }
+};
+
+export const buildG12PublicTrendFetchPayload = (input: {
+  platformSelection: G12TrendFetcherPlatformSelection;
+  query?: string | null;
+  fetchLimit?: number | null;
+  minInsightsToStore?: number | null;
+  maxInsightsToStore?: number | null;
+  qualityMode?: string | null;
+  topCommentsLimit?: number | null;
+}): G12PublicTrendFetchPayload => {
+  const platforms: G12TrendPlatform[] =
+    input.platformSelection === "both"
+      ? ["INSTAGRAM", "TIKTOK"]
+      : input.platformSelection === "instagram"
+        ? ["INSTAGRAM"]
+        : ["TIKTOK"];
+
+  const normalizeInteger = (value: number | null | undefined, fallback: number, minimum: number, maximum = Number.POSITIVE_INFINITY) => {
+    if (!Number.isFinite(value ?? Number.NaN)) {
+      return fallback;
+    }
+
+    return Math.max(minimum, Math.min(maximum, Math.trunc(value ?? fallback)));
+  };
+
+  return {
+    trigger_mode: G12_PUBLIC_TREND_FETCHER_DEFAULT_TRIGGER_MODE,
+    branch_key: G12_PUBLIC_TREND_FETCHER_DEFAULT_BRANCH_KEY,
+    branch_name: G12_PUBLIC_TREND_FETCHER_DEFAULT_BRANCH_NAME,
+    business_category: G12_PUBLIC_TREND_FETCHER_DEFAULT_BUSINESS_CATEGORY,
+    subcategory: G12_PUBLIC_TREND_FETCHER_DEFAULT_SUBCATEGORY,
+    keywords: [...G12_PUBLIC_TREND_FETCHER_DEFAULT_KEYWORDS],
+    hashtags: [...G12_PUBLIC_TREND_FETCHER_DEFAULT_HASHTAGS],
+    instagram_source_url_count: G12_PUBLIC_TREND_FETCHER_DEFAULT_INSTAGRAM_SOURCE_URL_COUNT,
+    tiktok_search_query_count: G12_PUBLIC_TREND_FETCHER_DEFAULT_TIKTOK_SEARCH_QUERY_COUNT,
+    quality_mode: (input.qualityMode || G12_PUBLIC_TREND_FETCHER_DEFAULT_QUALITY_MODE).trim() || G12_PUBLIC_TREND_FETCHER_DEFAULT_QUALITY_MODE,
+    min_views_floor: G12_PUBLIC_TREND_FETCHER_DEFAULT_MIN_VIEWS_FLOOR,
+    min_likes_floor: G12_PUBLIC_TREND_FETCHER_DEFAULT_MIN_LIKES_FLOOR,
+    min_shares_floor: G12_PUBLIC_TREND_FETCHER_DEFAULT_MIN_SHARES_FLOOR,
+    min_comments_floor: G12_PUBLIC_TREND_FETCHER_DEFAULT_MIN_COMMENTS_FLOOR,
+    min_interactions_floor: G12_PUBLIC_TREND_FETCHER_DEFAULT_MIN_INTERACTIONS_FLOOR,
+    min_trend_strength_to_store: G12_PUBLIC_TREND_FETCHER_DEFAULT_MIN_TREND_STRENGTH_TO_STORE,
+    min_brand_fit_to_store: G12_PUBLIC_TREND_FETCHER_DEFAULT_MIN_BRAND_FIT_TO_STORE,
+    top_comments_limit: normalizeInteger(input.topCommentsLimit, G12_PUBLIC_TREND_FETCHER_DEFAULT_TOP_COMMENTS_LIMIT, 0, 100),
+    lookback_days: G12_PUBLIC_TREND_FETCHER_DEFAULT_LOOKBACK_DAYS,
+    platforms,
+    query: (input.query || G12_PUBLIC_TREND_FETCHER_DEFAULT_QUERY).trim() || G12_PUBLIC_TREND_FETCHER_DEFAULT_QUERY,
+    fetch_limit: normalizeInteger(input.fetchLimit, G12_PUBLIC_TREND_FETCHER_DEFAULT_FETCH_LIMIT, 1, 50),
+    min_insights_to_store: normalizeInteger(input.minInsightsToStore, G12_PUBLIC_TREND_FETCHER_DEFAULT_MIN_INSIGHTS_TO_STORE, 0, 50),
+    max_insights_to_store: normalizeInteger(input.maxInsightsToStore, G12_PUBLIC_TREND_FETCHER_DEFAULT_MAX_INSIGHTS_TO_STORE, 0, 50),
+    actor: G12_TREND_FETCHER_ACTOR,
+  };
 };
 
 export const buildG12ManualPayload = (input: {

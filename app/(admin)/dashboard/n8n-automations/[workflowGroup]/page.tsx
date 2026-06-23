@@ -1,23 +1,42 @@
+export const dynamic = "force-dynamic";
+
 import { redirect } from "next/navigation";
 
-import N8nAutomationsWorkflowDetail from "@/components/admin-dashboard/N8nAutomationsWorkflowDetail";
-import { normalizeWorkflowGroup } from "@/components/admin-dashboard/n8n-automations-common";
+import G4ContentClaimCheckPage from "@/components/admin-dashboard/G4ContentClaimCheckPage";
+import G5PublishingSchedulerPage from "@/components/admin-dashboard/G5PublishingSchedulerPage";
+import WorkflowDashboardDetail from "@/components/admin-dashboard/WorkflowDashboardDetail";
+import { getWorkflowCatalogEntry, normalizeWorkflowId } from "@/lib/admin/workflows";
+import { getG4WorkflowDetail } from "@/server/next/api/g4-content-check-adapter";
 
 export default async function Page({
   params,
 }: {
-  params: Promise<{ workflowGroup?: string } | { workflowGroup?: string }> | { workflowGroup?: string };
+  params: Promise<{ workflowGroup?: string }> | { workflowGroup?: string };
 }) {
   const resolvedParams = await Promise.resolve(params);
-  const workflowGroup = normalizeWorkflowGroup(resolvedParams?.workflowGroup);
+  const workflowId = normalizeWorkflowId(resolvedParams?.workflowGroup);
 
-  if (!workflowGroup) {
+  if (!workflowId) {
     redirect("/dashboard/n8n-automations");
   }
 
-  if (workflowGroup === "G1") {
-    redirect("/admin/ai-automations/g1-compliance-guard");
+  const catalogEntry = getWorkflowCatalogEntry(workflowId);
+  if (!catalogEntry) {
+    redirect("/dashboard/n8n-automations");
   }
 
-  return <N8nAutomationsWorkflowDetail workflowGroup={workflowGroup} />;
+  if (workflowId === "G1" || workflowId === "G12" || workflowId === "WF1") {
+    redirect(catalogEntry.detailHref);
+  }
+
+  if (workflowId === "G4") {
+    const detail = await getG4WorkflowDetail();
+    return <G4ContentClaimCheckPage detail={detail} />;
+  }
+
+  if (workflowId === "G5") {
+    return <G5PublishingSchedulerPage />;
+  }
+
+  return <WorkflowDashboardDetail workflowId={workflowId} />;
 }

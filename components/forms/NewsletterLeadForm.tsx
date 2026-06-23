@@ -23,6 +23,15 @@ import {
 } from "@/lib/cevonne/client";
 
 const PRIVACY_POLICY_VERSION = "2026-website-v1";
+const PRIVACY_ACTIONS_HREF = "/privacy-policy#privacy-actions";
+const PRIVACY_UNSUBSCRIBE_HREF = "/privacy-policy#privacy-unsubscribe";
+
+type NewsletterActionStatus = "SUBSCRIBED" | "VERIFICATION_NEEDED" | "OPTED_OUT";
+
+type NewsletterActionSummary = {
+  email: string;
+  status: NewsletterActionStatus;
+};
 
 const createContactId = () => {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -38,11 +47,16 @@ export default function NewsletterLeadForm() {
   const [emailConsent, setEmailConsent] = useState(false);
   const [trackingConsent, setTrackingConsent] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [subscriptionSummary, setSubscriptionSummary] = useState<NewsletterActionSummary | null>(null);
 
   useEffect(() => {
     const state = getCevonneConsentState();
     if (state?.email) {
       setEmail((current) => current || state.email);
+      setSubscriptionSummary({
+        email: state.email,
+        status: state.optedOut ? "OPTED_OUT" : state.marketingConsent ? "SUBSCRIBED" : "VERIFICATION_NEEDED",
+      });
     }
   }, []);
 
@@ -113,16 +127,20 @@ export default function NewsletterLeadForm() {
       setCevonneConsentState({
         email: trimmedEmail,
         contactId,
-        marketingConsent: true,
-        trackingConsent: trackingRecorded,
+        marketingConsent: emailConsentResponse.status !== "MANUAL_ONLY",
+        trackingConsent: trackingRecorded && emailConsentResponse.status !== "MANUAL_ONLY",
         optedOut: false,
         optedOutEmail: null,
         consentUpdatedAt: new Date().toISOString(),
         optedOutAt: null,
       });
+      setSubscriptionSummary({
+        email: trimmedEmail,
+        status: emailConsentResponse.status === "MANUAL_ONLY" ? "VERIFICATION_NEEDED" : "SUBSCRIBED",
+      });
 
       if (emailConsentResponse.status === "MANUAL_ONLY") {
-        toast.info("Your signup was received for manual review.");
+        toast.info("Your signup was saved. Verification is still needed.");
       } else {
         toast.success("You're on the list.");
       }
@@ -245,14 +263,79 @@ export default function NewsletterLeadForm() {
                 disabled={submitting || !emailConsent || optedOutForEmail}
                 className="h-12 rounded-full bg-neutral-950 px-6 text-sm font-semibold text-white hover:bg-neutral-800"
               >
-                {submitting ? "Saving..." : "Join the list"}
+                {submitting ? "Saving..." : "Subscribe"}
               </Button>
               <p className="text-xs leading-6 text-neutral-500">
-                We keep the flow compliant. Unsubscribe and privacy requests stay on-site.
+                We keep the flow compliant. Manage preferences after signup from the privacy actions page.
               </p>
             </div>
 
-            {optedOutForEmail ? (
+            {subscriptionSummary ? (
+              <div
+                role="status"
+                aria-live="polite"
+                className="rounded-3xl border border-neutral-200 bg-white/90 p-4 shadow-sm"
+              >
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="space-y-2">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-neutral-500">
+                      Next step
+                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="break-all text-sm font-semibold text-neutral-950">{subscriptionSummary.email}</span>
+                      <span
+                        className={`inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold ${
+                          subscriptionSummary.status === "SUBSCRIBED"
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            : subscriptionSummary.status === "VERIFICATION_NEEDED"
+                              ? "border-amber-200 bg-amber-50 text-amber-700"
+                              : "border-rose-200 bg-rose-50 text-rose-700"
+                        }`}
+                      >
+                        {subscriptionSummary.status === "SUBSCRIBED"
+                          ? "Subscribed"
+                          : subscriptionSummary.status === "VERIFICATION_NEEDED"
+                            ? "Verification needed"
+                            : "Unsubscribed"}
+                      </span>
+                    </div>
+                    <p className="text-sm leading-6 text-neutral-700">
+                      {subscriptionSummary.status === "SUBSCRIBED"
+                        ? "Your email is on the list. Use the actions below to manage preferences."
+                        : subscriptionSummary.status === "VERIFICATION_NEEDED"
+                          ? "Your signup is saved, but verification is still required."
+                          : "This email is opted out. Update preferences from the privacy actions page."}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {subscriptionSummary.status === "VERIFICATION_NEEDED" ? (
+                      <Button
+                        type="button"
+                        disabled
+                        className="h-11 rounded-full bg-neutral-200 px-5 text-sm font-semibold text-neutral-500"
+                      >
+                        Send Verification
+                      </Button>
+                    ) : (
+                      <Button asChild className="h-11 rounded-full bg-neutral-950 px-5 text-sm font-semibold text-white hover:bg-neutral-800">
+                        <Link to={PRIVACY_ACTIONS_HREF}>Manage Subscription</Link>
+                      </Button>
+                    )}
+
+                    {subscriptionSummary.status === "SUBSCRIBED" ? (
+                      <Button asChild variant="outline" className="h-11 rounded-full border-neutral-300 bg-white px-5 text-sm font-semibold text-neutral-900 hover:bg-neutral-50">
+                        <Link to={PRIVACY_UNSUBSCRIBE_HREF}>Unsubscribe</Link>
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+
+                {subscriptionSummary.status === "VERIFICATION_NEEDED" ? (
+                  <p className="mt-3 text-xs leading-5 text-neutral-500">Action not connected yet.</p>
+                ) : null}
+              </div>
+            ) : optedOutForEmail ? (
               <p className="text-sm text-rose-700">
                 This email address is already opted out. Use the privacy page unsubscribe form to update preferences.
               </p>

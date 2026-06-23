@@ -58,7 +58,7 @@ export default function PolicyPage() {
           </section>
         ))}
 
-        <section className="space-y-4 border-t border-neutral-200 pt-8">
+        <section id="privacy-actions" className="space-y-4 border-t border-neutral-200 pt-8">
           <div className="space-y-2">
             <h2 className="text-2xl font-semibold text-neutral-950">Privacy actions</h2>
             <p className="max-w-3xl text-sm leading-7 text-neutral-700 sm:text-base">

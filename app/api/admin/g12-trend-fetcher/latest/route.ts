@@ -53,7 +53,11 @@ export async function GET(request: Request) {
           run: null,
           insights: [],
           metrics: [],
+          rawItems: [],
           rawCounts: {},
+          storedInsights: [],
+          storedMetrics: [],
+          storedRawItems: [],
         },
         200,
       );
@@ -62,21 +66,25 @@ export async function GET(request: Request) {
     const fetchRunId = latestRun.fetch_run_id;
 
     const [
-      { data: insightsRows, error: insightsError },
-      { data: metricsRows, error: metricsError },
+      { data: insightRows, error: insightsError },
+      { data: metricRows, error: metricsError },
       { data: rawRows, error: rawError },
     ] = await Promise.all([
       supabaseAdmin
         .from(G12_SUPABASE_TABLES.insights)
         .select("*")
-        .eq("fetch_run_id", fetchRunId)
-        .order("created_at", { ascending: false, nullsFirst: false }),
+        .order("created_at", { ascending: false, nullsFirst: false })
+        .limit(100),
       supabaseAdmin
         .from(G12_SUPABASE_TABLES.metrics)
         .select("*")
-        .eq("fetch_run_id", fetchRunId)
-        .order("created_at", { ascending: false, nullsFirst: false }),
-      supabaseAdmin.from(G12_SUPABASE_TABLES.rawScrapeQuarantine).select("platform").eq("fetch_run_id", fetchRunId),
+        .order("created_at", { ascending: false, nullsFirst: false })
+        .limit(100),
+      supabaseAdmin
+        .from(G12_SUPABASE_TABLES.rawScrapeQuarantine)
+        .select("*")
+        .order("created_at", { ascending: false, nullsFirst: false })
+        .limit(200),
     ]);
 
     if (insightsError || metricsError || rawError) {
@@ -105,13 +113,26 @@ export async function GET(request: Request) {
       );
     }
 
-    const insights = (insightsRows ?? [])
+    const storedInsights = (insightRows ?? [])
       .map((row, index) => normalizeG12SupabaseInsightRow(row as Record<string, unknown>, index))
-      .filter(Boolean);
-    const metrics = (metricsRows ?? [])
+      .filter((insight): insight is NonNullable<typeof insight> => Boolean(insight));
+    const storedMetrics = (metricRows ?? [])
       .map((row, index) => normalizeG12SupabaseMetricRow(row as Record<string, unknown>, index))
-      .filter(Boolean);
-    const rawCounts = countG12RawCounts((rawRows ?? []) as Array<Record<string, unknown>>);
+      .filter((metric): metric is NonNullable<typeof metric> => Boolean(metric));
+    const storedRawItems = (rawRows ?? []) as Array<Record<string, unknown>>;
+
+    const insights = storedInsights.filter((insight) => insight.fetch_run_id === fetchRunId);
+    const metrics = storedMetrics.filter((metric) => metric.fetch_run_id === fetchRunId);
+    const rawItems = storedRawItems.filter((rawItem) => {
+      const value =
+        (typeof rawItem.fetch_run_id === "string" && rawItem.fetch_run_id) ||
+        (typeof rawItem.fetchRunId === "string" && rawItem.fetchRunId) ||
+        (typeof rawItem.run_id === "string" && rawItem.run_id) ||
+        (typeof rawItem.runId === "string" && rawItem.runId) ||
+        null;
+      return value === fetchRunId;
+    });
+    const rawCounts = countG12RawCounts(rawItems);
 
     return jsonResponse(
       {
@@ -121,7 +142,11 @@ export async function GET(request: Request) {
         run,
         insights,
         metrics,
+        rawItems,
         rawCounts,
+        storedInsights,
+        storedMetrics,
+        storedRawItems,
       },
       200,
     );

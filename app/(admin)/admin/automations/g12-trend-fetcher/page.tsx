@@ -1,12 +1,5 @@
-"use client";
-
-import dynamic from "next/dynamic";
-
-const G12TrendFetcherPage = dynamic(
-  () => import("@/components/admin-dashboard/G12TrendFetcherPage"),
-  { ssr: false },
-);
+import G12PublicTrendFetcherPage from "@/components/admin-dashboard/G12PublicTrendFetcherPage.reworked";
 
 export default function Page() {
-  return <G12TrendFetcherPage />;
+  return <G12PublicTrendFetcherPage />;
 }

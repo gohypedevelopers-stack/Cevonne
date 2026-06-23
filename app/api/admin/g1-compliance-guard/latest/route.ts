@@ -1,19 +1,83 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-import { getAuthUser, jsonResponse } from "@/server/next/route-utils";
+import { getAuthUser, jsonResponse, methodNotAllowed } from "@/server/next/route-utils";
+import { normalizeG1AuditRows } from "@/lib/g1-compliance-guard";
 import {
   buildG1ComplianceGuardSnapshotFromDecisionSources,
-  buildEmptyG1ComplianceGuardSnapshot,
-  normalizeG1AuditRows,
-} from "@/lib/g1-compliance-guard";
-import {
-  getCevonneAdminWorkflowDetail,
-  recordCevonneAdminRouteView,
-} from "@/server/next/api/cevonne-admin-store";
+  type G1ComplianceGuardSnapshot,
+} from "@/server/next/api/g1-compliance-guard-ui";
+import { recordCevonneAdminRouteView } from "@/server/next/api/cevonne-admin-store";
 
 const unauthorizedResponse = () => jsonResponse({ message: "Unauthorized" }, 401);
 const forbiddenResponse = () => jsonResponse({ message: "Forbidden" }, 403);
+
+const G1_COMPLIANCE_RUNS_TABLE = "g1_compliance_runs";
+const G1_RUN_ORDER_COLUMNS = ["handled_at", "completed_at", "created_at", "updated_at", "checked_at", "time", "timestamp"] as const;
+
+type SupabaseRow = Record<string, unknown>;
+
+const isMissingColumnError = (error: { message?: string; code?: string } | null) => {
+  if (!error) {
+    return false;
+  }
+
+  return error.code === "42703" || /column .* does not exist/i.test(error.message ?? "");
+};
+
+const loadG1ComplianceRows = async () => {
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return [];
+  }
+
+  const { supabaseAdmin } = await import("@/lib/supabase-admin");
+
+  for (const orderColumn of G1_RUN_ORDER_COLUMNS) {
+    const { data, error } = await supabaseAdmin
+      .from(G1_COMPLIANCE_RUNS_TABLE)
+      .select("*")
+      .order(orderColumn, { ascending: false, nullsFirst: false })
+      .limit(50);
+
+    if (!error) {
+      return Array.isArray(data) ? (data as SupabaseRow[]) : [];
+    }
+
+    if (!isMissingColumnError(error)) {
+      throw error;
+    }
+  }
+
+  const { data, error } = await supabaseAdmin.from(G1_COMPLIANCE_RUNS_TABLE).select("*").limit(50);
+  if (error) {
+    throw error;
+  }
+
+  return Array.isArray(data) ? (data as SupabaseRow[]) : [];
+};
+
+const buildSnapshot = (rows: SupabaseRow[]) => {
+  const decisions = normalizeG1AuditRows(rows);
+  return buildG1ComplianceGuardSnapshotFromDecisionSources(decisions);
+};
+
+const recordRouteView = (auth: { id: string; email: string | null }, snapshot: G1ComplianceGuardSnapshot) => {
+  recordCevonneAdminRouteView({
+    workflowGroup: "G1",
+    actionType: "VIEW_WORKFLOW_DETAIL",
+    routeName: "/api/admin/g1-compliance-guard/latest",
+    resultStatus: "PASS",
+    responseType: "G1_COMPLIANCE_GUARD_READY",
+    payloadSummary: JSON.stringify({
+      workflow_group: "G1",
+      status: snapshot.status,
+      last_run_at: snapshot.lastRunAt,
+      recent_checks: snapshot.recentOutcomes.length,
+    }),
+    adminUserId: auth.id,
+    adminEmail: auth.email,
+  });
+};
 
 export async function GET(request: Request) {
   const auth = await getAuthUser(request);
@@ -25,107 +89,36 @@ export async function GET(request: Request) {
     return forbiddenResponse();
   }
 
-  const detail = getCevonneAdminWorkflowDetail("G1");
-  let snapshot = detail?.workflow
-    ? buildG1ComplianceGuardSnapshotFromDecisionSources({
-        workflow: detail.workflow,
-        decisionSources: [],
-        rawRecords: {
-          workflow: detail.workflow,
-          latest_executions: detail.latest_executions ?? [],
-          approvals: detail.approvals ?? [],
-          audit_logs: detail.audit_logs ?? [],
-          related_g1_compliance_runs: detail.related_g1_compliance_runs ?? [],
-        },
-        developerEnabled: true,
-      })
-    : buildEmptyG1ComplianceGuardSnapshot();
+  try {
+    const rows = await loadG1ComplianceRows();
+    const snapshot = buildSnapshot(rows);
+    const message = rows.length > 0 ? "G1 compliance guard data loaded from Supabase." : "No G1 compliance runs found yet.";
 
-  const candidateTables = Array.from(
-    new Set([
-    "compliance_runs",
-    process.env.CEVONNE_G1_COMPLIANCE_RUNS_TABLE?.trim(),
-    process.env.CEVONNE_COMPLIANCE_RUNS_TABLE?.trim(),
-    process.env.CEVONNE_G1_COMPLIANCE_LOG_TABLE?.trim(),
-    process.env.CEVONNE_G1_AUDIT_LOG_TABLE?.trim(),
-  ].filter((table): table is string => Boolean(table))),
-  );
+    recordRouteView({ id: auth.id, email: auth.email }, snapshot);
 
-  const hasSupabaseConfig = Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+    return jsonResponse(
+      {
+        status: rows.length > 0 ? "PASS" : "EMPTY",
+        response_type: "G1_COMPLIANCE_GUARD_READY",
+        message,
+        snapshot,
+      },
+      200,
+    );
+  } catch (error) {
+    console.error("[G1 API] Supabase load failed:", error);
 
-  if (candidateTables.length > 0 && hasSupabaseConfig) {
-    try {
-      const { supabaseAdmin } = await import("@/lib/supabase-admin");
-      const tableReads = await Promise.all(
-        candidateTables.map(async (table) => {
-          const { data, error } = await supabaseAdmin.from(table).select("*").order("created_at", { ascending: false }).limit(50);
-          if (error) {
-            console.error("[G1 API] Supabase load failed:", {
-              table,
-              message: error.message,
-              details: error.details,
-              hint: error.hint,
-              code: error.code,
-            });
-          }
-          return { table, data, error };
-        }),
-      );
-
-      for (const tableRead of tableReads) {
-        if (tableRead.error || !Array.isArray(tableRead.data) || tableRead.data.length === 0) {
-          continue;
-        }
-
-        const normalizedRows = normalizeG1AuditRows(tableRead.data as Array<Record<string, unknown>>);
-        if (normalizedRows.length > 0 && detail?.workflow) {
-          snapshot = buildG1ComplianceGuardSnapshotFromDecisionSources({
-            workflow: detail.workflow,
-            decisionSources: normalizedRows,
-            rawRecords: {
-              workflow: detail.workflow,
-              latest_executions: detail.latest_executions ?? [],
-              approvals: detail.approvals ?? [],
-              audit_logs: detail.audit_logs ?? [],
-              related_g1_compliance_runs: detail.related_g1_compliance_runs ?? [],
-              supabase_rows: tableRead.data as Array<Record<string, unknown>>,
-            },
-            developerEnabled: true,
-          });
-          break;
-        }
-      }
-    } catch (error) {
-      console.error("[G1 API] Supabase load failed:", error);
-      // Fall back to the empty client-safe snapshot when Supabase is unavailable.
-    }
+    return jsonResponse(
+      {
+        status: "ERROR",
+        response_type: "G1_COMPLIANCE_GUARD_ERROR",
+        message: "Unable to load G1 compliance checks from Supabase.",
+      },
+      500,
+    );
   }
+}
 
-  recordCevonneAdminRouteView({
-    workflowGroup: "G1",
-    actionType: "VIEW_WORKFLOW_DETAIL",
-    routeName: "/api/admin/g1-compliance-guard/latest",
-    resultStatus: "PASS",
-    responseType: "G1_COMPLIANCE_GUARD_READY",
-    payloadSummary: JSON.stringify({
-      workflow_group: "G1",
-      workflow_name: snapshot.workflow_name,
-      current_status: snapshot.current_status,
-    }),
-    adminUserId: auth.id,
-    adminEmail: auth.email,
-  });
-
-  return jsonResponse(
-    {
-      status: snapshot.latest_decisions.length > 0 ? "PASS" : "EMPTY",
-      response_type: "G1_COMPLIANCE_GUARD_READY",
-      message:
-        snapshot.latest_decisions.length > 0
-          ? "G1 compliance guard data loaded."
-          : "G1 is active, but no workflow action has been checked yet.",
-      ...snapshot,
-    },
-    200,
-  );
+export async function POST() {
+  return methodNotAllowed(["GET"]);
 }

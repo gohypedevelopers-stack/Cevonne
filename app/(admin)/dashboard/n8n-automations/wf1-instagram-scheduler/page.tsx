@@ -1,5 +1,5 @@
-import Wf1InstagramSchedulerPage from "@/components/admin-dashboard/Wf1InstagramSchedulerPage";
+import WorkflowDashboardDetail from "@/components/admin-dashboard/WorkflowDashboardDetail";
 
 export default function Page() {
-  return <Wf1InstagramSchedulerPage />;
+  return <WorkflowDashboardDetail workflowId="WF1" />;
 }

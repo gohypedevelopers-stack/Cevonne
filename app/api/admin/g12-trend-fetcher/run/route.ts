@@ -2,7 +2,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { getAuthUser, jsonResponse, methodNotAllowed } from "@/server/next/route-utils";
-import { G12_TREND_FETCHER_GENERAL_BRANCH_KEY, G12_TREND_FETCHER_QUERY_DEFAULT, type G12TrendPlatform } from "@/lib/g12-trend-fetcher";
+import {
+  buildG12PublicTrendFetchPayload,
+  G12_PUBLIC_TREND_FETCHER_DEFAULT_QUERY,
+  G12_PUBLIC_TREND_FETCHER_DEFAULT_TOP_COMMENTS_LIMIT,
+  type G12TrendFetcherPlatformSelection,
+  type G12TrendPlatform,
+} from "@/lib/g12-trend-fetcher";
 
 const unauthorizedResponse = () => jsonResponse({ message: "Unauthorized" }, 401);
 const forbiddenResponse = () => jsonResponse({ message: "Forbidden" }, 403);
@@ -17,6 +23,26 @@ const normalizePlatforms = (value: unknown): G12TrendPlatform[] => {
     .filter((entry): entry is G12TrendPlatform => entry === "INSTAGRAM" || entry === "TIKTOK");
 
   return platforms.length ? Array.from(new Set(platforms)) : ["INSTAGRAM", "TIKTOK"];
+};
+
+const normalizePlatformSelection = (value: unknown): G12TrendFetcherPlatformSelection => {
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (normalized === "instagram") {
+      return "instagram";
+    }
+
+    if (normalized === "tiktok") {
+      return "tiktok";
+    }
+  }
+
+  const platforms = normalizePlatforms(value);
+  if (platforms.length === 1) {
+    return platforms[0] === "INSTAGRAM" ? "instagram" : "tiktok";
+  }
+
+  return "both";
 };
 
 const toSafeInteger = (value: unknown, fallback: number, minimum: number) => {
@@ -52,18 +78,20 @@ export async function POST(request: Request) {
       );
     }
 
-    const branchKeyValue = typeof body.branch_key === "string" && body.branch_key.trim()
-      ? body.branch_key.trim()
-      : G12_TREND_FETCHER_GENERAL_BRANCH_KEY;
-
-    const payload = {
-      platforms: normalizePlatforms(body.platforms),
-      query: typeof body.query === "string" && body.query.trim() ? body.query.trim() : G12_TREND_FETCHER_QUERY_DEFAULT,
-      fetch_limit: toSafeInteger(body.fetch_limit, 50, 1),
-      top_comments_limit: toSafeInteger(body.top_comments_limit, 0, 0),
-      actor: typeof body.actor === "string" && body.actor.trim() ? body.actor.trim() : "website_admin",
-      branch_key: branchKeyValue,
-    };
+    const payload = buildG12PublicTrendFetchPayload({
+      platformSelection: normalizePlatformSelection(body.platformSelection ?? body.platform_selection ?? body.platforms),
+      query: typeof body.query === "string" && body.query.trim() ? body.query.trim() : G12_PUBLIC_TREND_FETCHER_DEFAULT_QUERY,
+      fetchLimit: toSafeInteger(body.fetch_limit ?? body.fetchLimit, 50, 1),
+      minInsightsToStore: toSafeInteger(body.min_insights_to_store ?? body.minInsightsToStore, 5, 0),
+      maxInsightsToStore: toSafeInteger(body.max_insights_to_store ?? body.maxInsightsToStore, 10, 0),
+      qualityMode:
+        typeof body.quality_mode === "string" && body.quality_mode.trim()
+          ? body.quality_mode.trim()
+          : typeof body.qualityMode === "string" && body.qualityMode.trim()
+            ? body.qualityMode.trim()
+            : undefined,
+      topCommentsLimit: toSafeInteger(body.top_comments_limit ?? body.topCommentsLimit, G12_PUBLIC_TREND_FETCHER_DEFAULT_TOP_COMMENTS_LIMIT, 0),
+    });
 
     const response = await fetch(n8nUrl, {
       method: "POST",

@@ -76,6 +76,27 @@ export type N8nExecutionRecord = {
   summary: string;
 };
 
+export type G5PublishingAssetSnapshot = {
+  assetId: string | null;
+  platform: string | null;
+  headline: string | null;
+  caption: string | null;
+  content: string | null;
+  mediaReference: string | null;
+  storageReference: string | null;
+  g1GateStatus: string | null;
+  g2GateStatus: string | null;
+  g4ReviewStatus: string | null;
+  g7ProofStatus: string | null;
+  g8ProofStatus: string | null;
+  riskSummary: string | null;
+  approvalNotes: string | null;
+  rollbackPayloadReady: boolean;
+  dryRunStatus: "NOT_RUN" | "SUCCESS" | "FAILED" | null;
+  finalHumanApprovalState: "PENDING" | "APPROVED" | "REJECTED" | "CHANGES_REQUESTED" | null;
+  scheduledFor: string | null;
+};
+
 export type N8nApprovalRecord = {
   approvalId: string;
   publicId: string;
@@ -88,7 +109,9 @@ export type N8nApprovalRecord = {
   status: "PENDING" | "APPROVED" | "REJECTED" | "CHANGES_REQUESTED";
   reviewerAction?: string | null;
   summary: string;
+  approvalNotes?: string | null;
   requireConfirmation: boolean;
+  assetSnapshot?: G5PublishingAssetSnapshot | null;
   adminUserId?: string | null;
   adminEmail?: string | null;
 };

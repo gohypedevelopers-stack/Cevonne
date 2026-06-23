@@ -32,6 +32,27 @@ type WorkflowRecord = CevonneWorkflowDirectoryEntry & {
   adminNotes?: string | null;
 };
 
+type G5PublishingAssetSnapshot = {
+  assetId: string | null;
+  platform: string | null;
+  headline: string | null;
+  caption: string | null;
+  content: string | null;
+  mediaReference: string | null;
+  storageReference: string | null;
+  g1GateStatus: string | null;
+  g2GateStatus: string | null;
+  g4ReviewStatus: string | null;
+  g7ProofStatus: string | null;
+  g8ProofStatus: string | null;
+  riskSummary: string | null;
+  approvalNotes: string | null;
+  rollbackPayloadReady: boolean;
+  dryRunStatus: "NOT_RUN" | "SUCCESS" | "FAILED" | null;
+  finalHumanApprovalState: "PENDING" | "APPROVED" | "REJECTED" | "CHANGES_REQUESTED" | null;
+  scheduledFor: string | null;
+};
+
 export type CevonneExecutionRecord = {
   executionId: string;
   publicId: string;
@@ -70,7 +91,9 @@ export type CevonneApprovalRecord = {
   status: CevonneApprovalStatus;
   reviewerAction?: string | null;
   summary: string;
+  approvalNotes?: string | null;
   requireConfirmation: boolean;
+  assetSnapshot?: G5PublishingAssetSnapshot | null;
   adminUserId?: string | null;
   adminEmail?: string | null;
 };
@@ -172,8 +195,8 @@ const workflowSeedMeta: Record<
   },
   G5: {
     lastResponseType: "PUBLISHING_QUEUE_PENDING",
-    pendingApprovalsCount: 3,
-    latestFailureReason: "Approved assets are queued for schedule confirmation.",
+    pendingApprovalsCount: 1,
+    latestFailureReason: "A pending asset is waiting for review before scheduling.",
     latestExecutionStatus: "PENDING",
     latestExecutionLifecycle: "PENDING",
     relatedG1ComplianceRuns: ["g1-publish-gate-004"],
@@ -271,8 +294,29 @@ const createInitialApprovals = (): CevonneApprovalRecord[] => [
     createdAt: minutesAgo(48),
     status: "PENDING",
     reviewerAction: null,
-    summary: "Approve the spring launch publishing batch.",
+    summary: "Review the spring launch publishing batch before scheduling.",
+    approvalNotes: "Spring launch asset is ready for review. Dry-run and live scheduling stay blocked until approval is recorded.",
     requireConfirmation: true,
+    assetSnapshot: {
+      assetId: "spring-launch-batch-01",
+      platform: "INSTAGRAM",
+      headline: "Spring launch publishing batch",
+      caption: "Spring launch is ready to go live after review.",
+      content: "Fresh seasonal launch copy, approved visuals, and schedule-ready metadata are prepared for publishing.",
+      mediaReference: "Creative library / Spring launch / Carousel 01",
+      storageReference: "Asset library / Spring launch / Batch 01",
+      g1GateStatus: "PASS",
+      g2GateStatus: "CLEAN",
+      g4ReviewStatus: "PASS",
+      g7ProofStatus: "READY",
+      g8ProofStatus: "READY",
+      riskSummary: "High visibility campaign with a controlled publishing window.",
+      approvalNotes: "Hold this batch until the reviewer confirms the asset and the dry-run passes.",
+      rollbackPayloadReady: true,
+      dryRunStatus: "NOT_RUN",
+      finalHumanApprovalState: "PENDING",
+      scheduledFor: "2026-06-23T18:30:00.000Z",
+    },
   },
   {
     approvalId: "approval-g6-recovery-001",
@@ -950,6 +994,14 @@ export const recordCevonneAdminApproval = (input: {
 
   approval.adminUserId = input.adminUserId ?? null;
   approval.adminEmail = input.adminEmail ?? null;
+  approval.approvalNotes = input.notes ?? approval.approvalNotes ?? null;
+  if (approval.assetSnapshot) {
+    approval.assetSnapshot = {
+      ...approval.assetSnapshot,
+      approvalNotes: approval.approvalNotes,
+      finalHumanApprovalState: approval.status,
+    };
+  }
 
   const workflow = store.workflows.find((record) => record.group === approval.workflowGroup);
   if (workflow) {
@@ -960,10 +1012,13 @@ export const recordCevonneAdminApproval = (input: {
     if (!preserveWorkflowStatus) {
       if (approval.status === "APPROVED") {
         workflow.status = "PASS";
+        workflow.latestFailureReason = null;
       } else if (approval.status === "REJECTED") {
         workflow.status = "BLOCK";
+        workflow.latestFailureReason = approval.approvalNotes || approval.summary;
       } else {
         workflow.status = "MANUAL_ONLY";
+        workflow.latestFailureReason = approval.approvalNotes || "Changes requested before publishing.";
       }
     }
     workflow.lastRunAt = new Date().toISOString();
