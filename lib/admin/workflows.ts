@@ -70,6 +70,14 @@ export type WorkflowRunField = {
   visibleWhen?: (values: WorkflowRunValues) => boolean;
 };
 
+export type WorkflowOutcomeDetails = {
+  platform?: string | null;
+  account?: string | null;
+  evidenceSummary?: string | null;
+  whatWasChecked?: string | null;
+  sourceLabel?: string | null;
+};
+
 export type WorkflowOutcomeSummary = {
   time: string | null;
   result: WorkflowUiStatus;
@@ -78,6 +86,9 @@ export type WorkflowOutcomeSummary = {
   actionNeeded: string;
   whyItBlocked: string | null;
   sourceLabel: string | null;
+  summary?: string | null;
+  handledAt?: string | null;
+  details?: WorkflowOutcomeDetails | null;
 };
 
 export type WorkflowDetailView = {
@@ -342,7 +353,7 @@ export const WORKFLOW_CATALOG: Record<AdminWorkflowId, WorkflowCatalogEntry> = {
   G2: {
     id: "G2",
     title: "G2 - Policy + Account Health Monitor",
-    purpose: "Tracks account health, policy status, and manual review needs.",
+    purpose: "Tracks account health, policy status, API/tool changes, and manual review needs.",
     detailHref: "/dashboard/n8n-automations/g2",
     runLabel: "Refresh Status",
     runEnabled: false,
@@ -1580,7 +1591,7 @@ export const getWorkflowStatusDetailCopy = (workflowId: AdminWorkflowId, status:
   }
 
   if (workflowId === "G2") {
-    return "This page reflects the latest account health and policy snapshot.";
+    return "This page reflects the latest account health, policy status, and manual review snapshot.";
   }
 
   return getWorkflowStatusMessage(status);

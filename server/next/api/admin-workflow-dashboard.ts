@@ -51,6 +51,7 @@ type TableBundle = {
 };
 
 const DEFAULT_ORDER_KEYS = [
+  "checked_at",
   "completed_at",
   "handled_at",
   "time",
@@ -73,7 +74,11 @@ const tableSpec = (table: string, orderKeys: string[] = [...DEFAULT_ORDER_KEYS],
 
 const WORKFLOW_TABLES: Record<AdminWorkflowId, TableSpec[]> = {
   G1: [tableSpec("compliance_runs"), tableSpec("g1_compliance_runs"), tableSpec("g1_audit_logs")],
-  G2: [tableSpec("g2_account_health"), tableSpec("g2_account_health_logs"), tableSpec("g2_policy_account_health")],
+  G2: [
+    tableSpec("g2_account_health", ["checked_at", "created_at", "updated_at", "handled_at", "time"], 10),
+    tableSpec("g2_account_health_logs", ["checked_at", "created_at", "updated_at", "handled_at", "time"], 10),
+    tableSpec("g2_policy_account_health", ["checked_at", "created_at", "updated_at", "handled_at", "time"], 10),
+  ],
   G3: [
     tableSpec("cevonne_g3_consent_sync", ["synced_at", "created_at", "updated_at"]),
     tableSpec("cevonne_g3_opt_out_sync", ["synced_at", "created_at", "updated_at"]),
@@ -296,8 +301,11 @@ const buildGenericOutcome = (
   const candidates = flattenRow(row);
   const time =
     pickDateFromCandidates(candidates, [
+      "checked_at",
+      "checkedAt",
       "time",
       "handled_at",
+      "handledAt",
       "completed_at",
       "created_at",
       "createdAt",
@@ -321,6 +329,8 @@ const buildGenericOutcome = (
 
   const result = normalizeWorkflowUiStatus(
     pickFromCandidates(candidates, [
+      "result_or_status",
+      "resultOrStatus",
       "result",
       "status",
       "decision",
@@ -335,6 +345,8 @@ const buildGenericOutcome = (
       "cardStatus",
       "health_status",
       "healthStatus",
+      "account_status",
+      "accountStatus",
       "state",
     ]),
     WORKFLOW_CATALOG[workflowId].fallbackStatus,
@@ -434,6 +446,193 @@ const buildGenericOutcome = (
     actionNeeded,
     whyItBlocked,
     sourceLabel: sanitizeDisplayText(sourceLabel),
+  };
+};
+
+const G2_SAFE_SOURCE_LABEL = "n8n Supabase";
+const G2_INTERNAL_NOTE_PATTERN = /\b(dev|seed|rpc|webhook|supabase|service role|source route|table|node|payload|internal|placeholder|replace with)\b/i;
+
+const getG2DisplayStatus = (value?: string | null): WorkflowUiStatus => {
+  const normalized = value?.trim().toUpperCase() ?? "";
+
+  if (!normalized) {
+    return "MANUAL_ONLY";
+  }
+
+  if (["WARNING", "UNKNOWN", "REVIEW", "NEEDS_REVIEW", "MANUAL_ONLY", "PENDING"].includes(normalized)) {
+    return "MANUAL_ONLY";
+  }
+
+  return normalizeWorkflowUiStatus(value, "MANUAL_ONLY");
+};
+
+const getG2StatusMessage = (status: WorkflowUiStatus) => {
+  if (status === "PASS") {
+    return "Account health check passed.";
+  }
+
+  if (status === "ERROR") {
+    return "The health check could not be completed.";
+  }
+
+  return "Account health needs review.";
+};
+
+const getG2ActionNeeded = (status: WorkflowUiStatus) => {
+  if (status === "PASS") {
+    return "No action needed.";
+  }
+
+  if (status === "ERROR") {
+    return "Developer/admin review is needed.";
+  }
+
+  return "Review account status before running affected workflows.";
+};
+
+const getG2EvidenceSummary = (candidates: Array<JsonRecord | null>) => {
+  const note = sanitizeDisplayText(
+    pickFormattedFromCandidates(candidates, [
+      "evidence_note",
+      "evidenceNote",
+      "evidence_summary",
+      "evidenceSummary",
+      "policy_note",
+      "policyNote",
+      "notes",
+      "description",
+    ]),
+  );
+
+  if (note && !G2_INTERNAL_NOTE_PATTERN.test(note)) {
+    return note;
+  }
+
+  const hasEvidenceLink = Boolean(pickFromCandidates(candidates, ["evidence_url", "evidenceUrl"]));
+  if (hasEvidenceLink) {
+    return "Evidence link recorded.";
+  }
+
+  return null;
+};
+
+const buildG2Outcome = (row: JsonRecord, sourceLabel = G2_SAFE_SOURCE_LABEL): WorkflowOutcomeSummary | null => {
+  const candidates = flattenRow(row);
+  const time =
+    pickDateFromCandidates(candidates, [
+      "checked_at",
+      "checkedAt",
+      "handled_at",
+      "handledAt",
+      "created_at",
+      "createdAt",
+      "updated_at",
+      "updatedAt",
+      "time",
+    ]) ?? null;
+
+  if (!time) {
+    return null;
+  }
+
+  const rawStatus =
+    pickFromCandidates(candidates, [
+      "result_or_status",
+      "resultOrStatus",
+      "result",
+      "status",
+      "health_status",
+      "healthStatus",
+      "account_status",
+      "accountStatus",
+    ]) ?? null;
+  const result = getG2DisplayStatus(rawStatus);
+  const platform = pickFormattedFromCandidates(candidates, ["platform"]) ?? null;
+  const account =
+    pickFormattedFromCandidates(candidates, ["account_name", "accountName", "account_id", "accountId", "account"]) ?? null;
+  const platformLabel = platform ?? "Unavailable";
+  const whatWasChecked = joinLabels([platformLabel, account]) ?? "Account health snapshot";
+  const evidenceSummary = getG2EvidenceSummary(candidates);
+  const whatHappened = getG2StatusMessage(result);
+  const actionNeeded = getG2ActionNeeded(result);
+
+  return {
+    time,
+    handledAt: time,
+    summary: whatHappened,
+    result,
+    whatWasChecked,
+    whatHappened,
+    actionNeeded,
+    whyItBlocked: result === "ERROR" ? "The health check could not be completed." : result === "PASS" ? null : "Account health needs review.",
+    sourceLabel,
+    details: {
+      platform: platformLabel,
+      account: account,
+      evidenceSummary,
+      whatWasChecked,
+      sourceLabel,
+    },
+  };
+};
+
+const buildG2Outcomes = (bundles: TableBundle[]) => {
+  const outcomes = bundles
+    .flatMap((bundle) =>
+      bundle.rows
+        .map((row) => buildG2Outcome(row, G2_SAFE_SOURCE_LABEL))
+        .filter((value): value is WorkflowOutcomeSummary => Boolean(value)),
+    )
+    .sort(sortByTimeDesc);
+
+  const deduped: WorkflowOutcomeSummary[] = [];
+  const seen = new Set<string>();
+
+  for (const outcome of outcomes) {
+    const dedupeKey = [
+      outcome.time ?? "",
+      outcome.result,
+      outcome.details?.platform ?? "",
+      outcome.details?.account ?? "",
+      outcome.whatHappened,
+    ].join("|");
+
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+
+    seen.add(dedupeKey);
+    deduped.push(outcome);
+  }
+
+  return deduped.slice(0, 10);
+};
+
+const buildG2DetailResponse = async (): Promise<{
+  workflowGroup: "G2";
+  title: string;
+  purpose: string;
+  status: WorkflowUiStatus | "EMPTY";
+  lastRunAt: string | null;
+  latestOutcome: WorkflowOutcomeSummary | null;
+  recentOutcomes: WorkflowOutcomeSummary[];
+  workflow: WorkflowDetailView;
+  message: string;
+}> => {
+  const bundles = await queryWorkflowTables("G2");
+  const outcomes = buildG2Outcomes(bundles);
+  const workflow = buildWorkflowView("G2", outcomes);
+
+  return {
+    workflowGroup: "G2",
+    title: workflow.title,
+    purpose: workflow.purpose,
+    status: workflow.status,
+    lastRunAt: workflow.lastRunAt,
+    latestOutcome: workflow.latestOutcome,
+    recentOutcomes: workflow.recentOutcomes,
+    workflow,
+    message: workflow.latestOutcome ? "G2 account health detail loaded from Supabase." : workflow.emptyStateCopy,
   };
 };
 
@@ -1226,6 +1425,11 @@ const buildGenericOutcomes = (workflowId: AdminWorkflowId, bundles: TableBundle[
     .sort(sortByTimeDesc);
 
 const loadWorkflowOutcomes = async (workflowId: AdminWorkflowId) => {
+  if (workflowId === "G2") {
+    const bundles = await queryWorkflowTables(workflowId);
+    return buildG2Outcomes(bundles);
+  }
+
   if (workflowId === "G4") {
     const detail = await getG4WorkflowDetail();
 
@@ -1291,13 +1495,16 @@ export type WorkflowDashboardOverviewResponse = {
 };
 
 export type WorkflowDashboardDetailResponse = {
-  status: "PASS" | "EMPTY";
+  status: WorkflowUiStatus | "EMPTY";
   message: string;
   workflowGroup: AdminWorkflowId;
   workflow: WorkflowDetailView;
-  latestOutcome?: G12LatestOutcomeView | null;
+  title?: string;
+  purpose?: string;
+  lastRunAt?: string | null;
+  latestOutcome?: WorkflowOutcomeSummary | G12LatestOutcomeView | null;
+  recentOutcomes?: WorkflowOutcomeSummary[] | G12RecentOutcomeView[];
   savedInsights?: G12SavedInsightView[];
-  recentOutcomes?: G12RecentOutcomeView[];
   g4Detail?: G4WorkflowDetail | null;
 };
 
@@ -1348,6 +1555,10 @@ export const loadWorkflowDashboardDetail = async (workflowIdInput: string): Prom
   const workflowId = normalizeWorkflowId(workflowIdInput);
   if (!workflowId) {
     return null;
+  }
+
+  if (workflowId === "G2") {
+    return buildG2DetailResponse();
   }
 
   if (workflowId === "G12") {

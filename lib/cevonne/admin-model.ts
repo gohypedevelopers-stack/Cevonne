@@ -86,7 +86,7 @@ export const CEVONNE_WORKFLOW_DIRECTORY: CevonneWorkflowDirectoryEntry[] = [
   {
     group: "G2",
     name: "Policy + Account Health Monitor",
-    purpose: "Monitors account health, policy exposure, and escalation state.",
+    purpose: "Tracks account health, policy status, API/tool changes, and manual review needs.",
     description: "Detects warning conditions early and routes them into human review before changes go live.",
     status: "ACTIVE",
     lifecycleState: "COMPLETE",
