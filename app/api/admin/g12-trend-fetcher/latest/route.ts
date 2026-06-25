@@ -15,6 +15,16 @@ import {
 const unauthorizedResponse = () => jsonResponse({ message: "Unauthorized" }, 401);
 const forbiddenResponse = () => jsonResponse({ message: "Forbidden" }, 403);
 
+const getRawItemRunId = (rawItem: Record<string, unknown>) =>
+  (typeof rawItem.fetch_run_id === "string" && rawItem.fetch_run_id) ||
+  (typeof rawItem.fetchRunId === "string" && rawItem.fetchRunId) ||
+  (typeof rawItem.run_id === "string" && rawItem.run_id) ||
+  (typeof rawItem.runId === "string" && rawItem.runId) ||
+  null;
+
+const filterRawItemsByRunId = (rawItems: Array<Record<string, unknown>>, fetchRunId: string) =>
+  rawItems.filter((rawItem) => getRawItemRunId(rawItem) === fetchRunId);
+
 export async function GET(request: Request) {
   const auth = await getAuthUser(request);
   if (!auth) {
@@ -26,35 +36,55 @@ export async function GET(request: Request) {
   }
 
   try {
-    const { data: latestRun, error: runError } = await supabaseAdmin
-      .from(G12_SUPABASE_TABLES.fetchRuns)
-      .select(G12_RUN_SELECT)
-      .order("completed_at", { ascending: false, nullsFirst: false })
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    const [
+      { data: latestRunRow, error: runError },
+      { data: latestStoredRunRow, error: latestStoredRunError },
+    ] = await Promise.all([
+      supabaseAdmin
+        .from(G12_SUPABASE_TABLES.fetchRuns)
+        .select(G12_RUN_SELECT)
+        .order("completed_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+      supabaseAdmin
+        .from(G12_SUPABASE_TABLES.fetchRuns)
+        .select(G12_RUN_SELECT)
+        .gt("stored_count", 0)
+        .order("completed_at", { ascending: false, nullsFirst: false })
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle(),
+    ]);
 
-    if (runError) {
+    if (runError || latestStoredRunError) {
       return jsonResponse(
         {
           status: "ERROR",
-          message: "Failed to load latest G12 run from Supabase.",
-          error: runError.message,
+          message: "Failed to load latest G12 run data from Supabase.",
+          errors: {
+            latestRun: runError?.message ?? null,
+            latestStoredRun: latestStoredRunError?.message ?? null,
+          },
         },
         500,
       );
     }
 
-    if (!latestRun?.fetch_run_id) {
+    if (!latestRunRow?.fetch_run_id && !latestStoredRunRow?.fetch_run_id) {
       return jsonResponse(
         {
           status: "EMPTY",
           message: "No real G12 trend data found yet. Run the Trend Fetcher to populate this page.",
           run: null,
+          latestStoredRun: null,
           insights: [],
           metrics: [],
           rawItems: [],
           rawCounts: {},
+          latestStoredInsights: [],
+          latestStoredMetrics: [],
+          latestStoredRawItems: [],
           storedInsights: [],
           storedMetrics: [],
           storedRawItems: [],
@@ -63,7 +93,10 @@ export async function GET(request: Request) {
       );
     }
 
-    const fetchRunId = latestRun.fetch_run_id;
+    const run = latestRunRow ? normalizeG12SupabaseRunRow(latestRunRow) : null;
+    const latestStoredRun = latestStoredRunRow ? normalizeG12SupabaseRunRow(latestStoredRunRow) : null;
+    const latestRunId = run?.fetch_run_id ?? null;
+    const latestStoredRunId = latestStoredRun?.fetch_run_id ?? null;
 
     const [
       { data: insightRows, error: insightsError },
@@ -102,8 +135,7 @@ export async function GET(request: Request) {
       );
     }
 
-    const run = normalizeG12SupabaseRunRow(latestRun);
-    if (!run) {
+    if (!run && latestRunRow) {
       return jsonResponse(
         {
           status: "ERROR",
@@ -121,18 +153,17 @@ export async function GET(request: Request) {
       .filter((metric): metric is NonNullable<typeof metric> => Boolean(metric));
     const storedRawItems = (rawRows ?? []) as Array<Record<string, unknown>>;
 
-    const insights = storedInsights.filter((insight) => insight.fetch_run_id === fetchRunId);
-    const metrics = storedMetrics.filter((metric) => metric.fetch_run_id === fetchRunId);
-    const rawItems = storedRawItems.filter((rawItem) => {
-      const value =
-        (typeof rawItem.fetch_run_id === "string" && rawItem.fetch_run_id) ||
-        (typeof rawItem.fetchRunId === "string" && rawItem.fetchRunId) ||
-        (typeof rawItem.run_id === "string" && rawItem.run_id) ||
-        (typeof rawItem.runId === "string" && rawItem.runId) ||
-        null;
-      return value === fetchRunId;
-    });
+    const insights = latestRunId ? storedInsights.filter((insight) => insight.fetch_run_id === latestRunId) : [];
+    const metrics = latestRunId ? storedMetrics.filter((metric) => metric.fetch_run_id === latestRunId) : [];
+    const rawItems = latestRunId ? filterRawItemsByRunId(storedRawItems, latestRunId) : [];
     const rawCounts = countG12RawCounts(rawItems);
+    const latestStoredInsights = latestStoredRunId
+      ? storedInsights.filter((insight) => insight.fetch_run_id === latestStoredRunId)
+      : [];
+    const latestStoredMetrics = latestStoredRunId
+      ? storedMetrics.filter((metric) => metric.fetch_run_id === latestStoredRunId)
+      : [];
+    const latestStoredRawItems = latestStoredRunId ? filterRawItemsByRunId(storedRawItems, latestStoredRunId) : [];
 
     return jsonResponse(
       {
@@ -140,10 +171,14 @@ export async function GET(request: Request) {
         source: "SUPABASE_REAL_DATA",
         message: "Latest G12 dashboard data loaded from Supabase.",
         run,
+        latestStoredRun,
         insights,
         metrics,
         rawItems,
         rawCounts,
+        latestStoredInsights,
+        latestStoredMetrics,
+        latestStoredRawItems,
         storedInsights,
         storedMetrics,
         storedRawItems,

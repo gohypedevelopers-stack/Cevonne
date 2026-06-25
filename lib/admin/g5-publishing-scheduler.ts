@@ -1,10 +1,7 @@
 import { type G4WorkflowDetail } from "@/lib/admin/g4-content-review";
 import { type WorkflowUiStatus } from "@/lib/admin/workflows";
 
-export type G5PublishingSchedulerStatus = Extract<
-  WorkflowUiStatus,
-  "PASS" | "DRY_RUN" | "PENDING_APPROVAL" | "NEEDS_EVIDENCE" | "BLOCK" | "MANUAL_ONLY" | "NOT_RUN_YET" | "ERROR" | "FIX_FIRST"
->;
+export type G5PublishingSchedulerStatus = WorkflowUiStatus;
 
 export type G5ReadinessValue = G5PublishingSchedulerStatus;
 
@@ -104,6 +101,10 @@ export const getG5StatusTone = (status: G5PublishingSchedulerStatus) => {
       return "border-rose-200 bg-rose-100 text-rose-800";
     case "MANUAL_ONLY":
       return "border-violet-200 bg-violet-100 text-violet-800";
+    case "RECOMMENDATION_ONLY":
+      return "border-violet-200 bg-violet-100 text-violet-800";
+    case "DO_NOT_SCALE":
+      return "border-orange-200 bg-orange-100 text-orange-800";
     case "FIX_FIRST":
       return "border-rose-200 bg-rose-100 text-rose-800";
     case "NOT_RUN_YET":
@@ -128,6 +129,10 @@ export const getG5StatusLabel = (status: G5PublishingSchedulerStatus) => {
       return "Blocked";
     case "MANUAL_ONLY":
       return "Manual only";
+    case "RECOMMENDATION_ONLY":
+      return "Recommendation only";
+    case "DO_NOT_SCALE":
+      return "Do not scale";
     case "FIX_FIRST":
       return "Fix first";
     case "NOT_RUN_YET":
@@ -152,6 +157,10 @@ export const getG5StatusMessage = (status: G5PublishingSchedulerStatus) => {
       return "Publishing was safely stopped.";
     case "MANUAL_ONLY":
       return "Live publishing is manual-only for this asset.";
+    case "RECOMMENDATION_ONLY":
+      return "The workflow created a recommendation only. Nothing was executed.";
+    case "DO_NOT_SCALE":
+      return "This should not be scaled right now.";
     case "FIX_FIRST":
       return "Approved asset found, but publishing dry-run has not been completed.";
     case "NOT_RUN_YET":
@@ -176,6 +185,10 @@ export const getG5ActionNeeded = (status: G5PublishingSchedulerStatus) => {
       return "Review the blocker and stop unsafe publishing.";
     case "MANUAL_ONLY":
       return "Keep publishing manual-only until the remaining checks are complete.";
+    case "RECOMMENDATION_ONLY":
+      return "Review the recommendation before proceeding.";
+    case "DO_NOT_SCALE":
+      return "Do not scale this right now.";
     case "FIX_FIRST":
       return "Run the publishing dry-run before moving forward.";
     case "NOT_RUN_YET":

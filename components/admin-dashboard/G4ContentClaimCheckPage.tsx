@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState, type ReactNode } from "react";
 import { AlertTriangle, ArrowRight, ChevronDown, Copy, RefreshCcw } from "lucide-react";
@@ -13,6 +13,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
+import { useAuth } from "@/context/AuthContext";
 import { formatDateTime, formatRelativeTime } from "@/components/admin-dashboard/n8n-automations-common";
 import { formatG4ResultLabel, formatG4StatusTone, type G4WorkflowDetail } from "@/lib/admin/g4-content-review";
 import { cn } from "@/lib/utils";
@@ -26,6 +27,14 @@ type G4Status = G4WorkflowDetail["status"];
 type G4RecheckResponse = {
   status: G4Status | "ERROR";
   message: string;
+};
+
+type G4ApprovalRequestResponse = {
+  status: "PASS" | "BLOCK" | "ERROR";
+  message: string;
+  approvalId: string | null;
+  alreadyQueued: boolean;
+  approvalRequest: G4WorkflowDetail["approvalRequest"];
 };
 
 type ActionConfig = {
@@ -92,8 +101,8 @@ const getLatestPrimaryAction = (status: G4Status): ActionConfig => {
     case "PENDING_APPROVAL":
       return {
         label: "Send to approval",
-        disabled: true,
-        helper: "Approval action is not connected yet.",
+        disabled: false,
+        helper: null,
         action: "approval",
       };
     case "PASS":
@@ -145,8 +154,8 @@ const getActionPanelCopy = (status: G4Status) => {
         body: "The content check passed, but a human approval is still required before publishing or ad use.",
         buttonLabel: "Send to approval",
         buttonAction: "approval" as const,
-        disabled: true,
-        helper: "Approval action is not connected yet.",
+        disabled: false,
+        helper: null,
       };
     case "PASS":
       return {
@@ -199,9 +208,9 @@ const getRecentRowAction = (status: G4Status): ActionConfig => {
       };
     case "PENDING_APPROVAL":
       return {
-        label: "Approve",
-        disabled: true,
-        helper: "Approval action is not connected yet.",
+        label: "Queue",
+        disabled: false,
+        helper: null,
         action: "approval",
       };
     case "PASS":
@@ -350,6 +359,7 @@ function SuggestionsList({
 
 export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckPageProps) {
   const router = useRouter();
+  const { authFetch } = useAuth();
   const latestOutcome = detail.latestOutcome;
   const status = latestOutcome?.result ?? detail.status;
   const statusLabel = formatG4ResultLabel(status);
@@ -358,6 +368,7 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
   const latestPrimaryAction = getLatestPrimaryAction(status);
   const actionPanelCopy = getActionPanelCopy(status);
   const recentRowAction = getRecentRowAction(status);
+  const request = authFetch ?? fetch;
   const checkedAt = latestOutcome?.handledAt ?? detail.lastRunAt;
   const riskyRewriteWarning = isRiskyRewriteLanguage(detail.cleanAiOutput?.safeRewrite ?? null);
   const latestResultCopy = latestOutcome?.summary ?? "No content check has been recorded yet.";
@@ -366,10 +377,56 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
   const [fixPanelOpen, setFixPanelOpen] = useState(false);
   const [recheckDraft, setRecheckDraft] = useState(initialDraft);
   const [rechecking, setRechecking] = useState(false);
+  const [approvalRequest, setApprovalRequest] = useState(detail.approvalRequest);
+  const [approvalSubmitting, setApprovalSubmitting] = useState(false);
 
   useEffect(() => {
     setRecheckDraft(initialDraft);
   }, [initialDraft]);
+
+  useEffect(() => {
+    setApprovalRequest(detail.approvalRequest);
+  }, [detail.approvalRequest]);
+
+  const approvalRecorded = Boolean(approvalRequest);
+  const approvalQueued = approvalRequest?.status === "PENDING";
+  const approvalActionDisabled = approvalSubmitting || approvalRecorded;
+  const approvalButtonLabel = approvalQueued ? "Approval queued" : approvalRecorded ? "Approval recorded" : "Send to approval";
+  const approvalHelperText = approvalRequest
+    ? approvalRequest.status === "PENDING"
+      ? `Approval queued as ${approvalRequest.approvalId}.`
+      : `Approval record ${approvalRequest.status.toLowerCase().replace(/_/g, " ")} as ${approvalRequest.approvalId}.`
+    : "Queue this content for human approval.";
+
+  const handleApprovalRequest = async () => {
+    if (approvalActionDisabled) {
+      return;
+    }
+
+    setApprovalSubmitting(true);
+    try {
+      const response = await request("/api/admin/workflow-dashboard/g4/send-approval", {
+        method: "POST",
+        cache: "no-store",
+      });
+
+      const body = await parseJsonResponse<G4ApprovalRequestResponse>(response);
+      if (!response.ok || !body) {
+        throw new Error(body?.message ?? `Unable to queue approval (${response.status}).`);
+      }
+
+      if (body.approvalRequest) {
+        setApprovalRequest(body.approvalRequest);
+      }
+
+      toast.success(body.message || "Approval request queued.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to queue approval.";
+      toast.error(message);
+    } finally {
+      setApprovalSubmitting(false);
+    }
+  };
 
   const handlePrimaryAction = () => {
     if (latestPrimaryAction.disabled) {
@@ -378,6 +435,11 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
 
     if (latestPrimaryAction.action === "fix") {
       setFixPanelOpen(true);
+      return;
+    }
+
+    if (latestPrimaryAction.action === "approval") {
+      void handleApprovalRequest();
       return;
     }
 
@@ -396,6 +458,11 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
       return;
     }
 
+    if (actionPanelCopy.buttonAction === "approval") {
+      void handleApprovalRequest();
+      return;
+    }
+
     if (actionPanelCopy.buttonAction === "view") {
       document.getElementById("recent-checks")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }
@@ -404,6 +471,11 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
   const handleRowAction = (action: ActionConfig["action"]) => {
     if (action === "fix") {
       setFixPanelOpen(true);
+      return;
+    }
+
+    if (action === "approval") {
+      void handleApprovalRequest();
       return;
     }
 
@@ -421,7 +493,7 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
 
     setRechecking(true);
     try {
-      const response = await fetch("/api/admin/workflow-dashboard/g4/recheck", {
+      const response = await request("/api/admin/workflow-dashboard/g4/recheck", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -531,7 +603,17 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
                 </div>
 
                 <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
-                  {latestPrimaryAction.disabled ? (
+                  {latestPrimaryAction.action === "approval" ? (
+                    <Button
+                      type="button"
+                      className="h-10 rounded-full px-5"
+                      variant={approvalRecorded ? "outline" : "default"}
+                      disabled={approvalActionDisabled}
+                      onClick={() => void handleApprovalRequest()}
+                    >
+                      {approvalSubmitting ? "Queueing approval..." : approvalButtonLabel}
+                    </Button>
+                  ) : latestPrimaryAction.disabled ? (
                     <Button
                       type="button"
                       className="h-10 rounded-full px-5"
@@ -637,7 +719,11 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
                     </CollapsibleContent>
                   </Collapsible>
                 </div>
-                {latestPrimaryAction.helper ? <p className="text-xs leading-5 text-muted-foreground">{latestPrimaryAction.helper}</p> : null}
+                {latestPrimaryAction.action === "approval" ? (
+                  <p className="text-xs leading-5 text-muted-foreground">{approvalHelperText}</p>
+                ) : latestPrimaryAction.helper ? (
+                  <p className="text-xs leading-5 text-muted-foreground">{latestPrimaryAction.helper}</p>
+                ) : null}
               </>
             ) : (
               <div className="rounded-[24px] border border-dashed border-border/70 bg-muted/10 p-5">
@@ -698,17 +784,34 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
             </div>
 
             <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-              <Button
-                type="button"
-                className="h-10 rounded-full px-5"
-                variant={actionPanelCopy.disabled ? "outline" : "default"}
-                disabled={actionPanelCopy.disabled}
-                onClick={handlePanelAction}
-              >
-                {actionPanelCopy.buttonLabel}
-                {!actionPanelCopy.disabled && actionPanelCopy.buttonAction === "view" ? <ArrowRight className="size-4" /> : null}
-              </Button>
-              {actionPanelCopy.helper ? <p className="text-xs leading-5 text-muted-foreground">{actionPanelCopy.helper}</p> : null}
+              {actionPanelCopy.buttonAction === "approval" ? (
+                <>
+                  <Button
+                    type="button"
+                    className="h-10 rounded-full px-5"
+                    variant={approvalRecorded ? "outline" : "default"}
+                    disabled={approvalActionDisabled}
+                    onClick={() => void handleApprovalRequest()}
+                  >
+                    {approvalSubmitting ? "Queueing approval..." : approvalButtonLabel}
+                  </Button>
+                  <p className="text-xs leading-5 text-muted-foreground">{approvalHelperText}</p>
+                </>
+              ) : (
+                <>
+                  <Button
+                    type="button"
+                    className="h-10 rounded-full px-5"
+                    variant={actionPanelCopy.disabled ? "outline" : "default"}
+                    disabled={actionPanelCopy.disabled}
+                    onClick={handlePanelAction}
+                  >
+                    {actionPanelCopy.buttonLabel}
+                    {!actionPanelCopy.disabled && actionPanelCopy.buttonAction === "view" ? <ArrowRight className="size-4" /> : null}
+                  </Button>
+                  {actionPanelCopy.helper ? <p className="text-xs leading-5 text-muted-foreground">{actionPanelCopy.helper}</p> : null}
+                </>
+              )}
             </div>
           </CardContent>
         </Card>
@@ -736,7 +839,12 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
                 <tbody>
                   {detail.recentOutcomes.length ? (
                     detail.recentOutcomes.map((row) => {
-                      const rowAction = getRecentRowAction(row.result);
+                      const isLatestRow = row.reviewId === latestOutcome?.reviewId || (!row.reviewId && row.assetId === latestOutcome?.assetId);
+                      const rowAction =
+                        row.result === "PENDING_APPROVAL" && !isLatestRow
+                          ? { label: "View", disabled: false, helper: null, action: "view" as const }
+                          : getRecentRowAction(row.result);
+                      const rowApprovalQueued = approvalQueued && isLatestRow;
 
                       return (
                         <tr key={`${row.time}-${row.reviewId ?? row.assetId ?? row.platform ?? "g4"}`} className="border-b border-border/50 last:border-b-0">
@@ -763,7 +871,23 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
                           <td className="px-5 py-4 align-top">
                             <div className="space-y-2">
                               <p className="text-sm leading-6 text-foreground">{row.actionNeeded}</p>
-                              {rowAction.disabled ? (
+                              {rowAction.action === "approval" ? (
+                                <div className="space-y-1">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    className="h-8 rounded-full px-3 text-[11px] font-medium"
+                                    variant={rowApprovalQueued ? "outline" : "default"}
+                                    disabled={rowApprovalQueued || approvalActionDisabled}
+                                    onClick={() => void handleApprovalRequest()}
+                                  >
+                                    {approvalSubmitting && isLatestRow ? "Queueing..." : rowApprovalQueued ? "Queued" : rowAction.label}
+                                  </Button>
+                                  <p className="text-xs leading-5 text-muted-foreground">
+                                    {rowApprovalQueued ? approvalHelperText : "Queue this content for human approval."}
+                                  </p>
+                                </div>
+                              ) : rowAction.disabled ? (
                                 <div className="space-y-1">
                                   <Button type="button" size="sm" className="h-8 rounded-full px-3 text-[11px] font-medium" disabled>
                                     {rowAction.label}
@@ -935,3 +1059,8 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
     </>
   );
 }
+
+
+
+
+

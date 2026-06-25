@@ -9,9 +9,14 @@ import {
   normalizeG4Text,
   normalizeG4Timestamp,
   summarizeG4Outcome,
+  type G4ApprovalRequest,
   type G4ContentReviewRecord,
   type G4WorkflowDetail,
 } from "@/lib/admin/g4-content-review";
+import {
+  getCevonneAdminApprovalBySource,
+  queueCevonneAdminApprovalRequest,
+} from "@/server/next/api/cevonne-admin-store";
 
 const G4_SELECT_COLUMNS = `
   created_at,
@@ -107,6 +112,26 @@ const buildG4CleanAiOutput = (row: G4Row): G4WorkflowDetail["cleanAiOutput"] => 
   };
 };
 
+const buildG4ApprovalRequest = (row: G4Row): G4ApprovalRequest | null => {
+  const sourceId = normalizeG4Text(row.review_id) ?? normalizeG4Text(row.content_review_id) ?? normalizeG4Text(row.asset_id);
+  const approval = getCevonneAdminApprovalBySource({
+    workflowGroup: "G4",
+    sourceId,
+  });
+
+  if (!approval) {
+    return null;
+  }
+
+  return {
+    approvalId: approval.approvalId,
+    status: approval.status,
+    createdAt: approval.createdAt,
+    requestedBy: approval.requestedBy,
+    reviewerAction: approval.reviewerAction ?? null,
+  };
+};
+
 const buildEmptyDetail = (status: G4WorkflowDetail["status"], actionNeeded: string): G4WorkflowDetail => ({
   workflowGroup: "G4",
   title: G4_WORKFLOW_TITLE,
@@ -117,6 +142,7 @@ const buildEmptyDetail = (status: G4WorkflowDetail["status"], actionNeeded: stri
   contentPreview: extractG4ContentPreview(null),
   actionNeeded,
   cleanAiOutput: null,
+  approvalRequest: null,
   recentOutcomes: [],
 });
 
@@ -152,6 +178,105 @@ export async function getG4WorkflowDetail(): Promise<G4WorkflowDetail> {
     contentPreview: extractG4ContentPreview(latest),
     actionNeeded: getG4ActionNeeded(latest),
     cleanAiOutput: buildG4CleanAiOutput(latest),
+    approvalRequest: buildG4ApprovalRequest(latest),
     recentOutcomes,
+  };
+}
+
+export async function queueLatestG4ApprovalRequest(input: {
+  adminUserId: string;
+  adminEmail: string | null;
+  ipUserAgentHash?: string | null;
+}) {
+  const detail = await getG4WorkflowDetail();
+  if (!detail.latestOutcome) {
+    return {
+      status: "ERROR" as const,
+      message: "No G4 content review is available to send for approval.",
+      approvalId: null,
+      alreadyQueued: false,
+      approvalRequest: null,
+    };
+  }
+
+  if (detail.status !== "PENDING_APPROVAL") {
+    return {
+      status: "BLOCK" as const,
+      message: "The latest G4 content review is not waiting for approval.",
+      approvalId: detail.approvalRequest?.approvalId ?? null,
+      alreadyQueued: Boolean(detail.approvalRequest),
+      approvalRequest: detail.approvalRequest,
+    };
+  }
+
+  if (detail.approvalRequest) {
+    return {
+      status: "PASS" as const,
+      message:
+        detail.approvalRequest.status === "PENDING"
+          ? "This content is already queued for approval."
+          : "This content already has an approval record.",
+      approvalId: detail.approvalRequest.approvalId,
+      alreadyQueued: true,
+      approvalRequest: detail.approvalRequest,
+    };
+  }
+
+  const sourceId = detail.latestOutcome.reviewId ?? detail.latestOutcome.assetId;
+  if (!sourceId) {
+    return {
+      status: "ERROR" as const,
+      message: "The latest G4 review is missing a review or asset identifier.",
+      approvalId: null,
+      alreadyQueued: false,
+      approvalRequest: null,
+    };
+  }
+
+  const summaryParts = [
+    detail.latestOutcome.summary,
+    detail.latestOutcome.assetId ? `Asset ${detail.latestOutcome.assetId}` : null,
+    detail.latestOutcome.platform ? `Platform ${detail.latestOutcome.platform}` : null,
+  ].filter((value): value is string => Boolean(value));
+
+  const queued = queueCevonneAdminApprovalRequest({
+    workflowGroup: "G4",
+    actionType: "CONTENT_APPROVAL",
+    riskLevel: "MEDIUM",
+    requestedBy: input.adminEmail ?? "admin",
+    summary: summaryParts.join(" | "),
+    requireConfirmation: true,
+    routeName: "/api/admin/workflow-dashboard/g4/send-approval",
+    sourceId,
+    assetId: detail.latestOutcome.assetId,
+    platform: detail.latestOutcome.platform,
+    approvalNotes: detail.cleanAiOutput?.humanReviewRecommendation ?? detail.latestOutcome.riskSummary ?? null,
+    adminUserId: input.adminUserId,
+    adminEmail: input.adminEmail,
+    ipUserAgentHash: input.ipUserAgentHash ?? null,
+  });
+
+  if (!queued) {
+    return {
+      status: "ERROR" as const,
+      message: "Unable to queue the G4 approval request right now.",
+      approvalId: null,
+      alreadyQueued: false,
+      approvalRequest: null,
+    };
+  }
+
+  return {
+    status: "PASS" as const,
+    message: queued.created ? "Approval request queued." : "This content already has an approval record.",
+    approvalId: queued.approval.approvalId,
+    alreadyQueued: !queued.created,
+    approvalRequest: {
+      approvalId: queued.approval.approvalId,
+      status: queued.approval.status,
+      createdAt: queued.approval.createdAt,
+      requestedBy: queued.approval.requestedBy,
+      reviewerAction: queued.approval.reviewerAction ?? null,
+    },
   };
 }

@@ -76,6 +76,14 @@ export type G4CleanAiOutput = {
   aiIsFinalApproval: false;
 };
 
+export type G4ApprovalRequest = {
+  approvalId: string;
+  status: "PENDING" | "APPROVED" | "REJECTED" | "CHANGES_REQUESTED";
+  createdAt: string;
+  requestedBy: string;
+  reviewerAction: string | null;
+};
+
 export type G4WorkflowDetail = {
   workflowGroup: "G4";
   title: "G4 Content / Landing / Claim Check";
@@ -86,6 +94,7 @@ export type G4WorkflowDetail = {
   contentPreview: G4ContentPreview;
   actionNeeded: string;
   cleanAiOutput: G4CleanAiOutput | null;
+  approvalRequest: G4ApprovalRequest | null;
   recentOutcomes: G4RecentOutcome[];
 };
 

@@ -154,10 +154,14 @@ type G12DashboardResponse = {
   message: string;
   source?: string | null;
   run: G12LatestRun | null;
+  latestStoredRun?: G12LatestRun | null;
   insights: G12InsightRecord[];
   metrics: G12MetricRecord[];
   rawItems: G12RawItemRecord[];
   rawCounts: Record<string, number>;
+  latestStoredInsights?: G12InsightRecord[];
+  latestStoredMetrics?: G12MetricRecord[];
+  latestStoredRawItems?: G12RawItemRecord[];
   storedInsights?: G12InsightRecord[];
   storedMetrics?: G12MetricRecord[];
   storedRawItems?: G12RawItemRecord[];
@@ -1538,7 +1542,28 @@ export default function G12PublicTrendFetcherPageReworked() {
   }, [dashboard]);
 
   const latestRun = dashboard?.run ?? null;
+  const latestStoredRun = dashboard?.latestStoredRun ?? null;
+  const latestStoredRecords = useMemo(() => {
+    const explicitRecords = buildTrendRecords(
+      dashboard?.latestStoredInsights ?? [],
+      dashboard?.latestStoredMetrics ?? [],
+      dashboard?.latestStoredRawItems ?? [],
+    );
+    if (explicitRecords.length) {
+      return explicitRecords;
+    }
+
+    if (latestStoredRun?.fetch_run_id) {
+      const matchingRecords = allStoredRecords.filter((record) => record.fetchRunId === latestStoredRun.fetch_run_id);
+      if (matchingRecords.length) {
+        return matchingRecords;
+      }
+    }
+
+    return latestRunRecords;
+  }, [allStoredRecords, dashboard, latestRunRecords, latestStoredRun?.fetch_run_id]);
   const latestRunTime = latestRun?.completed_at ?? latestRun?.created_at ?? null;
+  const latestStoredRunTime = latestStoredRun?.completed_at ?? latestStoredRun?.created_at ?? null;
   const latestRunStatus = useMemo(() => {
     if (submittingRun || awaitingFetchRunId) {
       return "RUNNING";
@@ -1569,12 +1594,22 @@ export default function G12PublicTrendFetcherPageReworked() {
   }, [awaitingFetchRunId, dashboard, latestRun, loading, submittingRun]);
 
   const latestRunLabel = latestRunTime ? `${formatG12DateTime(latestRunTime)} · ${formatG12RelativeTime(latestRunTime)}` : "No run yet";
+  const latestStoredRunLabel = latestStoredRunTime
+    ? `${formatG12DateTime(latestStoredRunTime)} · ${formatG12RelativeTime(latestStoredRunTime)}`
+    : "No stored run yet";
+  const showingLatestStoredFallback = Boolean(
+    latestRun &&
+      latestStoredRun &&
+      latestRun.fetch_run_id &&
+      latestStoredRun.fetch_run_id &&
+      latestRun.fetch_run_id !== latestStoredRun.fetch_run_id,
+  );
 
   const latestCards = useMemo(() => {
-    const sorted = [...latestRunRecords].sort(compareByLatestRunCard);
-    const limit = Math.max(0, latestRun?.stored_count ?? sorted.length);
+    const sorted = [...latestStoredRecords].sort(compareByLatestRunCard);
+    const limit = Math.max(0, latestStoredRun?.stored_count ?? sorted.length);
     return sorted.slice(0, limit);
-  }, [latestRun?.stored_count, latestRunRecords]);
+  }, [latestStoredRecords, latestStoredRun?.stored_count]);
 
   const filteredStoredRecords = useMemo(() => {
     const search = normalizeWhitespace(deferredSearchTerm).toLowerCase();
@@ -1641,7 +1676,7 @@ export default function G12PublicTrendFetcherPageReworked() {
   }, [filteredStoredRecords, sortBy]);
 
   const isBusy = loading || refreshing || submittingRun || Boolean(awaitingFetchRunId);
-  const latestRunStoredLabel = latestRun ? `Latest run stored: ${formatG12Count(latestRun.stored_count)}` : "Latest run stored: 0";
+  const latestRunStoredLabel = latestStoredRun ? `Latest stored run: ${formatG12Count(latestStoredRun.stored_count)}` : "Latest stored run: 0";
   const totalStoredCount = allStoredRecords.length;
   const historicalRunCount = new Set(allStoredRecords.map((record) => record.fetchRunId).filter(Boolean)).size;
   const totalStoredLabel = `Total stored insights: ${formatG12Count(totalStoredCount)}`;
@@ -2056,7 +2091,7 @@ export default function G12PublicTrendFetcherPageReworked() {
           <SectionHeader
             eyebrow="Latest Run"
             title="Latest Stored Trends"
-            description="Saved insights from the latest completed G12 run."
+            description="Saved insights from the most recent G12 run that stored results in Supabase."
             action={
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className="rounded-full border-border/70 bg-secondary/20 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
@@ -2078,6 +2113,15 @@ export default function G12PublicTrendFetcherPageReworked() {
             </div>
           ) : null}
 
+          {showingLatestStoredFallback ? (
+            <div className="rounded-[24px] border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950 shadow-sm">
+              <p className="font-semibold">Showing the most recent stored Supabase run</p>
+              <p className="mt-1">
+                The latest run on {latestRunLabel} stored no insights. These cards are from the last run that stored results: {latestStoredRunLabel}.
+              </p>
+            </div>
+          ) : null}
+
           {loading && !dashboard ? (
             <div className="grid gap-5 xl:grid-cols-1">
               {Array.from({ length: 1 }).map((_, index) => (
@@ -2096,13 +2140,13 @@ export default function G12PublicTrendFetcherPageReworked() {
                 />
               ))}
             </div>
-          ) : latestRun ? (
+          ) : latestStoredRun ? (
             <EmptyState
-              title="No saved trend insights from latest run"
+              title="No saved trend insights from the latest stored run"
               description={
-                latestRun.status === "BLOCK"
+                latestRun?.status === "BLOCK"
                   ? "This latest run was blocked. Review the failure reasons above."
-                  : "The latest run completed, but no qualified insights were stored."
+                  : "The latest stored Supabase run did not return qualified insights."
               }
               onRun={() => void handleRunWorkflow()}
               running={isBusy}

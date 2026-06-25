@@ -3,6 +3,8 @@ import { getPrisma } from "@/server/db/prismaClient";
 import { verifyToken } from "@/server/utils/jwt";
 
 type PrimitiveHeaders = Record<string, string>;
+type AuthUser = { id: string; email: string | null; role: string; name: string | null };
+type JwtAuthClaims = { id?: string; role?: string; email?: string | null; name?: string | null };
 
 type ControllerRequest = {
   body?: unknown;
@@ -62,6 +64,31 @@ export const readJsonBody = async (request: Request) => {
   } catch {
     return invalidJsonResponse();
   }
+};
+
+const canFallbackToTokenClaims = (error: unknown) => {
+  const code = typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code) : "";
+  const message =
+    typeof error === "object" && error !== null && "message" in error ? String((error as { message?: unknown }).message) : String(error ?? "");
+
+  return code === "P1001" || /can't reach database server|databasenotreachable/i.test(message);
+};
+
+const buildTokenAuthUser = (decoded: JwtAuthClaims): AuthUser | null => {
+  if (typeof decoded.id !== "string" || !decoded.id.trim()) {
+    return null;
+  }
+
+  if (typeof decoded.role !== "string" || !decoded.role.trim()) {
+    return null;
+  }
+
+  return {
+    id: decoded.id.trim(),
+    email: typeof decoded.email === "string" && decoded.email.trim() ? decoded.email.trim() : null,
+    role: decoded.role.trim(),
+    name: typeof decoded.name === "string" && decoded.name.trim() ? decoded.name.trim() : null,
+  };
 };
 
 const toResponse = (controllerResponse: ControllerResponse) => {
@@ -210,16 +237,28 @@ export const getAuthUser = async (request: Request) => {
   }
 
   try {
-    const decoded = verifyToken(token) as { id?: string };
-    if (!decoded?.id) {
+    const decoded = verifyToken(token) as JwtAuthClaims;
+    const fallbackUser = buildTokenAuthUser(decoded);
+    if (!fallbackUser) {
       return null;
     }
 
-    const prisma = await getPrisma();
-    return prisma.user.findUnique({
-      where: { id: decoded.id },
-      select: { id: true, email: true, role: true, name: true },
-    });
+    try {
+      const prisma = await getPrisma();
+      const user = await prisma.user.findUnique({
+        where: { id: fallbackUser.id },
+        select: { id: true, email: true, role: true, name: true },
+      });
+
+      return user ?? null;
+    } catch (error) {
+      if (!canFallbackToTokenClaims(error)) {
+        throw error;
+      }
+
+      console.warn("getAuthUser: falling back to JWT claims because the database is unreachable.");
+      return fallbackUser;
+    }
   } catch {
     return null;
   }

@@ -96,6 +96,9 @@ export type CevonneApprovalRecord = {
   assetSnapshot?: G5PublishingAssetSnapshot | null;
   adminUserId?: string | null;
   adminEmail?: string | null;
+  sourceId?: string | null;
+  assetId?: string | null;
+  platform?: string | null;
 };
 
 export type CevonneAuditLogRecord = {
@@ -803,6 +806,23 @@ export const getCevonneAdminApprovals = (workflowGroup?: string | null) => {
   return approvals.sort(approvalSort).map((approval) => clone(approval));
 };
 
+export const getCevonneAdminApprovalBySource = (input: {
+  workflowGroup: CevonneWorkflowGroup;
+  sourceId?: string | null;
+}) => {
+  const sourceId = input.sourceId?.trim() || null;
+  if (!sourceId) {
+    return null;
+  }
+
+  const store = getStore();
+  const approval = store.approvals
+    .filter((record) => record.workflowGroup === input.workflowGroup && record.sourceId === sourceId)
+    .sort(approvalSort)[0];
+
+  return approval ? clone(approval) : null;
+};
+
 export const getCevonneAdminAuditLogs = (workflowGroup?: string | null) => {
   const store = getStore();
   const logs = workflowGroup
@@ -821,6 +841,16 @@ const updateWorkflow = (workflowGroup: CevonneWorkflowGroup, updater: (workflow:
 
   updater(workflow);
   return clone(workflow);
+};
+
+const syncPendingApprovalsCount = (workflowGroup: CevonneWorkflowGroup) => {
+  const store = getStore();
+  const workflow = store.workflows.find((record) => record.group === workflowGroup);
+  if (!workflow) {
+    return;
+  }
+
+  workflow.pendingApprovalsCount = store.approvals.filter((approval) => approval.workflowGroup === workflowGroup && approval.status === "PENDING").length;
 };
 
 const recordExecution = (input: {
@@ -1005,7 +1035,7 @@ export const recordCevonneAdminApproval = (input: {
 
   const workflow = store.workflows.find((record) => record.group === approval.workflowGroup);
   if (workflow) {
-    workflow.pendingApprovalsCount = Math.max(0, workflow.pendingApprovalsCount - 1);
+    syncPendingApprovalsCount(approval.workflowGroup);
     const preserveWorkflowStatus =
       workflow.status === "DRY_RUN" || workflow.status === "NOT_BUILT" || workflow.status === "RECOMMENDATION_ONLY";
 
@@ -1044,6 +1074,116 @@ export const recordCevonneAdminApproval = (input: {
 
   return {
     approval: clone(approval),
+    log,
+  };
+};
+
+export const queueCevonneAdminApprovalRequest = (input: {
+  workflowGroup: CevonneWorkflowGroup;
+  actionType: string;
+  riskLevel: CevonneRiskLevel;
+  requestedBy: string;
+  summary: string;
+  requireConfirmation: boolean;
+  routeName: string;
+  sourceId?: string | null;
+  assetId?: string | null;
+  platform?: string | null;
+  approvalNotes?: string | null;
+  adminUserId?: string | null;
+  adminEmail?: string | null;
+  ipUserAgentHash?: string | null;
+}) => {
+  const store = getStore();
+  const workflow = store.workflows.find((record) => record.group === input.workflowGroup);
+  if (!workflow) {
+    return null;
+  }
+
+  const sourceId = input.sourceId?.trim() || null;
+  const existingApproval =
+    (sourceId
+      ? store.approvals.find((record) => record.workflowGroup === input.workflowGroup && record.sourceId === sourceId)
+      : null) ?? null;
+
+  if (existingApproval) {
+    syncPendingApprovalsCount(input.workflowGroup);
+    return {
+      created: false,
+      approval: clone(existingApproval),
+      execution: null,
+      log: null,
+    };
+  }
+
+  const approval: CevonneApprovalRecord = {
+    approvalId: createPublicId(`approval-${input.workflowGroup.toLowerCase()}`),
+    publicId: createPublicId("cevonne-approval"),
+    workflowGroup: input.workflowGroup,
+    workflowName: workflow.name,
+    actionType: input.actionType,
+    riskLevel: input.riskLevel,
+    requestedBy: input.requestedBy,
+    createdAt: new Date().toISOString(),
+    status: "PENDING",
+    reviewerAction: null,
+    summary: input.summary,
+    approvalNotes: input.approvalNotes ?? null,
+    requireConfirmation: input.requireConfirmation,
+    adminUserId: input.adminUserId ?? null,
+    adminEmail: input.adminEmail ?? null,
+    sourceId,
+    assetId: input.assetId?.trim() || null,
+    platform: input.platform?.trim() || null,
+  };
+
+  store.approvals = trimRecords([approval, ...store.approvals], 300);
+  syncPendingApprovalsCount(input.workflowGroup);
+
+  const responseType = "WORKFLOW_APPROVAL_REQUESTED";
+  const payloadSummary = safeJoin([
+    `action_type=${input.actionType}`,
+    `approval_id=${approval.approvalId}`,
+    `source_id=${sourceId ?? "none"}`,
+    `asset_id=${approval.assetId ?? "none"}`,
+    `platform=${approval.platform ?? "none"}`,
+  ]);
+
+  const execution = recordExecution({
+    workflowGroup: input.workflowGroup,
+    routeName: input.routeName,
+    status: "PENDING",
+    responseType,
+    summary: payloadSummary,
+    failureReason: input.summary,
+    actor: "admin",
+    adminUserId: input.adminUserId ?? null,
+    adminEmail: input.adminEmail ?? null,
+    dryRun: true,
+    notExecuted: true,
+    safePublicIds: [approval.publicId],
+  });
+
+  syncPendingApprovalsCount(input.workflowGroup);
+
+  const log = recordCevonneAdminAuditLog({
+    workflowGroup: input.workflowGroup,
+    actionType: "APPROVAL_REQUEST",
+    routeName: input.routeName,
+    resultStatus: "PENDING",
+    responseType,
+    payloadSummary,
+    failureReason: input.summary,
+    adminUserId: input.adminUserId ?? null,
+    adminEmail: input.adminEmail ?? null,
+    ipUserAgentHash: input.ipUserAgentHash ?? null,
+    safePublicIds: execution ? execution.safePublicIds : [approval.publicId],
+  });
+
+  return {
+    created: true,
+    approval: clone(approval),
+    execution,
     log,
   };
 };

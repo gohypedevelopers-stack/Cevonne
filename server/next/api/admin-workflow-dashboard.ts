@@ -20,8 +20,8 @@ import {
   buildG5PublishingSchedulerMessage,
   buildG5WorkflowViewFromDetail,
   loadG5PublishingSchedulerDetail,
-  type G5PublishingSchedulerDetail,
 } from "@/server/next/api/g5-publishing-scheduler-adapter";
+import { type G5PublishingSchedulerDetail } from "@/lib/admin/g5-publishing-scheduler";
 import {
   ADMIN_WORKFLOW_IDS,
   WORKFLOW_CATALOG,

@@ -5,11 +5,13 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { type G4WorkflowDetail, extractG4ContentPreview, getG4ActionNeeded, mapG4Status, normalizeG4Text, normalizeG4Timestamp, summarizeG4Outcome } from "@/lib/admin/g4-content-review";
 import { type G5PublishingLatestOutcome, type G5PublishingOutcome, type G5PublishingSchedulerDetail, type G5PublishingSchedulerStatus, type G5PublishingSelectedAsset } from "@/lib/admin/g5-publishing-scheduler";
 import { getG5PrimaryAction } from "@/lib/admin/g5-publishing-scheduler";
-import { getWorkflowEmptyStateActionNeeded, getWorkflowStatusMessage, humanizeReasonText, normalizeWorkflowUiStatus, sanitizeDisplayText, type WorkflowOutcomeSummary, type WorkflowDetailView } from "@/lib/admin/workflows";
+import { getWorkflowEmptyStateActionNeeded, getWorkflowStatusMessage, humanizeReasonText, normalizeWorkflowUiStatus, sanitizeDisplayText, type WorkflowOutcomeSummary, type WorkflowDetailView, type WorkflowUiStatus } from "@/lib/admin/workflows";
 import { postN8nWebhook } from "@/lib/n8n-client";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import { env } from "@/server/config";
 import { getG4WorkflowDetail } from "@/server/next/api/g4-content-check-adapter";
+
+export type { G5PublishingSchedulerDetail };
 
 type JsonRecord = Record<string, unknown>;
 
@@ -271,6 +273,16 @@ const readBoolean = (row: JsonRecord | null | undefined, keys: string[]) => {
   return null;
 };
 
+const coerceG5Status = (value: unknown, fallback: G5PublishingSchedulerStatus): G5PublishingSchedulerStatus => {
+  const normalized = normalizeWorkflowUiStatus(value, fallback as WorkflowUiStatus);
+
+  if (normalized === "RECOMMENDATION_ONLY" || normalized === "DO_NOT_SCALE") {
+    return "MANUAL_ONLY";
+  }
+
+  return normalized as G5PublishingSchedulerStatus;
+};
+
 const readPayload = (row: JsonRecord | null | undefined) => {
   const payload = asRecord(row?.raw_payload);
   return asRecord(payload?.raw_payload) ?? payload;
@@ -427,7 +439,7 @@ const normalizeG5ApprovalStatus = (approval: G5ApprovalRow | null): G5Publishing
     return "PENDING_APPROVAL";
   }
 
-  return normalizeWorkflowUiStatus(decision, "PENDING_APPROVAL");
+  return coerceG5Status(decision, "PENDING_APPROVAL");
 };
 
 const normalizeAccountHealthStatus = (row: G2AccountHealthRow | null): G5PublishingSchedulerStatus => {
@@ -464,7 +476,7 @@ const normalizeComplianceStatus = (row: G1ComplianceRunRow | null, token: G1Comp
     return "NOT_RUN_YET";
   }
 
-  const status = normalizeWorkflowUiStatus(row.status, "ERROR");
+  const status = coerceG5Status(row.status, "ERROR");
   if (status !== "PASS") {
     return status;
   }
@@ -481,7 +493,7 @@ const normalizeDryRunStatus = (row: WorkflowExecutionLogRow | null): G5Publishin
     return "NOT_RUN_YET";
   }
 
-  const status = normalizeWorkflowUiStatus(row.status, "ERROR");
+  const status = coerceG5Status(row.status, "ERROR");
   if (row.dry_run) {
     if (status === "PASS") {
       return "DRY_RUN";
@@ -563,7 +575,7 @@ const getApprovalActionNeeded = (row: G5ApprovalRow) => {
 };
 
 const getG1OutcomeSummary = (row: G1ComplianceRunRow) => {
-  const status = normalizeWorkflowUiStatus(row.status, "ERROR");
+  const status = coerceG5Status(row.status, "ERROR");
   if (status === "PASS") {
     return safeSummaryFromObject(row.client_summary, "Compliance check passed.");
   }
@@ -584,7 +596,7 @@ const getG1OutcomeSummary = (row: G1ComplianceRunRow) => {
 };
 
 const getG1ActionNeeded = (row: G1ComplianceRunRow, token: G1ComplianceTokenRow | null) => {
-  const status = normalizeWorkflowUiStatus(row.status, "ERROR");
+  const status = coerceG5Status(row.status, "ERROR");
   if (status === "PASS" && token) {
     return "Review the dry-run result before enabling live scheduling.";
   }
@@ -860,7 +872,7 @@ const findLatestRelevantTime = (times: Array<string | null | undefined>) => {
   return parsedTimes[0] ?? null;
 };
 
-const buildSyntheticCurrentOutcome = (detail: G5PublishingSchedulerDetail): G5PublishingLatestOutcome => {
+const buildSyntheticCurrentOutcome = (detail: Pick<G5PublishingSchedulerDetail, "status" | "readiness" | "selectedAsset" | "lastRunAt">): G5PublishingLatestOutcome => {
   const status = detail.status;
   return {
     result: status,
@@ -903,6 +915,15 @@ const buildExecutionOutcome = (row: WorkflowExecutionLogRow): G5PublishingOutcom
   };
 };
 
+const toLatestOutcomeSummary = (outcome: G5PublishingOutcome): G5PublishingLatestOutcome => ({
+  result: outcome.result,
+  summary: outcome.whatHappened,
+  actionNeeded: outcome.actionNeeded,
+  handledAt: outcome.handledAt,
+  stage: outcome.stage,
+  details: outcome.details,
+});
+
 const buildApprovalOutcome = (row: G5ApprovalRow): G5PublishingOutcome => {
   const status = normalizeG5ApprovalStatus(row);
   const time = row.approved_at ?? row.created_at ?? null;
@@ -942,7 +963,7 @@ const buildG4Outcome = (row: G4ReviewRow): G5PublishingOutcome => {
 };
 
 const buildG1Outcome = (row: G1ComplianceRunRow, token: G1ComplianceTokenRow | null): G5PublishingOutcome => {
-  const status = normalizeWorkflowUiStatus(row.status, "ERROR");
+  const status = coerceG5Status(row.status, "ERROR");
   const time = row.handled_at ?? row.created_at ?? null;
 
   return {
@@ -991,6 +1012,15 @@ const toWorkflowOutcomeSummary = (outcome: G5PublishingOutcome): WorkflowOutcome
     whatWasChecked: outcome.stage,
     sourceLabel: outcome.sourceLabel,
   },
+});
+
+const toLatestOutcome = (outcome: G5PublishingOutcome): G5PublishingLatestOutcome => ({
+  result: outcome.result,
+  summary: outcome.whatHappened,
+  actionNeeded: outcome.actionNeeded,
+  handledAt: outcome.handledAt,
+  stage: outcome.stage,
+  details: outcome.details,
 });
 
 const toCurrentOutcomeSummary = (outcome: G5PublishingLatestOutcome): WorkflowOutcomeSummary => ({
@@ -1175,7 +1205,8 @@ const buildSelectedAssetAndEvidence = async (approval: G5ApprovalRow | null, g4D
 
   const payload = readPayload(g4Review);
   const platform = safeDisplayText(payload?.platform ?? g1Run?.platform) ?? null;
-  const accountId = safeDisplayText(g1Run?.account_id ?? g1Run?.action_packet && isRecord(g1Run.action_packet) ? (g1Run.action_packet as JsonRecord).account_id : null) ?? null;
+  const packetAccountId = g1Run?.action_packet && isRecord(g1Run.action_packet) ? (g1Run.action_packet as JsonRecord).account_id : null;
+  const accountId = safeDisplayText(g1Run?.account_id) ?? safeDisplayText(packetAccountId) ?? null;
   const g2Health = await readLatestHealthRow(platform, accountId);
   const executionLogs = await readLatestExecutionLogs();
 
@@ -1211,72 +1242,43 @@ const buildSelectedAssetAndEvidence = async (approval: G5ApprovalRow | null, g4D
     })
     .slice(0, 10);
 
+  const status = determineG5Status({
+    selectedAsset,
+    g4Review,
+    approval,
+    g1Run,
+    g1Token,
+    g2Health,
+    executionLog: executionLogs[0] ?? null,
+  });
+  const lastRunAt = findLatestRelevantTime([
+    executionLogs[0]?.created_at ?? null,
+    g1Run?.handled_at ?? g1Run?.created_at ?? null,
+    approval?.approved_at ?? approval?.created_at ?? null,
+    g4Review?.reviewed_at ?? g4Review?.created_at ?? null,
+    g2Health?.checked_at ?? g2Health?.updated_at ?? g2Health?.created_at ?? null,
+  ]);
+  const latestOutcome = executionLogs[0]
+    ? toLatestOutcomeSummary(buildExecutionOutcome(executionLogs[0]))
+    : buildSyntheticCurrentOutcome({
+        status,
+        lastRunAt,
+        readiness,
+        selectedAsset,
+      });
+
   const detail: G5PublishingSchedulerDetail = {
     workflowGroup: G5_WORKFLOW_GROUP,
     title: G5_TITLE,
     purpose: G5_PURPOSE,
-    status: determineG5Status({
-      selectedAsset,
-      g4Review,
-      approval,
-      g1Run,
-      g1Token,
-      g2Health,
-      executionLog: executionLogs[0] ?? null,
-    }),
-    lastRunAt: findLatestRelevantTime([
-      executionLogs[0]?.created_at ?? null,
-      g1Run?.handled_at ?? g1Run?.created_at ?? null,
-      approval?.approved_at ?? approval?.created_at ?? null,
-      g4Review?.reviewed_at ?? g4Review?.created_at ?? null,
-      g2Health?.checked_at ?? g2Health?.updated_at ?? g2Health?.created_at ?? null,
-    ]),
-    latestOutcome: executionLogs[0] ? buildExecutionOutcome(executionLogs[0]) : buildSyntheticCurrentOutcome({
-      workflowGroup: G5_WORKFLOW_GROUP,
-      title: G5_TITLE,
-      purpose: G5_PURPOSE,
-      status: determineG5Status({
-        selectedAsset,
-        g4Review,
-        approval,
-        g1Run,
-        g1Token,
-        g2Health,
-        executionLog: null,
-      }),
-      lastRunAt: findLatestRelevantTime([
-        g1Run?.handled_at ?? g1Run?.created_at ?? null,
-        approval?.approved_at ?? approval?.created_at ?? null,
-        g4Review?.reviewed_at ?? g4Review?.created_at ?? null,
-        g2Health?.checked_at ?? g2Health?.updated_at ?? g2Health?.created_at ?? null,
-      ]),
-      latestOutcome: {
-        result: "NOT_RUN_YET",
-        summary: "",
-        actionNeeded: "",
-        handledAt: null,
-        stage: "",
-        details: null,
-      },
-      readiness,
-      selectedAsset,
-      recentOutcomes,
-      g4Detail,
-    }),
+    status,
+    lastRunAt,
+    latestOutcome,
     readiness,
     selectedAsset,
     recentOutcomes,
     g4Detail,
   };
-
-  detail.latestOutcome =
-    executionLogs[0] !== undefined
-      ? buildExecutionOutcome(executionLogs[0])
-      : buildSyntheticCurrentOutcome({
-          ...detail,
-          latestOutcome: detail.latestOutcome,
-          g4Detail,
-        });
 
   return detail;
 };
@@ -1702,7 +1704,7 @@ export async function runG5PublishingDryRun(input: G5PublishingDryRunInput = {})
     dryRun: true,
   });
 
-  const g1OutcomeStatus = normalizeWorkflowUiStatus(g1Response.status, "ERROR");
+  const g1OutcomeStatus = coerceG5Status(g1Response.status, "ERROR");
   const g1Summary = safeDisplayText(g1Response.message) ?? getWorkflowStatusMessage(g1OutcomeStatus);
   const g1RunInsert = await insertG1ComplianceRun({
     actionPacket,
@@ -1779,7 +1781,7 @@ export async function runG5PublishingDryRun(input: G5PublishingDryRunInput = {})
     dryRun: true,
   });
 
-  const finalStatus = normalizeWorkflowUiStatus(g5Response.status, "ERROR");
+  const finalStatus = coerceG5Status(g5Response.status, "ERROR");
   const summary =
     finalStatus === "PASS" || finalStatus === "DRY_RUN"
       ? "Publishing dry-run completed safely. No live post was scheduled."

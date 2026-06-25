@@ -27,7 +27,7 @@ import {
 import { cn } from "@/lib/utils";
 
 type WorkflowDashboardRunResponse = {
-  status: "PASS" | "BLOCK" | "MANUAL_ONLY" | "PENDING_APPROVAL" | "DRY_RUN" | "RECOMMENDATION_ONLY" | "DO_NOT_SCALE" | "FIX_FIRST" | "NEEDS_EVIDENCE" | "ERROR";
+  status: "PASS" | "BLOCK" | "MANUAL_ONLY" | "PENDING_APPROVAL" | "DRY_RUN" | "RECOMMENDATION_ONLY" | "DO_NOT_SCALE" | "FIX_FIRST" | "NEEDS_EVIDENCE" | "NOT_RUN_YET" | "ERROR";
   message: string;
   response_type: string | null;
   handled_at: string;
@@ -43,6 +43,7 @@ type WorkflowDashboardRunResponse = {
       | "DO_NOT_SCALE"
       | "FIX_FIRST"
       | "NEEDS_EVIDENCE"
+      | "NOT_RUN_YET"
       | "ERROR";
     whatWasChecked: string;
     whatHappened: string;
