@@ -1,7 +1,10 @@
 import type { NextFunction, Request, Response } from "express";
+import { USER_ROLES, type SessionUser, type UserRole } from "../../types/user";
 
 const { getPrisma } = require("../db/prismaClient");
 const { verifyToken } = require("../utils/jwt");
+
+const USER_ROLE_SET = new Set<UserRole>(USER_ROLES);
 
 const canFallbackToTokenClaims = (error: unknown) => {
   const code = typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code) : "";
@@ -11,7 +14,7 @@ const canFallbackToTokenClaims = (error: unknown) => {
   return code === "P1001" || /can't reach database server|databasenotreachable/i.test(message);
 };
 
-const buildTokenAuthUser = (decoded: { id?: string; role?: string; email?: string | null; name?: string | null }) => {
+const buildTokenAuthUser = (decoded: { id?: string; role?: string; email?: string | null; name?: string | null }): SessionUser | null => {
   if (typeof decoded?.id !== "string" || !decoded.id.trim()) {
     return null;
   }
@@ -20,10 +23,15 @@ const buildTokenAuthUser = (decoded: { id?: string; role?: string; email?: strin
     return null;
   }
 
+  const normalizedRole = decoded.role.trim().toUpperCase();
+  if (!USER_ROLE_SET.has(normalizedRole as UserRole)) {
+    return null;
+  }
+
   return {
     id: decoded.id.trim(),
-    email: typeof decoded.email === "string" && decoded.email.trim() ? decoded.email.trim() : null,
-    role: decoded.role.trim(),
+    email: typeof decoded.email === "string" && decoded.email.trim() ? decoded.email.trim() : "",
+    role: normalizedRole as UserRole,
     name: typeof decoded.name === "string" && decoded.name.trim() ? decoded.name.trim() : null,
   };
 };
@@ -49,7 +57,7 @@ export const protect = async (req: Request, res: Response, next: NextFunction) =
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    let user = null;
+    let user: SessionUser | null = null;
     try {
       const prisma = await getPrisma();
       user = await prisma.user.findUnique({
