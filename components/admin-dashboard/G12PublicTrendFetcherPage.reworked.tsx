@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowRight, Clock3, ExternalLink, Play, RefreshCcw, Search, Sparkles, X } from "lucide-react";
+import { ArrowRight, Clock3, Database, ExternalLink, Play, RefreshCcw, Search, Sparkles, X } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 
@@ -1188,6 +1188,78 @@ function TrendMetricChip({ label, value }: { label: string; value: ReactNode }) 
   );
 }
 
+function TrendAiInsightPanel({ record, className }: { record: TrendRecord; className?: string }) {
+  return (
+    <div className={cn("rounded-2xl border border-sky-200 bg-sky-50 p-4", className)}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Sparkles className="size-4 text-sky-700" />
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-700">AI Insight</p>
+      </div>
+      <div className="mt-3 space-y-3 text-sm leading-6 text-sky-950">
+        <p>
+          <span className="font-semibold">Content recommendation:</span>{" "}
+          <span className="text-sky-800">{record.contentRecommendation ?? "—"}</span>
+        </p>
+        <p>
+          <span className="font-semibold">Brand fit reason:</span> <span className="text-sky-800">{record.brandFitReason ?? "—"}</span>
+        </p>
+        <p>
+          <span className="font-semibold">Risk notes:</span> <span className="text-sky-800">{record.riskNotes ?? "—"}</span>
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function TrendSourcePostPanel({ record, className }: { record: TrendRecord; className?: string }) {
+  const captionText = normalizeWhitespace(record.captionExcerpt);
+  const sourceMetrics: Array<[string, ReactNode]> = [
+    ["Views", formatCount(record.views)],
+    ["Likes", formatCount(record.likes)],
+    ["Shares", formatCount(record.shares)],
+    ["Trend strength", formatScore(record.trendStrength)],
+    ["Brand fit", formatScore(record.brandFitScore)],
+  ];
+
+  return (
+    <div className={cn("rounded-2xl border border-border/60 bg-white p-4", className)}>
+      <div className="flex flex-wrap items-center gap-2">
+        <Database className="size-4 text-muted-foreground" />
+        <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Original Post Data</p>
+      </div>
+      {captionText ? (
+        <div className="mt-3 rounded-2xl border border-border/60 bg-muted/10 p-4">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Caption</p>
+          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground">{captionText}</p>
+        </div>
+      ) : null}
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <TrendMetricChip label="Handle" value={record.profileUsername ?? "—"} />
+        <TrendMetricChip label="Audio" value={formatAudioName(record.audioSound) ?? "—"} />
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+        {sourceMetrics.map(([label, value]) => (
+          <TrendMetricChip key={`${record.id}-${label}`} label={label} value={value} />
+        ))}
+        <div className="flex min-w-0 items-stretch">
+          {record.sourceUrl ? (
+            <Button asChild variant="outline" className="h-full w-full rounded-xl border-border/70 bg-white px-4 text-xs font-semibold shadow-none">
+              <a href={record.sourceUrl} target="_blank" rel="noreferrer">
+                <ExternalLink className="mr-2 size-3.5" />
+                Open original post
+              </a>
+            </Button>
+          ) : record.sourceUrlMissingText ? (
+            <div className="flex h-full min-h-[56px] items-center rounded-xl border border-border/60 bg-secondary/15 px-3 py-2">
+              <p className="text-xs leading-5 text-muted-foreground">{record.sourceUrlMissingText}</p>
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function TrendSummaryCard({
   record,
   onSend,
@@ -1274,41 +1346,9 @@ function TrendSummaryCard({
               </div>
             </div>
 
-            {record.sourceUrl || record.sourceUrlMissingText ? (
-              <div className="w-full">
-                {record.sourceUrl ? (
-                  <Button asChild variant="outline" className="h-10 w-full justify-center rounded-full border-border/70 bg-white px-4 text-xs font-semibold shadow-none">
-                    <a href={record.sourceUrl} target="_blank" rel="noreferrer">
-                      <ExternalLink className="mr-2 size-3.5" />
-                      Open original post
-                    </a>
-                  </Button>
-                ) : (
-                  <p className="text-xs leading-5 text-muted-foreground">{record.sourceUrlMissingText}</p>
-                )}
-              </div>
-            ) : null}
           </div>
 
-          <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
-            <div className="flex flex-wrap items-center gap-2">
-              <Sparkles className="size-4 text-sky-700" />
-              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-700">AI Insight</p>
-            </div>
-            <div className="mt-3 space-y-3 text-sm leading-6 text-sky-950">
-              <p>
-                <span className="font-semibold">Content recommendation:</span>{" "}
-                <span className="text-sky-800">{record.contentRecommendation}</span>
-              </p>
-              <p>
-                <span className="font-semibold">Brand fit reason:</span>{" "}
-                <span className="text-sky-800">{record.brandFitReason ?? "—"}</span>
-              </p>
-              <p>
-                <span className="font-semibold">Risk notes:</span> <span className="text-sky-800">{record.riskNotes ?? "—"}</span>
-              </p>
-            </div>
-          </div>
+          <TrendAiInsightPanel record={record} />
         </div>
 
       </CardContent>
@@ -1339,67 +1379,99 @@ function TrendTableRow({
   record,
   onSend,
   sending,
+  isSourcePostOpen,
+  isAiInsightOpen,
+  onToggleSourcePost,
+  onToggleAiInsight,
 }: {
   record: TrendRecord;
   onSend: (record: TrendRecord) => void;
   sending: boolean;
+  isSourcePostOpen: boolean;
+  isAiInsightOpen: boolean;
+  onToggleSourcePost: (record: TrendRecord) => void;
+  onToggleAiInsight: (record: TrendRecord) => void;
 }) {
   return (
-    <TableRow className="align-top">
-      <TableCell className="w-[130px] whitespace-nowrap text-sm text-muted-foreground">{record.savedLabel}</TableCell>
-      <TableCell className="w-[96px]">
-        <PlatformBadge code={record.platformCode} label={record.platformLabel} />
-      </TableCell>
-      <TableCell className="w-[170px]">
-        <div className="min-w-0 space-y-1">
-          <p className="line-clamp-1 break-words font-medium text-foreground">{record.trendTopic ?? record.trendTitle}</p>
-          <p className="line-clamp-1 break-words text-xs leading-5 text-muted-foreground">{record.sourceAccountName}</p>
-        </div>
-      </TableCell>
-      <TableCell className="w-[230px] whitespace-normal text-sm leading-6 text-foreground">
-        <p className="break-words">{record.trendTitle}</p>
-      </TableCell>
-      <TableCell className="w-[78px] whitespace-nowrap text-sm text-foreground">{formatCount(record.views)}</TableCell>
-      <TableCell className="w-[78px] whitespace-nowrap text-sm text-foreground">{formatCount(record.likes)}</TableCell>
-      <TableCell className="w-[78px] whitespace-nowrap text-sm text-foreground">{formatCount(record.shares)}</TableCell>
-      <TableCell className="w-[96px] whitespace-nowrap text-sm text-foreground">{formatScore(record.trendStrength)}</TableCell>
-      <TableCell className="w-[88px] whitespace-nowrap text-sm text-foreground">{formatScore(record.brandFitScore)}</TableCell>
-      <TableCell className="w-[72px]">
-        <Badge variant="outline" className={cn("rounded-full border px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]", record.aiGenerated ? "border-sky-200 bg-sky-50 text-sky-700" : "border-border/70 bg-secondary/20 text-muted-foreground")}>
-          {record.aiGenerated ? "AI" : "Manual"}
-        </Badge>
-      </TableCell>
-      <TableCell className="w-[250px] whitespace-normal">
-        <Badge
-          variant="outline"
-          className={cn(
-            "flex w-full min-w-0 max-w-full justify-center rounded-full border px-2.5 py-1 text-center text-[10px] font-semibold uppercase leading-4 tracking-[0.08em] whitespace-normal break-all",
-            getApprovalTone(record.actionState.label === "Send to Content Draft" || record.actionState.label === "Needs Review" ? "Needs Review" : record.actionState.label),
-          )}
-        >
-          {record.actionState.label === "Send to Content Draft" || record.actionState.label === "Needs Review"
-            ? "NEEDS_G4_G5_BEFORE_CONTENT_USE"
-            : record.actionState.label}
-        </Badge>
-      </TableCell>
-      <TableCell className="w-[200px] whitespace-normal">
-        <div className="flex min-w-0 flex-col gap-2.5">
-          <Button
-            type="button"
-            className={cn(
-              "h-auto min-h-8 w-full justify-start rounded-full px-3 py-2 text-left text-[11px] leading-4 whitespace-normal",
-              record.actionState.label === "Needs Review" ? "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100" : "",
-            )}
-            variant={record.actionState.label === "Send to Content Draft" ? "default" : "outline"}
-            onClick={() => onSend(record)}
-            disabled={record.actionState.disabled || sending}
+    <>
+      <TableRow className="align-top">
+        <TableCell className="w-[130px] whitespace-nowrap text-sm text-muted-foreground">{record.savedLabel}</TableCell>
+        <TableCell className="w-[96px]">
+          <PlatformBadge code={record.platformCode} label={record.platformLabel} />
+        </TableCell>
+        <TableCell className="w-[180px] whitespace-normal">
+            <Button
+              type="button"
+              variant="outline"
+              className={cn(
+              "h-9 w-full justify-start rounded-full border-border/70 bg-white px-3 text-left text-xs font-semibold text-foreground shadow-none hover:bg-muted/50",
+              isSourcePostOpen && "bg-muted/50",
+              )}
+            onClick={() => onToggleSourcePost(record)}
           >
-            <ArrowRight className="mr-1 size-3.5" />
-            {sending ? "Sending…" : record.actionState.label}
+            <Database className="mr-2 size-3.5" />
+            {isSourcePostOpen ? "Hide Original Post Data" : "Original Post Data"}
           </Button>
-        </div>
-      </TableCell>
-    </TableRow>
+        </TableCell>
+        <TableCell className="w-[180px] whitespace-normal">
+            <Button
+              type="button"
+              variant="outline"
+              className={cn(
+              "h-9 w-full justify-start rounded-full border-sky-200 bg-sky-50 px-3 text-left text-xs font-semibold text-sky-700 shadow-none hover:bg-sky-100",
+              isAiInsightOpen && "bg-sky-100",
+              )}
+            onClick={() => onToggleAiInsight(record)}
+          >
+            <Sparkles className="mr-2 size-3.5" />
+            {isAiInsightOpen ? "Hide AI Insight" : "AI Insight"}
+          </Button>
+        </TableCell>
+        <TableCell className="w-[250px] whitespace-normal">
+          <Badge
+            variant="outline"
+            className={cn(
+              "flex w-full min-w-0 max-w-full justify-start rounded-full border px-2.5 py-1 text-left text-[10px] font-semibold uppercase leading-4 tracking-[0.08em] whitespace-normal break-all",
+              getApprovalTone(record.actionState.label === "Send to Content Draft" || record.actionState.label === "Needs Review" ? "Needs Review" : record.actionState.label),
+            )}
+          >
+            {record.actionState.label === "Send to Content Draft" || record.actionState.label === "Needs Review"
+              ? "NEEDS_G4_G5_BEFORE_CONTENT_USE"
+              : record.actionState.label}
+          </Badge>
+        </TableCell>
+        <TableCell className="w-[200px] whitespace-normal">
+          <div className="flex min-w-0 flex-col gap-2.5">
+            <Button
+              type="button"
+              className={cn(
+                "h-auto min-h-8 w-full justify-start rounded-full px-3 py-2 text-left text-[11px] leading-4 whitespace-normal",
+                record.actionState.label === "Needs Review" ? "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100" : "",
+              )}
+              variant={record.actionState.label === "Send to Content Draft" ? "default" : "outline"}
+              onClick={() => onSend(record)}
+              disabled={record.actionState.disabled || sending}
+            >
+              {sending ? "Sending…" : record.actionState.label}
+            </Button>
+          </div>
+        </TableCell>
+      </TableRow>
+      {isSourcePostOpen ? (
+        <TableRow className="align-top bg-white">
+          <TableCell colSpan={6} className="p-4 md:p-5">
+            <TrendSourcePostPanel record={record} className="shadow-sm" />
+          </TableCell>
+        </TableRow>
+      ) : null}
+      {isAiInsightOpen ? (
+        <TableRow className="align-top bg-sky-50/40">
+          <TableCell colSpan={6} className="p-4 md:p-5">
+            <TrendAiInsightPanel record={record} className="shadow-sm" />
+          </TableCell>
+        </TableRow>
+      ) : null}
+    </>
   );
 }
 
@@ -1415,6 +1487,8 @@ export default function G12PublicTrendFetcherPageReworked() {
   const [sendingTrendId, setSendingTrendId] = useState<string | null>(null);
   const [sendOutcome, setSendOutcome] = useState<G12SendResponse | null>(null);
   const [dismissedFailureReasonsRunId, setDismissedFailureReasonsRunId] = useState<string | null>(null);
+  const [expandedSourcePostRowId, setExpandedSourcePostRowId] = useState<string | null>(null);
+  const [expandedAiInsightRowId, setExpandedAiInsightRowId] = useState<string | null>(null);
   const [platformFilter, setPlatformFilter] = useState<"ALL" | "INSTAGRAM" | "TIKTOK">("ALL");
   const [approvalFilter, setApprovalFilter] = useState<"ALL" | "NEEDS_REVIEW" | "SENT" | "DRAFT" | "APPROVED" | "REJECTED">("ALL");
   const [sortBy, setSortBy] = useState<"newest" | "views" | "trend_strength">("newest");
@@ -1681,6 +1755,15 @@ export default function G12PublicTrendFetcherPageReworked() {
     return list.sort(compareByNewest);
   }, [filteredStoredRecords, sortBy]);
 
+  useEffect(() => {
+    if (expandedSourcePostRowId && !visibleStoredRows.some((record) => record.id === expandedSourcePostRowId)) {
+      setExpandedSourcePostRowId(null);
+    }
+    if (expandedAiInsightRowId && !visibleStoredRows.some((record) => record.id === expandedAiInsightRowId)) {
+      setExpandedAiInsightRowId(null);
+    }
+  }, [expandedAiInsightRowId, expandedSourcePostRowId, visibleStoredRows]);
+
   const isBusy = loading || refreshing || submittingRun || Boolean(awaitingFetchRunId);
   const latestRunStoredLabel = latestStoredRun ? `Latest stored run: ${formatCount(latestStoredRun.stored_count)}` : "Latest stored run: 0";
   const totalStoredCount = allStoredRecords.length;
@@ -1831,6 +1914,7 @@ export default function G12PublicTrendFetcherPageReworked() {
       }
       actions={headerActions}
     >
+      <div className="space-y-6">
       {sendOutcome ? (
         <Card role="status" className={cn("rounded-[24px] border shadow-sm", getSendOutcomeTone(getSendOutcomeDisplayStatus(sendOutcome)))}>
           <CardContent className="space-y-5 p-4 md:p-5">
@@ -1851,46 +1935,16 @@ export default function G12PublicTrendFetcherPageReworked() {
                       Already sent
                     </Badge>
                   ) : null}
-                  {sendOutcome.review_id ? (
-                    <Badge variant="outline" className="rounded-full border-border/70 bg-white px-3 py-1 text-[11px] font-semibold text-muted-foreground">
-                      Review linked
-                    </Badge>
-                  ) : null}
                 </div>
                 <div className="space-y-2">
                   <p className="text-sm font-semibold leading-6 text-foreground">{sendOutcome.message}</p>
                   {sendOutcome.summary ? <p className="text-sm leading-6 text-muted-foreground">{sendOutcome.summary}</p> : null}
                 </div>
               </div>
-
-              {sendOutcome.status !== "ERROR" && sendOutcome.g4_detail_href ? (
-                <Button asChild type="button" className="rounded-full px-4">
-                  <Link href={sendOutcome.g4_detail_href}>{sendOutcome.action_needed ?? "View G4 Review"}</Link>
-                </Button>
-              ) : null}
             </div>
 
             {sendOutcome.status !== "ERROR" ? (
-              <div className="grid gap-4 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <DetailLine
-                    label="Review ID"
-                    value={<span className="font-mono text-xs leading-6 text-foreground">{sendOutcome.review_id ?? sendOutcome.g4_review_id ?? "—"}</span>}
-                  />
-                  <DetailLine
-                    label="Asset ID"
-                    value={<span className="font-mono text-xs leading-6 text-foreground">{sendOutcome.asset_id ?? "—"}</span>}
-                  />
-                  <DetailLine
-                    label="Approval state"
-                    value={<span className="font-mono text-xs leading-6 text-foreground">{sendOutcome.approval_state ?? "—"}</span>}
-                  />
-                  <DetailLine
-                    label="Action needed"
-                    value={<span className="text-sm leading-6 text-foreground">{sendOutcome.action_needed ?? "View G4 Review"}</span>}
-                  />
-                </div>
-
+              <div className="space-y-4">
                 <DetailLine
                   label="Safe rewrite"
                   value={
@@ -1899,6 +1953,14 @@ export default function G12PublicTrendFetcherPageReworked() {
                     </p>
                   }
                 />
+
+                {sendOutcome.g4_detail_href ? (
+                  <div className="flex justify-start">
+                    <Button asChild type="button" className="h-10 rounded-full px-4">
+                      <Link href={sendOutcome.g4_detail_href}>{sendOutcome.action_needed ?? "View G4 Review"}</Link>
+                    </Button>
+                  </div>
+                ) : null}
               </div>
             ) : null}
           </CardContent>
@@ -2013,11 +2075,11 @@ export default function G12PublicTrendFetcherPageReworked() {
           <div className="grid gap-3 xl:grid-cols-[minmax(0,1.3fr)_repeat(3,minmax(0,0.5fr))]">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search all stored results" className="h-11 rounded-2xl pl-10" />
+              <Input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search all stored results" className="h-12 rounded-2xl pl-10" />
             </div>
 
             <Select value={platformFilter} onValueChange={(value) => setPlatformFilter(value as typeof platformFilter)}>
-              <SelectTrigger className="h-11 w-full rounded-2xl">
+              <SelectTrigger className="h-12 w-full rounded-2xl">
                 <SelectValue placeholder="Platform" />
               </SelectTrigger>
               <SelectContent>
@@ -2028,7 +2090,7 @@ export default function G12PublicTrendFetcherPageReworked() {
             </Select>
 
             <Select value={approvalFilter} onValueChange={(value) => setApprovalFilter(value as typeof approvalFilter)}>
-              <SelectTrigger className="h-11 w-full rounded-2xl">
+              <SelectTrigger className="h-12 w-full rounded-2xl">
                 <SelectValue placeholder="Approval" />
               </SelectTrigger>
               <SelectContent>
@@ -2042,7 +2104,7 @@ export default function G12PublicTrendFetcherPageReworked() {
             </Select>
 
             <Select value={sortBy} onValueChange={(value) => setSortBy(value as typeof sortBy)}>
-              <SelectTrigger className="h-11 w-full rounded-2xl px-3">
+              <SelectTrigger className="h-12 w-full rounded-2xl px-3">
                 <div className="flex w-full items-center justify-between gap-3">
                   <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Sorting</span>
                   <SelectValue placeholder="Newest" />
@@ -2058,20 +2120,14 @@ export default function G12PublicTrendFetcherPageReworked() {
         </CardHeader>
         <CardContent>
           {visibleStoredRows.length ? (
-            <div className="overflow-hidden rounded-[24px] border border-border/60 bg-white shadow-sm">
+            <div className="mt-6 overflow-hidden rounded-[24px] border border-border/60 bg-white shadow-sm">
               <div className="overflow-x-auto">
-                <Table className="min-w-[1560px] table-fixed">
+                <Table className="min-w-[1050px] table-fixed">
                   <colgroup>
                     <col className="w-[130px]" />
                     <col className="w-[96px]" />
-                    <col className="w-[170px]" />
-                    <col className="w-[230px]" />
-                    <col className="w-[78px]" />
-                    <col className="w-[78px]" />
-                    <col className="w-[78px]" />
-                    <col className="w-[96px]" />
-                    <col className="w-[88px]" />
-                    <col className="w-[72px]" />
+                    <col className="w-[180px]" />
+                    <col className="w-[180px]" />
                     <col className="w-[250px]" />
                     <col className="w-[200px]" />
                   </colgroup>
@@ -2079,16 +2135,10 @@ export default function G12PublicTrendFetcherPageReworked() {
                     <TableRow>
                       <TableHead className="px-3">Date saved</TableHead>
                       <TableHead className="px-3">Platform</TableHead>
-                      <TableHead className="px-3">Trend topic</TableHead>
-                      <TableHead className="px-3">Insight title</TableHead>
-                      <TableHead className="px-3">Views</TableHead>
-                      <TableHead className="px-3">Likes</TableHead>
-                      <TableHead className="px-3">Shares</TableHead>
-                      <TableHead className="px-3">Trend strength</TableHead>
-                      <TableHead className="px-3">Brand fit</TableHead>
-                      <TableHead className="px-3">AI</TableHead>
+                      <TableHead className="px-3 text-left">Original Post Data</TableHead>
+                      <TableHead className="px-3 text-left">AI Insight</TableHead>
                       <TableHead className="px-3">Approval status</TableHead>
-                      <TableHead className="px-3">Actions</TableHead>
+                      <TableHead className="px-3">Action Required</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -2098,6 +2148,14 @@ export default function G12PublicTrendFetcherPageReworked() {
                         record={record}
                         onSend={(selected) => void handleSendToContentDraft(selected)}
                         sending={sendingTrendId === record.id}
+                        isSourcePostOpen={expandedSourcePostRowId === record.id}
+                        isAiInsightOpen={expandedAiInsightRowId === record.id}
+                        onToggleSourcePost={(selected) =>
+                          setExpandedSourcePostRowId((current) => (current === selected.id ? null : selected.id))
+                        }
+                        onToggleAiInsight={(selected) =>
+                          setExpandedAiInsightRowId((current) => (current === selected.id ? null : selected.id))
+                        }
                       />
                     ))}
                   </TableBody>
@@ -2113,6 +2171,7 @@ export default function G12PublicTrendFetcherPageReworked() {
       </Card>
 
       <Separator className="bg-border/70" />
+      </div>
     </WorkflowDashboardShell>
   );
 }
