@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowRight, ArrowUpRight, Clock3, Play, RefreshCcw, Search, Sparkles } from "lucide-react";
+import { ArrowRight, Clock3, ExternalLink, Play, RefreshCcw, Search, Sparkles, X } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 
@@ -19,7 +19,6 @@ import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import {
   buildG12PublicTrendFetchPayload,
-  formatG12Count,
   formatG12DateTime,
   formatG12RelativeTime,
   isG12TerminalStatus,
@@ -323,13 +322,49 @@ const truncateText = (value: string, limit = 320) => {
   return `${cut.slice(0, end).trimEnd()}…`;
 };
 
-const countFormatter = new Intl.NumberFormat("en-IN");
+const countFormatter = new Intl.NumberFormat("en-US");
 const scoreFormatter = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 1 });
-const compactFormatter = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
 
-const formatCount = (value: number | null) => (value === null ? "—" : countFormatter.format(value));
+const formatAbbreviatedCount = (
+  value: number,
+  divisor: number,
+  suffix: "K" | "m" | "b",
+  next?: { divisor: number; suffix: "K" | "m" | "b" },
+) => {
+  const scaled = value / divisor;
+  const rounded = Math.round(scaled * 10) / 10;
+  if (next && rounded >= 1000) {
+    return formatAbbreviatedCount(value, next.divisor, next.suffix);
+  }
+
+  const text = Number.isInteger(rounded) ? rounded.toFixed(0) : rounded.toFixed(1).replace(/\.0$/, "");
+  return `${text}${suffix}`;
+};
+
+const formatCount = (value: number | null) => {
+  if (value === null) {
+    return "—";
+  }
+
+  const abs = Math.abs(value);
+  const sign = value < 0 ? "-" : "";
+
+  if (abs >= 1_000_000_000) {
+    return `${sign}${formatAbbreviatedCount(abs, 1_000_000_000, "b")}`;
+  }
+
+  if (abs >= 1_000_000) {
+    return `${sign}${formatAbbreviatedCount(abs, 1_000_000, "m", { divisor: 1_000_000_000, suffix: "b" })}`;
+  }
+
+  if (abs >= 1_000) {
+    return `${sign}${formatAbbreviatedCount(abs, 1_000, "K", { divisor: 1_000_000, suffix: "m" })}`;
+  }
+
+  return countFormatter.format(value);
+};
+
 const formatScore = (value: number | null) => (value === null ? "—" : scoreFormatter.format(value));
-const formatCompact = (value: number | null) => (value === null ? null : compactFormatter.format(value));
 
 const valueToText = (value: unknown) => {
   if (typeof value === "string") {
@@ -553,7 +588,7 @@ const getPlatformBadgeTone = (code: string) => {
     case "INSTAGRAM":
       return "border-rose-200 bg-rose-50 text-rose-700";
     case "TIKTOK":
-      return "border-slate-200 bg-slate-50 text-slate-900";
+      return "border-slate-200 bg-white text-slate-900";
     default:
       return "border-border/70 bg-secondary/20 text-muted-foreground";
   }
@@ -905,11 +940,11 @@ const buildCleanMetricSummary = (metric: G12MetricRecord | null) => {
   const brandFitScore = toNumber(metric.brand_fit_score);
   const riskScore = toNumber(metric.risk_score);
 
-  if (views !== null) parts.push(`${formatCompact(views)} views`);
-  if (likes !== null) parts.push(`${formatCompact(likes)} likes`);
-  if (shares !== null) parts.push(`${formatCompact(shares)} shares`);
-  if (comments !== null) parts.push(`${formatCompact(comments)} comments`);
-  if (saves !== null) parts.push(`${formatCompact(saves)} saves`);
+  if (views !== null) parts.push(`${formatCount(views)} views`);
+  if (likes !== null) parts.push(`${formatCount(likes)} likes`);
+  if (shares !== null) parts.push(`${formatCount(shares)} shares`);
+  if (comments !== null) parts.push(`${formatCount(comments)} comments`);
+  if (saves !== null) parts.push(`${formatCount(saves)} saves`);
   if (engagementRate !== null) parts.push(`engagement ${formatScore(engagementRate)}`);
   if (trendStrength !== null) parts.push(`trend strength ${formatScore(trendStrength)}`);
   if (brandFitScore !== null) parts.push(`brand fit ${formatScore(brandFitScore)}`);
@@ -1056,7 +1091,7 @@ function SectionHeader({
   description,
   action,
 }: {
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
   description: string;
   action?: ReactNode;
@@ -1064,7 +1099,7 @@ function SectionHeader({
   return (
     <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
       <div className="space-y-1">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">{eyebrow}</p>
+        {eyebrow ? <p className="text-[11px] font-semibold uppercase tracking-[0.3em] text-muted-foreground">{eyebrow}</p> : null}
         <h2 className="font-serif text-3xl tracking-tight text-primary">{title}</h2>
         <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{description}</p>
       </div>
@@ -1146,9 +1181,9 @@ function DetailLine({
 
 function TrendMetricChip({ label, value }: { label: string; value: ReactNode }) {
   return (
-    <div className="rounded-xl border border-border/60 bg-secondary/15 px-3 py-2">
-      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">{label}</p>
-      <div className="mt-1 text-sm font-semibold text-foreground">{value}</div>
+    <div className="min-w-0 rounded-xl border border-border/60 bg-secondary/15 px-3 py-2">
+      <p className="text-[9px] font-semibold uppercase leading-tight tracking-[0.1em] text-muted-foreground">{label}</p>
+      <div className="mt-1 min-w-0 whitespace-normal break-words text-sm font-semibold leading-5 text-foreground">{value}</div>
     </div>
   );
 }
@@ -1163,7 +1198,6 @@ function TrendSummaryCard({
   sending: boolean;
 }) {
   const captionText = normalizeWhitespace(record.captionExcerpt);
-  const [showAiInsight, setShowAiInsight] = useState(false);
   const buttonLabel = sending ? "Sending…" : record.actionState.label;
   const metricChips: Array<[string, ReactNode]> = [
     ["Views", formatCount(record.views)],
@@ -1176,66 +1210,40 @@ function TrendSummaryCard({
     ["Brand fit", formatScore(record.brandFitScore)],
     ["Risk", formatScore(record.riskScore)],
   ];
-  const cardGridClassName = showAiInsight ? "grid gap-4 xl:grid-cols-[minmax(0,1.12fr)_minmax(0,0.88fr)]" : "grid gap-4 xl:grid-cols-1";
-  const contentGridClassName = showAiInsight ? "flex min-w-0 flex-col gap-4" : "hidden";
 
   return (
     <Card className="overflow-hidden rounded-[28px] border-border/60 bg-white shadow-sm transition-transform duration-200 hover:-translate-y-0.5">
-      <CardHeader className="border-b border-border/60 bg-muted/15 p-4 md:p-5">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-          <div className="min-w-0 space-y-3">
+      <CardHeader className="border-b border-border/60 bg-muted/15 px-4 py-3 md:px-5 md:py-4">
+        <div className="flex flex-col gap-2 lg:flex-row lg:items-start lg:justify-between">
+          <div className="min-w-0 space-y-2">
             <div className="flex flex-wrap items-center gap-2">
               <PlatformBadge code={record.platformCode} label={record.platformLabel} />
             </div>
 
             <div className="space-y-1">
-              <h3 className="font-serif text-2xl tracking-tight text-primary text-balance">{record.trendTitle}</h3>
-              {record.hookAngle ? <p className="text-sm leading-6 text-foreground text-pretty">{record.hookAngle}</p> : null}
+              <h3 className="font-serif text-[1.9rem] tracking-tight text-primary text-balance leading-[1.05]">{record.trendTitle}</h3>
+              {record.hookAngle ? <p className="text-sm leading-5 text-foreground text-pretty">{record.hookAngle}</p> : null}
             </div>
           </div>
 
-          <div className="flex shrink-0 flex-col items-start gap-2 lg:items-end">
-            <Badge variant="outline" className="rounded-full border-border/70 bg-secondary/20 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 lg:self-start lg:pt-1">
+            <Badge
+              variant="outline"
+              className="whitespace-nowrap rounded-full border-border/70 bg-secondary/20 px-3 py-1 text-[11px] font-semibold leading-none text-muted-foreground"
+            >
               {record.savedLabel}
             </Badge>
-            {record.savedRelative ? <p className="text-xs text-muted-foreground">{record.savedRelative}</p> : null}
+            {record.savedRelative ? <p className="whitespace-nowrap text-[11px] font-medium leading-none text-muted-foreground">{record.savedRelative}</p> : null}
           </div>
         </div>
       </CardHeader>
 
       <CardContent className="p-4 md:p-5">
-        <div className={cardGridClassName}>
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
           <div className="flex min-w-0 flex-col gap-4">
             {captionText || record.sourceUrl ? (
               <div className="rounded-2xl border border-border/60 bg-white p-4">
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Caption</p>
-                  <div className="flex flex-wrap items-center gap-2">
-                    {record.sourceUrl ? (
-                      <Button asChild variant="outline" className="h-9 rounded-full border-border/70 bg-white px-4 text-xs font-semibold">
-                        <a href={record.sourceUrl} target="_blank" rel="noreferrer">
-                          Open original post
-                          <ArrowUpRight className="ml-2 size-4" />
-                        </a>
-                      </Button>
-                    ) : null}
-                    <Button
-                      type="button"
-                      variant={showAiInsight ? "default" : "outline"}
-                      className={cn(
-                        "h-9 rounded-full px-4 text-xs font-semibold",
-                        showAiInsight ? "border-sky-200 bg-sky-100 text-sky-800 hover:bg-sky-100" : "border-sky-200 bg-white text-sky-700 hover:bg-sky-50",
-                      )}
-                      onClick={() => setShowAiInsight((current) => !current)}
-                      aria-expanded={showAiInsight}
-                      aria-controls={`g12-ai-insight-${record.id}`}
-                    >
-                      <Sparkles className="mr-2 size-4" />
-                      AI Insight
-                    </Button>
-                  </div>
-                </div>
-                {!record.sourceUrl && record.sourceUrlMissingText ? <p className="mt-2 text-xs leading-5 text-muted-foreground">{record.sourceUrlMissingText}</p> : null}
+                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Caption</p>
                 {captionText ? <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground">{captionText}</p> : null}
               </div>
             ) : null}
@@ -1254,53 +1262,63 @@ function TrendSummaryCard({
                   <TrendMetricChip key={`${record.id}-${label}`} label={label} value={value} />
                 ))}
               </div>
-              <div className="mt-4 rounded-2xl border border-border/60 bg-secondary/10 p-4">
+            </div>
+
+            <div className="rounded-2xl border border-border/60 bg-white p-4">
+              <div className="flex flex-wrap items-center gap-2">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Original Post Data</p>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  <TrendMetricChip label="Handle" value={record.profileUsername ?? "—"} />
-                  <TrendMetricChip label="Audio" value={formatAudioName(record.audioSound) ?? "—"} />
-                </div>
+              </div>
+              <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <TrendMetricChip label="Handle" value={record.profileUsername ?? "—"} />
+                <TrendMetricChip label="Audio" value={formatAudioName(record.audioSound) ?? "—"} />
               </div>
             </div>
-          </div>
 
-          <div className={contentGridClassName}>
-            {showAiInsight ? (
-              <div id={`g12-ai-insight-${record.id}`} className="flex min-w-0 flex-col gap-4">
-                <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-700">AI Insight</p>
-                  </div>
-                  <div className="mt-3 space-y-3 text-sm leading-6 text-sky-950">
-                    <p>
-                      <span className="font-semibold">Content recommendation:</span>{" "}
-                      <span className="text-sky-800">{record.contentRecommendation}</span>
-                    </p>
-                    <p>
-                      <span className="font-semibold">Brand fit reason:</span>{" "}
-                      <span className="text-sky-800">{record.brandFitReason ?? "—"}</span>
-                    </p>
-                    <p>
-                      <span className="font-semibold">Risk notes:</span> <span className="text-sky-800">{record.riskNotes ?? "—"}</span>
-                    </p>
-                  </div>
-                </div>
+            {record.sourceUrl || record.sourceUrlMissingText ? (
+              <div className="w-full">
+                {record.sourceUrl ? (
+                  <Button asChild variant="outline" className="h-10 w-full justify-center rounded-full border-border/70 bg-white px-4 text-xs font-semibold shadow-none">
+                    <a href={record.sourceUrl} target="_blank" rel="noreferrer">
+                      <ExternalLink className="mr-2 size-3.5" />
+                      Open original post
+                    </a>
+                  </Button>
+                ) : (
+                  <p className="text-xs leading-5 text-muted-foreground">{record.sourceUrlMissingText}</p>
+                )}
               </div>
             ) : null}
+          </div>
+
+          <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
+            <div className="flex flex-wrap items-center gap-2">
+              <Sparkles className="size-4 text-sky-700" />
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-700">AI Insight</p>
+            </div>
+            <div className="mt-3 space-y-3 text-sm leading-6 text-sky-950">
+              <p>
+                <span className="font-semibold">Content recommendation:</span>{" "}
+                <span className="text-sky-800">{record.contentRecommendation}</span>
+              </p>
+              <p>
+                <span className="font-semibold">Brand fit reason:</span>{" "}
+                <span className="text-sky-800">{record.brandFitReason ?? "—"}</span>
+              </p>
+              <p>
+                <span className="font-semibold">Risk notes:</span> <span className="text-sky-800">{record.riskNotes ?? "—"}</span>
+              </p>
+            </div>
           </div>
         </div>
 
       </CardContent>
 
-      <CardFooter className="flex flex-col gap-3 border-t border-border/60 bg-muted/10 p-4 md:flex-row md:items-center md:justify-between md:p-5">
-        <div className="space-y-1">
-          <p className="text-xs leading-5 text-muted-foreground">{record.actionState.note}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
+      <CardFooter className="flex flex-col items-start gap-2 border-t border-border/60 bg-muted/10 px-4 py-3 md:px-5 md:py-3">
+        <div className="flex flex-col items-start gap-2">
           <Button
             type="button"
             className={cn(
-              "h-10 rounded-full px-5",
+              "h-9 rounded-full px-4",
               record.actionState.label === "Needs Review" ? "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100" : "",
             )}
             variant={record.actionState.label === "Send to Content Draft" ? "default" : "outline"}
@@ -1310,6 +1328,7 @@ function TrendSummaryCard({
             <ArrowRight className="mr-2 size-4" />
             {buttonLabel}
           </Button>
+          <p className="text-xs leading-5 text-muted-foreground">{record.actionState.note}</p>
         </div>
       </CardFooter>
     </Card>
@@ -1395,6 +1414,7 @@ export default function G12PublicTrendFetcherPageReworked() {
   const [awaitingFetchRunId, setAwaitingFetchRunId] = useState<string | null>(null);
   const [sendingTrendId, setSendingTrendId] = useState<string | null>(null);
   const [sendOutcome, setSendOutcome] = useState<G12SendResponse | null>(null);
+  const [dismissedFailureReasonsRunId, setDismissedFailureReasonsRunId] = useState<string | null>(null);
   const [platformFilter, setPlatformFilter] = useState<"ALL" | "INSTAGRAM" | "TIKTOK">("ALL");
   const [approvalFilter, setApprovalFilter] = useState<"ALL" | "NEEDS_REVIEW" | "SENT" | "DRAFT" | "APPROVED" | "REJECTED">("ALL");
   const [sortBy, setSortBy] = useState<"newest" | "views" | "trend_strength">("newest");
@@ -1537,6 +1557,8 @@ export default function G12PublicTrendFetcherPageReworked() {
 
   const latestRun = dashboard?.run ?? null;
   const latestStoredRun = dashboard?.latestStoredRun ?? null;
+  const showFailureReasons =
+    Boolean(latestRun?.status === "BLOCK" && latestRun.failure_reasons.length && dismissedFailureReasonsRunId !== latestRun.fetch_run_id);
   const latestStoredRecords = useMemo(() => {
     const explicitRecords = buildTrendRecords(
       dashboard?.latestStoredInsights ?? [],
@@ -1593,6 +1615,7 @@ export default function G12PublicTrendFetcherPageReworked() {
     const limit = Math.max(0, latestStoredRun?.stored_count ?? sorted.length);
     return sorted.slice(0, limit);
   }, [latestStoredRecords, latestStoredRun?.stored_count]);
+  const latestCardsGridClassName = latestCards.length > 1 ? "grid gap-5 lg:grid-cols-2" : "grid gap-5";
 
   const filteredStoredRecords = useMemo(() => {
     const search = normalizeWhitespace(deferredSearchTerm).toLowerCase();
@@ -1659,11 +1682,11 @@ export default function G12PublicTrendFetcherPageReworked() {
   }, [filteredStoredRecords, sortBy]);
 
   const isBusy = loading || refreshing || submittingRun || Boolean(awaitingFetchRunId);
-  const latestRunStoredLabel = latestStoredRun ? `Latest stored run: ${formatG12Count(latestStoredRun.stored_count)}` : "Latest stored run: 0";
+  const latestRunStoredLabel = latestStoredRun ? `Latest stored run: ${formatCount(latestStoredRun.stored_count)}` : "Latest stored run: 0";
   const totalStoredCount = allStoredRecords.length;
   const historicalRunCount = new Set(allStoredRecords.map((record) => record.fetchRunId).filter(Boolean)).size;
-  const totalStoredLabel = `Total stored insights: ${formatG12Count(totalStoredCount)}`;
-  const historicalRunLabel = `Historical saved runs: ${formatG12Count(historicalRunCount)}`;
+  const totalStoredLabel = `Total stored insights: ${formatCount(totalStoredCount)}`;
+  const historicalRunLabel = `Total G12 Runs: ${formatCount(historicalRunCount)}`;
   const headerStatusTone = getHeaderStatusTone(latestRunStatus);
 
   const handleRunWorkflow = useCallback(async () => {
@@ -1896,9 +1919,8 @@ export default function G12PublicTrendFetcherPageReworked() {
       <Card className="rounded-[28px] border-border/60 bg-white shadow-sm">
         <CardHeader className="space-y-3">
           <SectionHeader
-            eyebrow="Latest Run"
             title="Latest Stored Trends"
-            description="Saved insights from the most recent G12 run that stored results in Supabase."
+            description="Saved insights from the latest G12 run."
             action={
               <div className="flex flex-wrap items-center gap-2">
                 <Badge variant="outline" className="rounded-full border-border/70 bg-secondary/20 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
@@ -1909,24 +1931,37 @@ export default function G12PublicTrendFetcherPageReworked() {
           />
         </CardHeader>
         <CardContent className="space-y-4">
-          {latestRun?.status === "BLOCK" && latestRun.failure_reasons.length ? (
+          {showFailureReasons && latestRun ? (
             <div className="rounded-[24px] border border-rose-200 bg-rose-50 p-4 text-sm leading-6 text-rose-950 shadow-sm">
-              <p className="font-semibold">Failure reasons</p>
-              <ul className="mt-2 list-disc space-y-1 pl-5">
-                {latestRun.failure_reasons.map((reason, index) => (
-                  <li key={`g12-failure-${index}`}>{reason}</li>
-                ))}
-              </ul>
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="font-semibold">Failure reasons</p>
+                  <ul className="mt-2 list-disc space-y-1 pl-5">
+                    {latestRun.failure_reasons.map((reason, index) => (
+                      <li key={`g12-failure-${index}`}>{reason}</li>
+                    ))}
+                  </ul>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-8 w-8 shrink-0 rounded-full border-rose-200 bg-white p-0 text-rose-700 hover:bg-rose-100"
+                  onClick={() => setDismissedFailureReasonsRunId(latestRun.fetch_run_id)}
+                  aria-label="Dismiss failure reasons"
+                >
+                  <X className="size-4" />
+                </Button>
+              </div>
             </div>
           ) : null}
           {loading && !dashboard ? (
-            <div className="grid gap-5 xl:grid-cols-1">
-              {Array.from({ length: 1 }).map((_, index) => (
+            <div className="grid gap-5 lg:grid-cols-2">
+              {Array.from({ length: 2 }).map((_, index) => (
                 <TrendCardSkeleton key={`g12-card-skeleton-${index}`} />
               ))}
             </div>
           ) : latestCards.length ? (
-            <div className="grid gap-5 xl:grid-cols-1">
+            <div className={latestCardsGridClassName}>
               {latestCards.map((record) => (
                 <TrendSummaryCard
                   key={record.id}
@@ -1961,14 +1996,10 @@ export default function G12PublicTrendFetcherPageReworked() {
       <Card id="all-stored-results" className="rounded-[28px] border-border/60 bg-white shadow-sm">
         <CardHeader className="space-y-4">
           <SectionHeader
-            eyebrow="All Stored Results"
             title="All Stored Results"
-            description="All clean G12 trend insights saved in Supabase across every workflow run."
+            description="Clean G12 trend insights from every workflow run."
             action={
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className="rounded-full border-border/70 bg-secondary/20 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
-                  {latestRunStoredLabel}
-                </Badge>
                 <Badge variant="outline" className="rounded-full border-border/70 bg-secondary/20 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
                   {totalStoredLabel}
                 </Badge>
@@ -2001,7 +2032,7 @@ export default function G12PublicTrendFetcherPageReworked() {
                 <SelectValue placeholder="Approval" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="ALL">All statuses</SelectItem>
+                <SelectItem value="ALL">All Status</SelectItem>
                 <SelectItem value="NEEDS_REVIEW">Needs G4/G5 before content use</SelectItem>
                 <SelectItem value="SENT">Sent to Content Draft</SelectItem>
                 <SelectItem value="DRAFT">Draft Created</SelectItem>
@@ -2011,8 +2042,11 @@ export default function G12PublicTrendFetcherPageReworked() {
             </Select>
 
             <Select value={sortBy} onValueChange={(value) => setSortBy(value as typeof sortBy)}>
-              <SelectTrigger className="h-11 w-full rounded-2xl">
-                <SelectValue placeholder="Sort" />
+              <SelectTrigger className="h-11 w-full rounded-2xl px-3">
+                <div className="flex w-full items-center justify-between gap-3">
+                  <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Sorting</span>
+                  <SelectValue placeholder="Newest" />
+                </div>
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="newest">Newest</SelectItem>
