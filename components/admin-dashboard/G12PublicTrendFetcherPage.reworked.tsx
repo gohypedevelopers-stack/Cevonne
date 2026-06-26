@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowRight, ArrowUpRight, Clock3, Eye, Play, RefreshCcw, Search } from "lucide-react";
+import { ArrowRight, ArrowUpRight, Clock3, Play, RefreshCcw, Search, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 
@@ -9,7 +9,6 @@ import WorkflowDashboardShell from "@/components/admin-dashboard/WorkflowDashboa
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardFooter, CardHeader } from "@/components/ui/card";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -221,9 +220,9 @@ type TrendRecord = {
   sourceUrl: string | null;
   sourceUrlMissingText: string;
   captionExcerpt: string;
-  publishedTimestamp: string | null;
-  publishedLabel: string;
-  publishedRelative: string | null;
+  savedTimestamp: string | null;
+  savedLabel: string;
+  savedRelative: string | null;
   audioSound: string | null;
   hashtags: string[];
   keywordMatches: string[];
@@ -248,11 +247,6 @@ type TrendRecord = {
   sourceSummary: string | null;
   fetchRunId: string | null;
   actionState: TrendActionState;
-};
-
-type DetailState = {
-  record: TrendRecord | null;
-  open: boolean;
 };
 
 const buildRouteUrl = (path: string) => new URL(path.startsWith("/") ? path : `/${path}`, window.location.origin).toString();
@@ -301,6 +295,21 @@ const toNumber = (value: unknown) => {
 };
 
 const normalizeWhitespace = (value: string) => value.replace(/\s+/g, " ").trim();
+
+const formatAudioName = (value: string | null | undefined) => {
+  const text = firstText(value);
+  if (!text) {
+    return null;
+  }
+
+  const normalized = normalizeWhitespace(text);
+  const separatorIndex = normalized.lastIndexOf(" - ");
+  if (separatorIndex <= 0) {
+    return normalized;
+  }
+
+  return normalized.slice(0, separatorIndex).trim();
+};
 
 const truncateText = (value: string, limit = 320) => {
   const normalized = normalizeWhitespace(value);
@@ -501,9 +510,92 @@ const formatPlatformLabel = (code: string) => {
         .split("_")
         .filter(Boolean)
         .map((part) => `${part[0].toUpperCase()}${part.slice(1)}`)
-        .join(" ");
+      .join(" ");
   }
 };
+
+function TikTokIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="#000000"
+      focusable="false"
+      viewBox="0 0 32 32"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M16.656 1.029c1.637-0.025 3.262-0.012 4.886-0.025 0.054 2.031 0.878 3.859 2.189 5.213l-0.002-0.002c1.411 1.271 3.247 2.095 5.271 2.235l0.028 0.002v5.036c-1.912-0.048-3.71-0.489-5.331-1.247l0.082 0.034c-0.784-0.377-1.447-0.764-2.077-1.196l0.052 0.034c-0.012 3.649 0.012 7.298-0.025 10.934-0.103 1.853-0.719 3.543-1.707 4.954l0.020-0.031c-1.652 2.366-4.328 3.919-7.371 4.011l-0.014 0c-0.123 0.006-0.268 0.009-0.414 0.009-1.73 0-3.347-0.482-4.725-1.319l0.040 0.023c-2.508-1.509-4.238-4.091-4.558-7.094l-0.004-0.041c-0.025-0.625-0.037-1.25-0.012-1.862 0.49-4.779 4.494-8.476 9.361-8.476 0.547 0 1.083 0.047 1.604 0.136l-0.056-0.008c0.025 1.849-0.050 3.699-0.050 5.548-0.423-0.153-0.911-0.242-1.42-0.242-1.868 0-3.457 1.194-4.045 2.861l-0.009 0.030c-0.133 0.427-0.21 0.918-0.21 1.426 0 0.206 0.013 0.41 0.037 0.61l-0.002-0.024c0.332 2.046 2.086 3.59 4.201 3.59 0.061 0 0.121-0.001 0.181-0.004l-0.009 0c1.463-0.044 2.733-0.831 3.451-1.994l0.010-0.018c0.267-0.372 0.45-0.822 0.511-1.311l0.001-0.014c0.125-2.237 0.075-4.461 0.087-6.698 0.012-5.036-0.012-10.060 0.025-15.083z" />
+    </svg>
+  );
+}
+
+function InstagramIcon({ className }: { className?: string }) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      fill="#000000"
+      focusable="false"
+      viewBox="0 0 32 32"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <g>
+        <path d="M22.3,8.4c-0.8,0-1.4,0.6-1.4,1.4c0,0.8,0.6,1.4,1.4,1.4c0.8,0,1.4-0.6,1.4-1.4C23.7,9,23.1,8.4,22.3,8.4z" />
+        <path d="M16,10.2c-3.3,0-5.9,2.7-5.9,5.9s2.7,5.9,5.9,5.9s5.9-2.7,5.9-5.9S19.3,10.2,16,10.2z M16,19.9c-2.1,0-3.8-1.7-3.8-3.8   c0-2.1,1.7-3.8,3.8-3.8c2.1,0,3.8,1.7,3.8,3.8C19.8,18.2,18.1,19.9,16,19.9z" />
+        <path d="M20.8,4h-9.5C7.2,4,4,7.2,4,11.2v9.5c0,4,3.2,7.2,7.2,7.2h9.5c4,0,7.2-3.2,7.2-7.2v-9.5C28,7.2,24.8,4,20.8,4z M25.7,20.8   c0,2.7-2.2,5-5,5h-9.5c-2.7,0-5-2.2-5-5v-9.5c0-2.7,2.2-5,5-5h9.5c2.7,0,5,2.2,5,5V20.8z" />
+      </g>
+    </svg>
+  );
+}
+
+const getPlatformBadgeTone = (code: string) => {
+  switch (code) {
+    case "INSTAGRAM":
+      return "border-rose-200 bg-rose-50 text-rose-700";
+    case "TIKTOK":
+      return "border-slate-200 bg-slate-50 text-slate-900";
+    default:
+      return "border-border/70 bg-secondary/20 text-muted-foreground";
+  }
+};
+
+function PlatformBadge({
+  code,
+  label,
+  compact = true,
+}: {
+  code: string;
+  label: string;
+  compact?: boolean;
+}) {
+  const icon =
+    code === "INSTAGRAM" ? (
+      <InstagramIcon className="size-4 shrink-0" />
+    ) : code === "TIKTOK" ? (
+      <TikTokIcon className="size-4 shrink-0" />
+    ) : null;
+  const sizeClasses = icon && compact ? "h-8 min-w-8 px-2.5" : compact ? "px-3 py-1" : "";
+
+  return (
+    <Badge
+      variant="outline"
+      className={cn(
+        "inline-flex items-center justify-center rounded-full border px-3 py-1 text-[11px] font-semibold",
+        getPlatformBadgeTone(code),
+        sizeClasses,
+      )}
+    >
+      {icon ? (
+        <span className={cn("inline-flex items-center", compact ? "justify-center" : "gap-1.5")}>
+          {icon}
+          {compact ? <span className="sr-only">{label}</span> : <span>{label}</span>}
+        </span>
+      ) : (
+        <span>{label}</span>
+      )}
+    </Badge>
+  );
+}
 
 const getHeaderStatusTone = (status: string) => {
   switch (status) {
@@ -661,7 +753,7 @@ const getActionState = (insight: G12InsightRecord, riskScore: number | null): Tr
     label: "Send to Content Draft",
     tone: "send",
     disabled: false,
-    note: "Clean payload only. It does not publish content.",
+    note: "Requires G4/G5 before content use.",
   };
 };
 
@@ -775,7 +867,10 @@ const buildCaptionExcerpt = (insight: G12InsightRecord, metric: G12MetricRecord 
     metric?.caption_preview,
     getRawItemText(rawItem, ["caption", "text", "description"]),
     getRawItemText(rawItem, ["caption_preview", "captionPreview"]),
-  ) ?? "Caption preview not available from the fetched public data.";
+  ) ?? "";
+
+const buildSavedTimestamp = (insight: G12InsightRecord, metric: G12MetricRecord | null) =>
+  firstText(insight.created_at, insight.stored_at, metric?.created_at, metric?.stored_at);
 
 const buildSourceUrl = (insight: G12InsightRecord, metric: G12MetricRecord | null, rawItem: G12RawItemRecord | null) =>
   firstText(
@@ -870,16 +965,9 @@ const buildTrendRecords = (insights: G12InsightRecord[], metrics: G12MetricRecor
           insight.provider,
           insight.actor,
         ) ?? "Unknown source";
-      const publishedTimestamp = firstText(
-        metric?.published_at,
-        metric?.created_at,
-        insight.created_at,
-        insight.stored_at,
-        metric?.stored_at,
-        getRawItemText(rawItem, ["published_at", "publishedAt", "detected_at", "detectedAt", "created_at", "createdAt"]),
-      );
-      const publishedLabel = publishedTimestamp ? formatG12DateTime(publishedTimestamp) : "Not available";
-      const publishedRelative = publishedTimestamp ? formatG12RelativeTime(publishedTimestamp) : null;
+      const savedTimestamp = buildSavedTimestamp(insight, metric);
+      const savedLabel = savedTimestamp ? formatG12DateTime(savedTimestamp) : "Not available";
+      const savedRelative = savedTimestamp ? formatG12RelativeTime(savedTimestamp) : null;
       const hashtags = buildHashtags(metric, rawItem);
       const views = toNumber(metric?.views);
       const likes = toNumber(metric?.likes);
@@ -910,9 +998,9 @@ const buildTrendRecords = (insights: G12InsightRecord[], metrics: G12MetricRecor
         sourceUrl,
         sourceUrlMissingText: "Source link not available from fetched data.",
         captionExcerpt,
-        publishedTimestamp,
-        publishedLabel,
-        publishedRelative,
+        savedTimestamp,
+        savedLabel,
+        savedRelative,
         audioSound: firstText(metric?.audio_sound),
         hashtags,
         keywordMatches: metric?.keyword_matches ?? [],
@@ -942,23 +1030,23 @@ const buildTrendRecords = (insights: G12InsightRecord[], metrics: G12MetricRecor
       } satisfies TrendRecord;
     })
     .sort((a, b) => {
-      const aTime = a.publishedTimestamp ? new Date(a.publishedTimestamp).getTime() : 0;
-      const bTime = b.publishedTimestamp ? new Date(b.publishedTimestamp).getTime() : 0;
+      const aTime = a.savedTimestamp ? new Date(a.savedTimestamp).getTime() : 0;
+      const bTime = b.savedTimestamp ? new Date(b.savedTimestamp).getTime() : 0;
       return bTime - aTime || b.trendTitle.localeCompare(a.trendTitle);
     });
 };
 
 const compareByNewest = (a: TrendRecord, b: TrendRecord) => {
-  const aTime = a.publishedTimestamp ? new Date(a.publishedTimestamp).getTime() : 0;
-  const bTime = b.publishedTimestamp ? new Date(b.publishedTimestamp).getTime() : 0;
+  const aTime = a.savedTimestamp ? new Date(a.savedTimestamp).getTime() : 0;
+  const bTime = b.savedTimestamp ? new Date(b.savedTimestamp).getTime() : 0;
   return bTime - aTime || a.trendTitle.localeCompare(b.trendTitle);
 };
 
 const compareByViews = (a: TrendRecord, b: TrendRecord) => (b.views ?? -1) - (a.views ?? -1) || compareByNewest(a, b);
 const compareByTrendStrength = (a: TrendRecord, b: TrendRecord) => (b.trendStrength ?? -1) - (a.trendStrength ?? -1) || compareByNewest(a, b);
 const compareByLatestRunCard = (a: TrendRecord, b: TrendRecord) => {
-  const aTime = a.insight.created_at ? new Date(a.insight.created_at).getTime() : a.publishedTimestamp ? new Date(a.publishedTimestamp).getTime() : 0;
-  const bTime = b.insight.created_at ? new Date(b.insight.created_at).getTime() : b.publishedTimestamp ? new Date(b.publishedTimestamp).getTime() : 0;
+  const aTime = a.savedTimestamp ? new Date(a.savedTimestamp).getTime() : 0;
+  const bTime = b.savedTimestamp ? new Date(b.savedTimestamp).getTime() : 0;
   return bTime - aTime || (b.views ?? -1) - (a.views ?? -1) || (b.likes ?? -1) - (a.likes ?? -1) || a.trendTitle.localeCompare(b.trendTitle);
 };
 
@@ -1056,28 +1144,6 @@ function DetailLine({
   );
 }
 
-function SuggestionList({
-  items,
-  emptyText,
-}: {
-  items: string[];
-  emptyText: string;
-}) {
-  if (!items.length) {
-    return <p className="text-sm leading-6 text-muted-foreground">{emptyText}</p>;
-  }
-
-  return (
-    <ul className="space-y-2">
-      {items.map((item, index) => (
-        <li key={`${item}-${index}`} className="rounded-xl border border-border/60 bg-white px-3 py-2 text-sm leading-6 text-foreground text-pretty">
-          {item}
-        </li>
-      ))}
-    </ul>
-  );
-}
-
 function TrendMetricChip({ label, value }: { label: string; value: ReactNode }) {
   return (
     <div className="rounded-xl border border-border/60 bg-secondary/15 px-3 py-2">
@@ -1089,24 +1155,16 @@ function TrendMetricChip({ label, value }: { label: string; value: ReactNode }) 
 
 function TrendSummaryCard({
   record,
-  onViewDetails,
   onSend,
   sending,
 }: {
   record: TrendRecord;
-  onViewDetails: (record: TrendRecord) => void;
   onSend: (record: TrendRecord) => void;
   sending: boolean;
 }) {
-  const approvalLabel =
-  record.actionState.label === "Send to Content Draft" || record.actionState.label === "Needs Review"
-      ? "NEEDS_G4_G5_BEFORE_CONTENT_USE"
-      : record.actionState.label;
-  const approvalTone = getApprovalTone(record.actionState.label === "Send to Content Draft" || record.actionState.label === "Needs Review" ? "Needs Review" : record.actionState.label);
-  const isFinal = record.actionState.tone === "final";
   const captionText = normalizeWhitespace(record.captionExcerpt);
+  const [showAiInsight, setShowAiInsight] = useState(false);
   const buttonLabel = sending ? "Sending…" : record.actionState.label;
-  const sourceTags = record.hashtags.slice(0, 8);
   const metricChips: Array<[string, ReactNode]> = [
     ["Views", formatCount(record.views)],
     ["Likes", formatCount(record.likes)],
@@ -1118,6 +1176,8 @@ function TrendSummaryCard({
     ["Brand fit", formatScore(record.brandFitScore)],
     ["Risk", formatScore(record.riskScore)],
   ];
+  const cardGridClassName = showAiInsight ? "grid gap-4 xl:grid-cols-[minmax(0,1.12fr)_minmax(0,0.88fr)]" : "grid gap-4 xl:grid-cols-1";
+  const contentGridClassName = showAiInsight ? "flex min-w-0 flex-col gap-4" : "hidden";
 
   return (
     <Card className="overflow-hidden rounded-[28px] border-border/60 bg-white shadow-sm transition-transform duration-200 hover:-translate-y-0.5">
@@ -1125,115 +1185,64 @@ function TrendSummaryCard({
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div className="min-w-0 space-y-3">
             <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="rounded-full border-border/70 bg-secondary/20 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
-                {record.platformLabel}
-              </Badge>
-              {record.trendTopic ? (
-                <Badge variant="outline" className="rounded-full border-border/70 bg-white px-3 py-1 text-[11px] font-semibold text-muted-foreground">
-                  {record.trendTopic}
-                </Badge>
-              ) : null}
-              {record.aiGenerated ? (
-                <Badge variant="outline" className="rounded-full border-sky-200 bg-sky-50 px-3 py-1 text-[11px] font-semibold text-sky-700">
-                  AI summarized
-                </Badge>
-              ) : null}
-              <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]", approvalTone)}>
-                {approvalLabel}
-              </Badge>
+              <PlatformBadge code={record.platformCode} label={record.platformLabel} />
             </div>
 
             <div className="space-y-1">
               <h3 className="font-serif text-2xl tracking-tight text-primary text-balance">{record.trendTitle}</h3>
-              <p className="line-clamp-2 text-sm leading-6 text-muted-foreground text-pretty">{record.savedInsightText}</p>
               {record.hookAngle ? <p className="text-sm leading-6 text-foreground text-pretty">{record.hookAngle}</p> : null}
             </div>
           </div>
 
           <div className="flex shrink-0 flex-col items-start gap-2 lg:items-end">
             <Badge variant="outline" className="rounded-full border-border/70 bg-secondary/20 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
-              {record.publishedLabel}
+              {record.savedLabel}
             </Badge>
-            {record.publishedRelative ? <p className="text-xs text-muted-foreground">{record.publishedRelative}</p> : null}
+            {record.savedRelative ? <p className="text-xs text-muted-foreground">{record.savedRelative}</p> : null}
           </div>
         </div>
       </CardHeader>
 
       <CardContent className="p-4 md:p-5">
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.12fr)_minmax(0,0.88fr)]">
+        <div className={cardGridClassName}>
           <div className="flex min-w-0 flex-col gap-4">
-            <div className="rounded-2xl border border-amber-200/70 bg-amber-50/60 p-4 shadow-sm">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div>
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-amber-700">Source Caption Preview</p>
-                  <p className="mt-1 text-xs leading-5 text-amber-950/80">Reference only. Raw scraped content is quarantined.</p>
+            {captionText || record.sourceUrl ? (
+              <div className="rounded-2xl border border-border/60 bg-white p-4">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Caption</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {record.sourceUrl ? (
+                      <Button asChild variant="outline" className="h-9 rounded-full border-border/70 bg-white px-4 text-xs font-semibold">
+                        <a href={record.sourceUrl} target="_blank" rel="noreferrer">
+                          Open original post
+                          <ArrowUpRight className="ml-2 size-4" />
+                        </a>
+                      </Button>
+                    ) : null}
+                    <Button
+                      type="button"
+                      variant={showAiInsight ? "default" : "outline"}
+                      className={cn(
+                        "h-9 rounded-full px-4 text-xs font-semibold",
+                        showAiInsight ? "border-sky-200 bg-sky-100 text-sky-800 hover:bg-sky-100" : "border-sky-200 bg-white text-sky-700 hover:bg-sky-50",
+                      )}
+                      onClick={() => setShowAiInsight((current) => !current)}
+                      aria-expanded={showAiInsight}
+                      aria-controls={`g12-ai-insight-${record.id}`}
+                    >
+                      <Sparkles className="mr-2 size-4" />
+                      AI Insight
+                    </Button>
+                  </div>
                 </div>
-                <Badge variant="outline" className="rounded-full border-amber-200 bg-white px-3 py-1 text-[11px] font-semibold text-amber-700">
-                  Quarantined
-                </Badge>
+                {!record.sourceUrl && record.sourceUrlMissingText ? <p className="mt-2 text-xs leading-5 text-muted-foreground">{record.sourceUrlMissingText}</p> : null}
+                {captionText ? <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground">{captionText}</p> : null}
               </div>
-              <div className="mt-3 rounded-xl border border-amber-200 bg-white p-3">
-                <p className={cn("line-clamp-4 text-sm leading-6 text-pretty", captionText ? "text-foreground" : "text-muted-foreground")}>
-                  {captionText || "Caption preview not available from the fetched public data."}
-                </p>
-              </div>
-              <p className="mt-3 text-xs leading-5 text-amber-950">
-                Do not copy this caption. Raw scraped content is quarantined.
-              </p>
-            </div>
+            ) : null}
 
             <div className="rounded-2xl border border-border/60 bg-white p-4">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Source Metadata</p>
-                {record.sourceUrl ? (
-                  <Button asChild variant="outline" className="h-9 rounded-full border-border/70 bg-white px-4 text-xs font-semibold">
-                    <a href={record.sourceUrl} target="_blank" rel="noreferrer">
-                      Open original post
-                      <ArrowUpRight className="ml-2 size-4" />
-                    </a>
-                  </Button>
-                ) : (
-                  <p className="text-xs leading-5 text-muted-foreground">{record.sourceUrlMissingText}</p>
-                )}
-              </div>
-
-              <div className="mt-3 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-xl border border-border/60 bg-secondary/10 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Account</p>
-                  <p className="mt-1 line-clamp-1 text-sm font-medium text-foreground">{record.sourceAccountName}</p>
-                </div>
-                <div className="rounded-xl border border-border/60 bg-secondary/10 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Handle</p>
-                  <p className="mt-1 line-clamp-1 text-sm font-medium text-foreground">{record.profileUsername ?? "—"}</p>
-                </div>
-                <div className="rounded-xl border border-border/60 bg-secondary/10 p-3">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Audio</p>
-                  <p className="mt-1 line-clamp-1 text-sm font-medium text-foreground">{record.audioSound ?? "—"}</p>
-                </div>
-              </div>
-
-              {sourceTags.length ? (
-                <div className="mt-3 flex flex-wrap gap-2">
-                  {sourceTags.map((tag) => (
-                    <Badge key={`${record.id}-${tag}`} variant="outline" className="rounded-full border-border/70 bg-secondary/20 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
-                      {tag.startsWith("#") ? tag : `#${tag.replace(/^#+/, "")}`}
-                    </Badge>
-                  ))}
-                  {record.hashtags.length > 8 ? (
-                    <Badge variant="outline" className="rounded-full border-border/70 bg-secondary/20 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
-                      +{record.hashtags.length - 8} more
-                    </Badge>
-                  ) : null}
-                </div>
-              ) : null}
-            </div>
-          </div>
-
-          <div className="flex min-w-0 flex-col gap-4">
-            <div className="rounded-2xl border border-border/60 bg-white p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Metrics</p>
-                {record.cleanMetricSummary ? <span className="text-[10px] font-medium uppercase tracking-[0.18em] text-muted-foreground">Saved in Supabase</span> : null}
               </div>
               <div className="mt-3 grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
                 {metricChips.map(([label, value]) => (
@@ -1245,35 +1254,39 @@ function TrendSummaryCard({
                   <TrendMetricChip key={`${record.id}-${label}`} label={label} value={value} />
                 ))}
               </div>
-              {record.cleanMetricSummary ? <p className="mt-3 rounded-xl border border-border/60 bg-secondary/10 p-3 text-xs leading-5 text-muted-foreground">{record.cleanMetricSummary}</p> : null}
+              <div className="mt-4 rounded-2xl border border-border/60 bg-secondary/10 p-4">
+                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Original Post Data</p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <TrendMetricChip label="Handle" value={record.profileUsername ?? "—"} />
+                  <TrendMetricChip label="Audio" value={formatAudioName(record.audioSound) ?? "—"} />
+                </div>
+              </div>
             </div>
+          </div>
 
-            <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-700">AI Insight</p>
-                {record.aiGenerated ? (
-                  <Badge variant="outline" className="rounded-full border-sky-200 bg-white px-3 py-1 text-[11px] font-semibold text-sky-700">
-                    AI summarized
-                  </Badge>
-                ) : null}
+          <div className={contentGridClassName}>
+            {showAiInsight ? (
+              <div id={`g12-ai-insight-${record.id}`} className="flex min-w-0 flex-col gap-4">
+                <div className="rounded-2xl border border-sky-200 bg-sky-50 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-700">AI Insight</p>
+                  </div>
+                  <div className="mt-3 space-y-3 text-sm leading-6 text-sky-950">
+                    <p>
+                      <span className="font-semibold">Content recommendation:</span>{" "}
+                      <span className="text-sky-800">{record.contentRecommendation}</span>
+                    </p>
+                    <p>
+                      <span className="font-semibold">Brand fit reason:</span>{" "}
+                      <span className="text-sky-800">{record.brandFitReason ?? "—"}</span>
+                    </p>
+                    <p>
+                      <span className="font-semibold">Risk notes:</span> <span className="text-sky-800">{record.riskNotes ?? "—"}</span>
+                    </p>
+                  </div>
+                </div>
               </div>
-              <div className="mt-3 space-y-3 text-sm leading-6 text-sky-950">
-                <p>
-                  <span className="font-semibold">AI model:</span> <span className="text-sky-800">{record.aiModel ?? "—"}</span>
-                </p>
-                <p>
-                  <span className="font-semibold">Content recommendation:</span>{" "}
-                  <span className="text-sky-800">{record.contentRecommendation}</span>
-                </p>
-                <p>
-                  <span className="font-semibold">Brand fit reason:</span>{" "}
-                  <span className="text-sky-800">{record.brandFitReason ?? "—"}</span>
-                </p>
-                <p>
-                  <span className="font-semibold">Risk notes:</span> <span className="text-sky-800">{record.riskNotes ?? "—"}</span>
-                </p>
-              </div>
-            </div>
+            ) : null}
           </div>
         </div>
 
@@ -1281,14 +1294,9 @@ function TrendSummaryCard({
 
       <CardFooter className="flex flex-col gap-3 border-t border-border/60 bg-muted/10 p-4 md:flex-row md:items-center md:justify-between md:p-5">
         <div className="space-y-1">
-          <p className={cn("text-sm leading-6", isFinal ? "text-muted-foreground" : "text-foreground")}>Saved in Supabase. Raw content quarantined. Requires G4/G5 before content use.</p>
           <p className="text-xs leading-5 text-muted-foreground">{record.actionState.note}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <Button type="button" variant="ghost" className="h-10 rounded-full px-4 text-sm" onClick={() => onViewDetails(record)}>
-            <Eye className="mr-2 size-4" />
-            View Details
-          </Button>
           <Button
             type="button"
             className={cn(
@@ -1310,22 +1318,18 @@ function TrendSummaryCard({
 
 function TrendTableRow({
   record,
-  onViewDetails,
   onSend,
   sending,
 }: {
   record: TrendRecord;
-  onViewDetails: (record: TrendRecord) => void;
   onSend: (record: TrendRecord) => void;
   sending: boolean;
 }) {
   return (
     <TableRow className="align-top">
-      <TableCell className="w-[130px] whitespace-nowrap text-sm text-muted-foreground">{record.publishedLabel}</TableCell>
+      <TableCell className="w-[130px] whitespace-nowrap text-sm text-muted-foreground">{record.savedLabel}</TableCell>
       <TableCell className="w-[96px]">
-        <Badge variant="outline" className="rounded-full border-border/70 bg-secondary/20 px-2.5 py-1 text-[11px] font-semibold text-muted-foreground">
-          {record.platformLabel}
-        </Badge>
+        <PlatformBadge code={record.platformCode} label={record.platformLabel} />
       </TableCell>
       <TableCell className="w-[170px]">
         <div className="min-w-0 space-y-1">
@@ -1363,15 +1367,6 @@ function TrendTableRow({
         <div className="flex min-w-0 flex-col gap-2.5">
           <Button
             type="button"
-            variant="ghost"
-            className="h-auto min-h-8 w-full justify-start rounded-full px-3 py-2 text-left text-[11px] leading-4 whitespace-normal"
-            onClick={() => onViewDetails(record)}
-          >
-            <Eye className="mr-1 size-3.5" />
-            View Details
-          </Button>
-          <Button
-            type="button"
             className={cn(
               "h-auto min-h-8 w-full justify-start rounded-full px-3 py-2 text-left text-[11px] leading-4 whitespace-normal",
               record.actionState.label === "Needs Review" ? "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100" : "",
@@ -1404,7 +1399,6 @@ export default function G12PublicTrendFetcherPageReworked() {
   const [approvalFilter, setApprovalFilter] = useState<"ALL" | "NEEDS_REVIEW" | "SENT" | "DRAFT" | "APPROVED" | "REJECTED">("ALL");
   const [sortBy, setSortBy] = useState<"newest" | "views" | "trend_strength">("newest");
   const [searchTerm, setSearchTerm] = useState("");
-  const [detailState, setDetailState] = useState<DetailState>({ record: null, open: false });
 
   const hasLoadedRef = useRef(false);
   const pollTimeoutRef = useRef<number | null>(null);
@@ -1563,7 +1557,6 @@ export default function G12PublicTrendFetcherPageReworked() {
     return latestRunRecords;
   }, [allStoredRecords, dashboard, latestRunRecords, latestStoredRun?.fetch_run_id]);
   const latestRunTime = latestRun?.completed_at ?? latestRun?.created_at ?? null;
-  const latestStoredRunTime = latestStoredRun?.completed_at ?? latestStoredRun?.created_at ?? null;
   const latestRunStatus = useMemo(() => {
     if (submittingRun || awaitingFetchRunId) {
       return "RUNNING";
@@ -1594,16 +1587,6 @@ export default function G12PublicTrendFetcherPageReworked() {
   }, [awaitingFetchRunId, dashboard, latestRun, loading, submittingRun]);
 
   const latestRunLabel = latestRunTime ? `${formatG12DateTime(latestRunTime)} · ${formatG12RelativeTime(latestRunTime)}` : "No run yet";
-  const latestStoredRunLabel = latestStoredRunTime
-    ? `${formatG12DateTime(latestStoredRunTime)} · ${formatG12RelativeTime(latestStoredRunTime)}`
-    : "No stored run yet";
-  const showingLatestStoredFallback = Boolean(
-    latestRun &&
-      latestStoredRun &&
-      latestRun.fetch_run_id &&
-      latestStoredRun.fetch_run_id &&
-      latestRun.fetch_run_id !== latestStoredRun.fetch_run_id,
-  );
 
   const latestCards = useMemo(() => {
     const sorted = [...latestStoredRecords].sort(compareByLatestRunCard);
@@ -1809,178 +1792,6 @@ export default function G12PublicTrendFetcherPageReworked() {
     </Button>
   );
 
-  const renderTrendModalContent = (record: TrendRecord | null) => {
-    if (!record) {
-      return null;
-    }
-
-    return (
-      <DialogContent className="!w-[96vw] !max-w-[1280px] max-h-[calc(100vh-2rem)] overflow-hidden p-0">
-        <ScrollArea className="max-h-[calc(100vh-2rem)]">
-          <div className="space-y-6 p-6 md:p-8">
-            <DialogHeader>
-              <DialogTitle className="font-serif text-3xl tracking-tight text-primary">{record.trendTitle}</DialogTitle>
-              <DialogDescription className="text-sm leading-6 text-muted-foreground">
-                Saved in Supabase. Raw content is quarantined. Requires G4/G5 before content use.
-              </DialogDescription>
-            </DialogHeader>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="rounded-full border-border/70 bg-secondary/20 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
-                {record.platformLabel}
-              </Badge>
-              {record.trendTopic ? (
-                <Badge variant="outline" className="rounded-full border-border/70 bg-white px-3 py-1 text-[11px] font-semibold text-muted-foreground">
-                  {record.trendTopic}
-                </Badge>
-              ) : null}
-              <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]", getApprovalTone(record.actionState.label === "Send to Content Draft" || record.actionState.label === "Needs Review" ? "Needs Review" : record.actionState.label))}>
-                {record.actionState.label === "Send to Content Draft" || record.actionState.label === "Needs Review"
-                  ? "NEEDS_G4_G5_BEFORE_CONTENT_USE"
-                  : record.actionState.label}
-              </Badge>
-              {record.aiGenerated ? (
-                <Badge variant="outline" className="rounded-full border-sky-200 bg-sky-50 px-3 py-1 text-[11px] font-semibold text-sky-700">
-                  AI summarized
-                </Badge>
-              ) : null}
-            </div>
-
-            <div className="grid gap-4 2xl:grid-cols-2">
-              <DetailLine
-                label="Overview"
-                value={
-                  <div className="space-y-2">
-                    <p>
-                      <span className="font-semibold">Insight title:</span>{" "}
-                      <span className="text-muted-foreground">{record.trendTitle}</span>
-                    </p>
-                    <p>
-                      <span className="font-semibold">Platform:</span>{" "}
-                      <span className="text-muted-foreground">{record.platformLabel}</span>
-                    </p>
-                    <p>
-                      <span className="font-semibold">Trend topic:</span>{" "}
-                      <span className="text-muted-foreground">{record.trendTopic ?? "—"}</span>
-                    </p>
-                    <p>
-                      <span className="font-semibold">Saved date:</span>{" "}
-                      <span className="text-muted-foreground">{record.publishedLabel}</span>
-                    </p>
-                    <p>
-                      <span className="font-semibold">Approval status:</span>{" "}
-                      <span className="text-muted-foreground">{record.approvalStatus ?? record.actionState.label}</span>
-                    </p>
-                    <p>
-                      <span className="font-semibold">Fetch run ID:</span> <span className="text-muted-foreground">{record.fetchRunId ?? "—"}</span>
-                    </p>
-                    <p>
-                      <span className="font-semibold">Trend ID:</span> <span className="text-muted-foreground">{record.insight.id}</span>
-                    </p>
-                    <p>
-                      <span className="font-semibold">Metric ID:</span> <span className="text-muted-foreground">{record.metric?.id ?? "—"}</span>
-                    </p>
-                  </div>
-                }
-              />
-              <DetailLine
-                label="Original Post"
-                value={
-                  record.sourceUrl ? (
-                    <Button asChild variant="outline" className="h-9 rounded-full border-border/70 bg-white px-4 text-xs font-semibold">
-                      <a href={record.sourceUrl} target="_blank" rel="noreferrer">
-                        Open original post
-                        <ArrowUpRight className="ml-2 size-4" />
-                      </a>
-                    </Button>
-                  ) : (
-                    "Source link not available from fetched data."
-                  )
-                }
-              />
-            </div>
-
-            <div className="grid gap-4 2xl:grid-cols-2">
-              <DetailLine label="Public Metrics" value={<div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4"><TrendMetricChip label="Views" value={formatCount(record.views)} /><TrendMetricChip label="Likes" value={formatCount(record.likes)} /><TrendMetricChip label="Comments" value={formatCount(record.comments)} /><TrendMetricChip label="Shares" value={formatCount(record.shares)} /><TrendMetricChip label="Saves" value={formatCount(record.saves)} /><TrendMetricChip label="Engagement" value={formatScore(record.engagementRate)} /><TrendMetricChip label="Trend strength" value={formatScore(record.trendStrength)} /><TrendMetricChip label="Brand fit" value={formatScore(record.brandFitScore)} /><TrendMetricChip label="Risk" value={formatScore(record.riskScore)} /></div>} />
-              <DetailLine label="AI Insight" value={<div className="space-y-2"><p><span className="font-semibold">AI generated:</span> <span className="text-muted-foreground">{record.aiGenerated ? "true" : "false"}</span></p><p><span className="font-semibold">AI model:</span> <span className="text-muted-foreground">{record.aiModel ?? "—"}</span></p><p><span className="font-semibold">Trend meaning:</span> <span className="text-muted-foreground">{record.savedInsightText}</span></p><p><span className="font-semibold">Hook angle:</span> <span className="text-muted-foreground">{record.hookAngle ?? "—"}</span></p><p><span className="font-semibold">Brand fit reason:</span> <span className="text-muted-foreground">{record.brandFitReason ?? "—"}</span></p><p><span className="font-semibold">Risk notes:</span> <span className="text-muted-foreground">{record.riskNotes ?? "—"}</span></p><p><span className="font-semibold">Content recommendation:</span> <span className="text-muted-foreground">{record.contentRecommendation}</span></p></div>} />
-            </div>
-
-            <div className="rounded-2xl border border-border/60 bg-muted/20 p-4">
-              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Compliance Notes</p>
-              <p className="mt-2 text-sm leading-6 text-foreground">
-                Raw scraped content is quarantined. Do not copy captions, media, audio, creator identity, or competitor creative. This insight is a planning input only. Content must go through G4/G5 approval before use.
-              </p>
-            </div>
-
-            <div className="grid gap-4 2xl:grid-cols-2">
-              <DetailLine
-                label="Source / Metadata"
-                value={
-                  <div className="space-y-2">
-                    <p>
-                      <span className="font-semibold">Profile username:</span>{" "}
-                      <span className="text-muted-foreground">{record.profileUsername ?? record.sourceAccountName}</span>
-                    </p>
-                    <p>
-                      <span className="font-semibold">Published date:</span>{" "}
-                      <span className="text-muted-foreground">{record.publishedLabel}</span>
-                    </p>
-                    <p>
-                      <span className="font-semibold">Audio sound:</span>{" "}
-                      <span className="text-muted-foreground">{record.audioSound ?? "—"}</span>
-                    </p>
-                    <p>
-                      <span className="font-semibold">Hashtags:</span>{" "}
-                      <span className="text-muted-foreground">{record.hashtags.length ? record.hashtags.join(", ") : "—"}</span>
-                    </p>
-                    <p>
-                      <span className="font-semibold">Keyword matches:</span>{" "}
-                      <span className="text-muted-foreground">{record.keywordMatches.length ? record.keywordMatches.join(", ") : "—"}</span>
-                    </p>
-                    <p>
-                      <span className="font-semibold">Competitor matches:</span>{" "}
-                      <span className="text-muted-foreground">{record.competitorMatches.length ? record.competitorMatches.join(", ") : "—"}</span>
-                    </p>
-                  </div>
-                }
-              />
-              <DetailLine
-                label="Source Caption Preview"
-                value={
-                  <div className="space-y-2">
-                    <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">{record.captionExcerpt}</p>
-                    <p className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs leading-5 text-amber-950">
-                      Reference only. Do not copy this caption. Raw scraped content is quarantined.
-                    </p>
-                  </div>
-                }
-              />
-            </div>
-
-            <div className="flex flex-wrap justify-end gap-2">
-              <Button type="button" variant="outline" onClick={() => setDetailState({ record: null, open: false })}>
-                Close
-              </Button>
-              <Button
-                type="button"
-                className={cn("rounded-full", record.actionState.label === "Needs Review" ? "border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100" : "")}
-                variant={record.actionState.label === "Send to Content Draft" ? "default" : "outline"}
-                onClick={() => {
-                  setDetailState({ record: null, open: false });
-                  void handleSendToContentDraft(record);
-                }}
-                disabled={record.actionState.disabled || Boolean(sendingTrendId)}
-              >
-                <ArrowRight className="mr-2 size-4" />
-                {record.actionState.label === "Send to Content Draft" ? "Send to Content Draft" : record.actionState.label}
-              </Button>
-            </div>
-          </div>
-        </ScrollArea>
-      </DialogContent>
-    );
-  };
-
   return (
     <WorkflowDashboardShell
       eyebrow="Public trend signals"
@@ -2057,18 +1868,14 @@ export default function G12PublicTrendFetcherPageReworked() {
                   />
                 </div>
 
-                <div className="space-y-3">
-                  <DetailLine
-                    label="Safe rewrite"
-                    value={
-                      <p className={cn("whitespace-pre-wrap text-sm leading-6 text-foreground", sendOutcome.safe_rewrite ? "text-pretty" : "text-muted-foreground")}>
-                        {sendOutcome.safe_rewrite ?? "No safe rewrite was returned."}
-                      </p>
-                    }
-                  />
-                  <DetailLine label="Caption suggestions" value={<SuggestionList items={sendOutcome.caption_suggestions ?? []} emptyText="No caption suggestions were returned." />} />
-                  <DetailLine label="Hook suggestions" value={<SuggestionList items={sendOutcome.hook_suggestions ?? []} emptyText="No hook suggestions were returned." />} />
-                </div>
+                <DetailLine
+                  label="Safe rewrite"
+                  value={
+                    <p className={cn("whitespace-pre-wrap text-sm leading-6 text-foreground", sendOutcome.safe_rewrite ? "text-pretty" : "text-muted-foreground")}>
+                      {sendOutcome.safe_rewrite ?? "No safe rewrite was returned."}
+                    </p>
+                  }
+                />
               </div>
             ) : null}
           </CardContent>
@@ -2112,16 +1919,6 @@ export default function G12PublicTrendFetcherPageReworked() {
               </ul>
             </div>
           ) : null}
-
-          {showingLatestStoredFallback ? (
-            <div className="rounded-[24px] border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950 shadow-sm">
-              <p className="font-semibold">Showing the most recent stored Supabase run</p>
-              <p className="mt-1">
-                The latest run on {latestRunLabel} stored no insights. These cards are from the last run that stored results: {latestStoredRunLabel}.
-              </p>
-            </div>
-          ) : null}
-
           {loading && !dashboard ? (
             <div className="grid gap-5 xl:grid-cols-1">
               {Array.from({ length: 1 }).map((_, index) => (
@@ -2134,7 +1931,6 @@ export default function G12PublicTrendFetcherPageReworked() {
                 <TrendSummaryCard
                   key={record.id}
                   record={record}
-                  onViewDetails={(selected) => setDetailState({ record: selected, open: true })}
                   onSend={(selected) => void handleSendToContentDraft(selected)}
                   sending={sendingTrendId === record.id}
                 />
@@ -2266,7 +2062,6 @@ export default function G12PublicTrendFetcherPageReworked() {
                       <TrendTableRow
                         key={record.id}
                         record={record}
-                        onViewDetails={(selected) => setDetailState({ record: selected, open: true })}
                         onSend={(selected) => void handleSendToContentDraft(selected)}
                         sending={sendingTrendId === record.id}
                       />
@@ -2284,10 +2079,6 @@ export default function G12PublicTrendFetcherPageReworked() {
       </Card>
 
       <Separator className="bg-border/70" />
-
-      <Dialog open={detailState.open} onOpenChange={(open) => setDetailState((current) => ({ ...current, open }))}>
-        {renderTrendModalContent(detailState.record)}
-      </Dialog>
     </WorkflowDashboardShell>
   );
 }

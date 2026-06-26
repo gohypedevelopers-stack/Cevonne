@@ -16,6 +16,9 @@ if (r2PublicBaseUrl) {
 }
 
 const nextConfig = {
+  typescript: {
+    tsconfigPath: "./tsconfig.next.json",
+  },
   images: {
     remotePatterns: r2RemotePatterns,
   },

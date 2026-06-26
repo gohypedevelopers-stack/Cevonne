@@ -1,16 +1,14 @@
 {
-  "name": "marvella",
+  "name": "cevonne",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "predev": "npm run prisma:generate",
     "dev": "next dev",
     "prebuild": "npm run prisma:generate",
     "build": "next build",
     "start": "next start",
     "postinstall": "npm run prisma:generate",
-    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "lint": "eslint",
     "prisma:generate": "prisma generate",
@@ -99,7 +97,6 @@
     "globals": "^15.14.0",
     "prisma": "^7.1.0",
     "tw-animate-css": "^1.3.8",
-    "typescript": "^5.9.2",
-    "vitest": "^4.1.8"
+    "typescript": "^5.9.2"
   }
 }

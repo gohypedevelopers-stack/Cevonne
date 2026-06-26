@@ -1,5 +1,32 @@
 import { normalizeOriginUrl } from "./url.js";
 
+const normalizeDatabaseUrl = (value: string | undefined) => {
+  const raw = value?.trim();
+  if (!raw) {
+    return "";
+  }
+
+  try {
+    const parsed = new URL(raw);
+    if (!["postgres:", "postgresql:"].includes(parsed.protocol)) {
+      return raw;
+    }
+
+    if (parsed.searchParams.get("uselibpqcompat") === "true") {
+      return parsed.toString();
+    }
+
+    const sslMode = parsed.searchParams.get("sslmode")?.toLowerCase();
+    if (sslMode && ["prefer", "require", "verify-ca"].includes(sslMode)) {
+      parsed.searchParams.set("sslmode", "verify-full");
+    }
+
+    return parsed.toString();
+  } catch {
+    return raw;
+  }
+};
+
 const toNumber = (value: string | number | null | undefined, fallback: number | undefined = undefined) => {
   if (value === undefined || value === null || value === "") {
     return fallback;
@@ -51,13 +78,14 @@ const resolveG4ContentCheckPath = () => {
 export const env = Object.freeze({
   port: toNumber(process.env.PORT, 3000),
   nodeEnv: process.env.NODE_ENV || "development",
-  databaseUrl:
+  databaseUrl: normalizeDatabaseUrl(
     process.env.DATABASE_URL ||
-    process.env.POSTGRES_PRISMA_URL ||
-    process.env.POSTGRES_URL_NON_POOLING ||
-    process.env.POSTGRES_URL ||
-    process.env.NEON_DATABASE_URL ||
-    "",
+      process.env.POSTGRES_PRISMA_URL ||
+      process.env.POSTGRES_URL_NON_POOLING ||
+      process.env.POSTGRES_URL ||
+      process.env.NEON_DATABASE_URL ||
+      ""
+  ),
   jwtSecret: process.env.JWT_SECRET || "dev_secret",
   frontendUrl: normalizeOriginUrl(process.env.FRONTEND_URL || ""),
   smtpHost: process.env.SMTP_HOST || "",

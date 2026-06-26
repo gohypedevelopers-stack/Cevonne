@@ -17,6 +17,7 @@ next-scaffold-temp
 .env
 .env.production
 next-env.d.ts
+uploads/
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
@@ -27,3 +28,4 @@ next-env.d.ts
 *.njsproj
 *.sln
 *.sw?
+*.tsbuildinfo
