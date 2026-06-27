@@ -161,7 +161,7 @@ const WORKFLOW_SUMMARY_COPY: Record<CevonneWorkflowGroup, string> = {
   G4: "Reviews claims, captions, and creative before approval.",
   G5: "Schedules approved assets only.",
   G6: "Routes messaging through safe partner paths.",
-  G7: "Checks stock and offer proof before use.",
+  G7: "Checks stock, discount expiry, and offer proof before use.",
   G8: "Verifies rights and disclosure proof.",
   G9: "Keeps ad changes in dry-run mode until approved.",
   G10: "Reviews SEO and conversion ideas safely.",

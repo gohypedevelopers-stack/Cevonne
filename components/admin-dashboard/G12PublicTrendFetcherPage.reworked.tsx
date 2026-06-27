@@ -179,6 +179,7 @@ type G12SendResponse = {
   message: string;
   summary?: string | null;
   action_needed?: string | null;
+  approval_status?: string | null;
   already_sent?: boolean;
   g4_detail_href?: string | null;
   review_id?: string | null;
@@ -328,8 +329,8 @@ const scoreFormatter = new Intl.NumberFormat("en-IN", { maximumFractionDigits: 1
 const formatAbbreviatedCount = (
   value: number,
   divisor: number,
-  suffix: "K" | "m" | "b",
-  next?: { divisor: number; suffix: "K" | "m" | "b" },
+  suffix: "K" | "M" | "B",
+  next?: { divisor: number; suffix: "K" | "M" | "B" },
 ) => {
   const scaled = value / divisor;
   const rounded = Math.round(scaled * 10) / 10;
@@ -350,15 +351,15 @@ const formatCount = (value: number | null) => {
   const sign = value < 0 ? "-" : "";
 
   if (abs >= 1_000_000_000) {
-    return `${sign}${formatAbbreviatedCount(abs, 1_000_000_000, "b")}`;
+    return `${sign}${formatAbbreviatedCount(abs, 1_000_000_000, "B")}`;
   }
 
   if (abs >= 1_000_000) {
-    return `${sign}${formatAbbreviatedCount(abs, 1_000_000, "m", { divisor: 1_000_000_000, suffix: "b" })}`;
+    return `${sign}${formatAbbreviatedCount(abs, 1_000_000, "M", { divisor: 1_000_000_000, suffix: "B" })}`;
   }
 
   if (abs >= 1_000) {
-    return `${sign}${formatAbbreviatedCount(abs, 1_000, "K", { divisor: 1_000_000, suffix: "m" })}`;
+    return `${sign}${formatAbbreviatedCount(abs, 1_000, "K", { divisor: 1_000_000, suffix: "M" })}`;
   }
 
   return countFormatter.format(value);
@@ -651,25 +652,90 @@ const getHeaderStatusTone = (status: string) => {
   }
 };
 
+const normalizeApprovalStatusValue = (value: string) =>
+  normalizeWhitespace(value).toUpperCase().replace(/[^A-Z0-9]+/g, " ").trim();
+
 const getApprovalTone = (label: string) => {
-  switch (label) {
-    case "Approved":
+  switch (normalizeApprovalStatusValue(label)) {
+    case "APPROVED":
       return "border-emerald-200 bg-emerald-50 text-emerald-700";
-    case "Rejected":
+    case "REJECTED":
       return "border-rose-200 bg-rose-50 text-rose-700";
-    case "Draft Created":
+    case "DRAFT CREATED":
       return "border-sky-200 bg-sky-50 text-sky-700";
-    case "Sent to Content Draft":
+    case "SENT TO CONTENT DRAFT":
+    case "IN REVIEW":
+    case "REVIEW REQUESTED":
+    case "PENDING APPROVAL":
+    case "PENDING HUMAN APPROVAL":
       return "border-cyan-200 bg-cyan-50 text-cyan-700";
-    case "Needs Review":
+    case "NEEDS G4 G5 BEFORE CONTENT USE":
+    case "NEEDS REVIEW":
+    case "SEND TO CONTENT DRAFT":
       return "border-amber-200 bg-amber-50 text-amber-700";
     default:
       return "border-border/70 bg-muted/20 text-muted-foreground";
   }
 };
 
+const getApprovalStatusLabel = (label: string) => {
+  switch (normalizeApprovalStatusValue(label)) {
+    case "APPROVED":
+      return "Approved";
+    case "REJECTED":
+      return "Rejected";
+    case "DRAFT CREATED":
+      return "Draft Created";
+    case "SENT TO CONTENT DRAFT":
+    case "IN REVIEW":
+    case "REVIEW REQUESTED":
+    case "PENDING APPROVAL":
+    case "PENDING HUMAN APPROVAL":
+      return "Sent to Content Draft";
+    case "NEEDS G4 G5 BEFORE CONTENT USE":
+    case "NEEDS REVIEW":
+    case "SEND TO CONTENT DRAFT":
+      return "Needs G4/G5 before content use";
+    default:
+      return normalizeWhitespace(label).replace(/[_-]+/g, " ");
+  }
+};
+
+type ApprovalFilterValue = "NEEDS_REVIEW" | "SENT" | "DRAFT" | "APPROVED" | "REJECTED";
+
+const getApprovalFilterValue = (label: string): ApprovalFilterValue | null => {
+  switch (normalizeApprovalStatusValue(label)) {
+    case "APPROVED":
+      return "APPROVED";
+    case "REJECTED":
+      return "REJECTED";
+    case "DRAFT CREATED":
+      return "DRAFT";
+    case "SENT TO CONTENT DRAFT":
+      return "SENT";
+    case "NEEDS G4 G5 BEFORE CONTENT USE":
+    case "NEEDS REVIEW":
+    case "SEND TO CONTENT DRAFT":
+      return "NEEDS_REVIEW";
+    default:
+      return null;
+  }
+};
+
 const getSendOutcomeTone = (status: string) => {
   switch (status) {
+    case "APPROVED":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "REJECTED":
+      return "border-rose-200 bg-rose-50 text-rose-700";
+    case "DRAFT CREATED":
+      return "border-sky-200 bg-sky-50 text-sky-700";
+    case "SENT TO CONTENT DRAFT":
+      return "border-cyan-200 bg-cyan-50 text-cyan-700";
+    case "NEEDS G4 G5 BEFORE CONTENT USE":
+    case "NEEDS REVIEW":
+    case "SEND TO CONTENT DRAFT":
+      return "border-amber-200 bg-amber-50 text-amber-700";
     case "PASS":
       return "border-emerald-200 bg-emerald-50 text-emerald-700";
     case "PENDING_APPROVAL":
@@ -687,6 +753,11 @@ const getSendOutcomeTone = (status: string) => {
 };
 
 const getSendOutcomeDisplayStatus = (outcome: G12SendResponse) => {
+  const approvalStatus = normalizeApprovalStatusValue(outcome.approval_status ?? "");
+  if (approvalStatus) {
+    return approvalStatus;
+  }
+
   const approvalState = (outcome.approval_state ?? "").trim().toUpperCase();
   if (outcome.status === "PASS" && approvalState === "PENDING_HUMAN_APPROVAL") {
     return "PENDING_APPROVAL";
@@ -696,6 +767,22 @@ const getSendOutcomeDisplayStatus = (outcome: G12SendResponse) => {
 };
 
 const getSendOutcomeLabel = (outcome: G12SendResponse) => {
+  const approvalStatus = normalizeApprovalStatusValue(outcome.approval_status ?? "");
+  switch (approvalStatus) {
+    case "APPROVED":
+      return "Approved";
+    case "REJECTED":
+      return "Rejected";
+    case "DRAFT CREATED":
+      return "Draft Created";
+    case "SENT TO CONTENT DRAFT":
+      return "Sent to Content Draft";
+    case "NEEDS G4 G5 BEFORE CONTENT USE":
+    case "NEEDS REVIEW":
+    case "SEND TO CONTENT DRAFT":
+      return "Needs G4/G5 before content use";
+  }
+
   const approvalState = (outcome.approval_state ?? "").trim().toUpperCase();
   if (outcome.status === "PASS" && approvalState === "PENDING_HUMAN_APPROVAL") {
     return "Pending human approval";
@@ -723,11 +810,19 @@ const getSendOutcomeLabel = (outcome: G12SendResponse) => {
 };
 
 const getActionState = (insight: G12InsightRecord, riskScore: number | null): TrendActionState => {
-  const approval = (insight.approval_status ?? "").trim().toUpperCase();
-  const isRejected = /(REJECT|BLOCK|DENIED|DECLINED|FAILED|FAIL)/.test(approval);
+  const approval = normalizeApprovalStatusValue(insight.approval_status ?? "");
+  const isRejected = /(REJECT|BLOCK|DENIED|DECLINED|FAILED|FAIL|NOT APPROVED)/.test(approval);
   const isApproved = Boolean(insight.g5_approval_id) || /(APPROVED|APPROVE|PASSED|COMPLETE|COMPLETED|READY)/.test(approval);
-  const isDraftCreated = Boolean(insight.g4_review_id) || /(DRAFT)/.test(approval);
-  const isSent = Boolean(insight.selected_for_review) || Boolean(insight.wf1_handoff_ready) || /(SENT|IN_REVIEW|REVIEW_REQUESTED)/.test(approval);
+  const isSent =
+    Boolean(insight.selected_for_review) ||
+    Boolean(insight.wf1_handoff_ready) ||
+    approval === "SENT TO CONTENT DRAFT" ||
+    approval === "SENT TO DRAFT" ||
+    approval === "IN REVIEW" ||
+    approval === "REVIEW REQUESTED" ||
+    approval === "PENDING APPROVAL" ||
+    approval === "PENDING HUMAN APPROVAL";
+  const isDraftCreated = approval === "DRAFT CREATED" || (Boolean(insight.g4_review_id) && !isSent);
   const hasFetchRun = Boolean(insight.fetch_run_id);
 
   if (isRejected) {
@@ -1085,6 +1180,42 @@ const compareByLatestRunCard = (a: TrendRecord, b: TrendRecord) => {
   return bTime - aTime || (b.views ?? -1) - (a.views ?? -1) || (b.likes ?? -1) - (a.likes ?? -1) || a.trendTitle.localeCompare(b.trendTitle);
 };
 
+const patchG12InsightForSendOutcome = (insight: G12InsightRecord, outcome: G12SendResponse) => {
+  if (insight.id !== outcome.insight_id) {
+    return insight;
+  }
+
+  const approvalStatus = outcome.approval_status ?? insight.approval_status;
+  const normalizedApprovalStatus = approvalStatus ? normalizeApprovalStatusValue(approvalStatus) : "";
+  const isSentToDraft = normalizedApprovalStatus === "SENT TO CONTENT DRAFT";
+
+  return {
+    ...insight,
+    approval_status: approvalStatus,
+    approval_id: outcome.review_id ?? insight.approval_id,
+    g4_review_id: outcome.g4_review_id ?? outcome.review_id ?? insight.g4_review_id,
+    selected_for_review: isSentToDraft ? true : insight.selected_for_review,
+    wf1_handoff_ready: isSentToDraft ? true : insight.wf1_handoff_ready,
+    updated_at: outcome.handled_at ?? outcome.sent_at ?? insight.updated_at,
+  };
+};
+
+const patchG12DashboardForSendOutcome = (dashboard: G12DashboardResponse | null, outcome: G12SendResponse) => {
+  if (!dashboard || !outcome.insight_id) {
+    return dashboard;
+  }
+
+  const patchArray = (records?: G12InsightRecord[]) =>
+    records?.map((record) => patchG12InsightForSendOutcome(record, outcome)) ?? records;
+
+  return {
+    ...dashboard,
+    insights: patchArray(dashboard.insights),
+    latestStoredInsights: patchArray(dashboard.latestStoredInsights),
+    storedInsights: patchArray(dashboard.storedInsights),
+  };
+};
+
 function SectionHeader({
   eyebrow,
   title,
@@ -1246,7 +1377,7 @@ function TrendSourcePostPanel({ record, className }: { record: TrendRecord; clas
             <Button asChild variant="outline" className="h-full w-full rounded-xl border-border/70 bg-white px-4 text-xs font-semibold shadow-none">
               <a href={record.sourceUrl} target="_blank" rel="noreferrer">
                 <ExternalLink className="mr-2 size-3.5" />
-                Open original post
+                Open Original Post
               </a>
             </Button>
           ) : record.sourceUrlMissingText ? (
@@ -1344,6 +1475,18 @@ function TrendSummaryCard({
                 <TrendMetricChip label="Handle" value={record.profileUsername ?? "—"} />
                 <TrendMetricChip label="Audio" value={formatAudioName(record.audioSound) ?? "—"} />
               </div>
+              <div className="mt-3 flex w-full flex-col gap-2">
+                {record.sourceUrl ? (
+                  <Button asChild variant="outline" className="h-9 w-full rounded-full border-border/70 bg-white px-4 text-xs font-semibold shadow-none">
+                    <a href={record.sourceUrl} target="_blank" rel="noreferrer">
+                      <ExternalLink className="mr-2 size-3.5" />
+                      Open Original Post
+                    </a>
+                  </Button>
+                ) : record.sourceUrlMissingText ? (
+                  <p className="text-xs leading-5 text-muted-foreground">{record.sourceUrlMissingText}</p>
+                ) : null}
+              </div>
             </div>
 
           </div>
@@ -1392,6 +1535,10 @@ function TrendTableRow({
   onToggleSourcePost: (record: TrendRecord) => void;
   onToggleAiInsight: (record: TrendRecord) => void;
 }) {
+  const approvalStatusSource = record.approvalStatus ?? record.actionState.label;
+  const approvalStatusLabel = getApprovalStatusLabel(approvalStatusSource);
+  const approvalToneLabel = approvalStatusSource;
+
   return (
     <>
       <TableRow className="align-top">
@@ -1431,13 +1578,11 @@ function TrendTableRow({
           <Badge
             variant="outline"
             className={cn(
-              "flex w-full min-w-0 max-w-full justify-start rounded-full border px-2.5 py-1 text-left text-[10px] font-semibold uppercase leading-4 tracking-[0.08em] whitespace-normal break-all",
-              getApprovalTone(record.actionState.label === "Send to Content Draft" || record.actionState.label === "Needs Review" ? "Needs Review" : record.actionState.label),
+              "flex w-full min-w-0 max-w-full justify-start rounded-full border px-2.5 py-1 text-left text-[10px] font-semibold uppercase leading-4 tracking-[0.08em] whitespace-normal break-words",
+              getApprovalTone(approvalToneLabel),
             )}
           >
-            {record.actionState.label === "Send to Content Draft" || record.actionState.label === "Needs Review"
-              ? "NEEDS_G4_G5_BEFORE_CONTENT_USE"
-              : record.actionState.label}
+            {approvalStatusLabel}
           </Badge>
         </TableCell>
         <TableCell className="w-[200px] whitespace-normal">
@@ -1490,7 +1635,7 @@ export default function G12PublicTrendFetcherPageReworked() {
   const [expandedSourcePostRowId, setExpandedSourcePostRowId] = useState<string | null>(null);
   const [expandedAiInsightRowId, setExpandedAiInsightRowId] = useState<string | null>(null);
   const [platformFilter, setPlatformFilter] = useState<"ALL" | "INSTAGRAM" | "TIKTOK">("ALL");
-  const [approvalFilter, setApprovalFilter] = useState<"ALL" | "NEEDS_REVIEW" | "SENT" | "DRAFT" | "APPROVED" | "REJECTED">("ALL");
+  const [approvalFilter, setApprovalFilter] = useState<"ALL" | ApprovalFilterValue>("ALL");
   const [sortBy, setSortBy] = useState<"newest" | "views" | "trend_strength">("newest");
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -1691,6 +1836,48 @@ export default function G12PublicTrendFetcherPageReworked() {
   }, [latestStoredRecords, latestStoredRun?.stored_count]);
   const latestCardsGridClassName = latestCards.length > 1 ? "grid gap-5 lg:grid-cols-2" : "grid gap-5";
 
+  const approvalFilterCounts = useMemo(() => {
+    const counts = new Map<ApprovalFilterValue, number>();
+
+    for (const record of allStoredRecords) {
+      const approval = getApprovalFilterValue(record.approvalStatus ?? record.actionState.label);
+      if (!approval) {
+        continue;
+      }
+
+      counts.set(approval, (counts.get(approval) ?? 0) + 1);
+    }
+
+    return counts;
+  }, [allStoredRecords]);
+
+  const approvalFilterOptions = useMemo(
+    () =>
+      [
+        { value: "NEEDS_REVIEW" as const, label: "Needs G4/G5 before content use" },
+        { value: "SENT" as const, label: "Sent to Content Draft" },
+        { value: "DRAFT" as const, label: "Draft Created" },
+        { value: "APPROVED" as const, label: "Approved" },
+        { value: "REJECTED" as const, label: "Rejected" },
+      ]
+        .map((option) => ({
+          ...option,
+          count: approvalFilterCounts.get(option.value) ?? 0,
+        }))
+        .filter((option) => option.count > 0),
+    [approvalFilterCounts],
+  );
+
+  useEffect(() => {
+    if (approvalFilter === "ALL") {
+      return;
+    }
+
+    if (!approvalFilterOptions.some((option) => option.value === approvalFilter)) {
+      setApprovalFilter("ALL");
+    }
+  }, [approvalFilter, approvalFilterOptions]);
+
   const filteredStoredRecords = useMemo(() => {
     const search = normalizeWhitespace(deferredSearchTerm).toLowerCase();
 
@@ -1700,22 +1887,9 @@ export default function G12PublicTrendFetcherPageReworked() {
       }
 
       if (approvalFilter !== "ALL") {
-        const approval = (record.actionState.label === "Send to Content Draft" || record.actionState.label === "Needs Review" ? "NEEDS_REVIEW" : record.actionState.label)
-          .toUpperCase();
+        const approval = getApprovalFilterValue(record.approvalStatus ?? record.actionState.label);
 
-        if (approvalFilter === "NEEDS_REVIEW" && approval !== "NEEDS_REVIEW") {
-          return false;
-        }
-        if (approvalFilter === "SENT" && approval !== "SENT TO CONTENT DRAFT") {
-          return false;
-        }
-        if (approvalFilter === "DRAFT" && approval !== "DRAFT CREATED") {
-          return false;
-        }
-        if (approvalFilter === "APPROVED" && approval !== "APPROVED") {
-          return false;
-        }
-        if (approvalFilter === "REJECTED" && approval !== "REJECTED") {
+        if (approval !== approvalFilter) {
           return false;
         }
       }
@@ -1849,6 +2023,7 @@ export default function G12PublicTrendFetcherPageReworked() {
         }
 
         setSendOutcome(body);
+        setDashboard((current) => patchG12DashboardForSendOutcome(current, body));
         const approvalState = (body.approval_state ?? "").trim().toUpperCase();
         const pendingHumanApproval = body.status === "PASS" && approvalState === "PENDING_HUMAN_APPROVAL";
 
@@ -2075,11 +2250,11 @@ export default function G12PublicTrendFetcherPageReworked() {
           <div className="grid gap-3 xl:grid-cols-[minmax(0,1.3fr)_repeat(3,minmax(0,0.5fr))]">
             <div className="relative">
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search all stored results" className="h-12 rounded-2xl pl-10" />
+              <Input value={searchTerm} onChange={(event) => setSearchTerm(event.target.value)} placeholder="Search all stored results" className="!h-12 rounded-2xl pl-10" />
             </div>
 
             <Select value={platformFilter} onValueChange={(value) => setPlatformFilter(value as typeof platformFilter)}>
-              <SelectTrigger className="h-12 w-full rounded-2xl">
+              <SelectTrigger className="!h-12 w-full rounded-2xl">
                 <SelectValue placeholder="Platform" />
               </SelectTrigger>
               <SelectContent>
@@ -2090,21 +2265,21 @@ export default function G12PublicTrendFetcherPageReworked() {
             </Select>
 
             <Select value={approvalFilter} onValueChange={(value) => setApprovalFilter(value as typeof approvalFilter)}>
-              <SelectTrigger className="h-12 w-full rounded-2xl">
+              <SelectTrigger className="!h-12 w-full rounded-2xl">
                 <SelectValue placeholder="Approval" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="ALL">All Status</SelectItem>
-                <SelectItem value="NEEDS_REVIEW">Needs G4/G5 before content use</SelectItem>
-                <SelectItem value="SENT">Sent to Content Draft</SelectItem>
-                <SelectItem value="DRAFT">Draft Created</SelectItem>
-                <SelectItem value="APPROVED">Approved</SelectItem>
-                <SelectItem value="REJECTED">Rejected</SelectItem>
+                {approvalFilterOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label} ({option.count})
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
 
             <Select value={sortBy} onValueChange={(value) => setSortBy(value as typeof sortBy)}>
-              <SelectTrigger className="h-12 w-full rounded-2xl px-3">
+              <SelectTrigger className="!h-12 w-full rounded-2xl px-3">
                 <div className="flex w-full items-center justify-between gap-3">
                   <span className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Sorting</span>
                   <SelectValue placeholder="Newest" />
@@ -2117,6 +2292,12 @@ export default function G12PublicTrendFetcherPageReworked() {
               </SelectContent>
             </Select>
           </div>
+
+          {approvalFilterOptions.length === 1 ? (
+            <p className="text-xs leading-5 text-muted-foreground">
+              Only one approval status exists in the stored data right now, so the other status buckets are hidden.
+            </p>
+          ) : null}
         </CardHeader>
         <CardContent>
           {visibleStoredRows.length ? (

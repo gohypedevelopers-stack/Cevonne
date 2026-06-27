@@ -29,6 +29,7 @@ export type G12SendToContentDraftResponse = {
   message: string;
   summary: string | null;
   action_needed: string | null;
+  approval_status: string | null;
   already_sent: boolean;
   g4_detail_href: string;
   review_id: string | null;
@@ -353,24 +354,42 @@ const humanizeFailureReason = (response: N8nWebhookResult) => {
   return "The content check was blocked before a draft was created.";
 };
 
-const buildUpdateFields = (
-  insight: G12SupabaseInsight,
-  finalStatus: "PASS" | "MANUAL_ONLY" | "BLOCK" | "PENDING_APPROVAL" | "NEEDS_EVIDENCE",
-  g4ReviewId: string | null,
-  handledAt: string,
-) => {
-  const approvalStatus =
-    finalStatus === "PASS" || finalStatus === "PENDING_APPROVAL"
-      ? "DRAFT_CREATED"
-      : finalStatus === "MANUAL_ONLY"
-        ? "REVIEW_REQUESTED"
-        : finalStatus === "NEEDS_EVIDENCE"
-          ? "NEEDS_EVIDENCE"
-          : "G4_BLOCKED";
+const buildG12ApprovalStatus = (review: Pick<G4ReviewSnapshot, "status" | "approval_state">) => {
+  const approvalState = normalizeApprovalState(review.approval_state);
 
+  if (approvalState === "APPROVED") {
+    return "APPROVED";
+  }
+
+  if (approvalState === "REJECTED" || approvalState === "NOT_APPROVED" || approvalState === "DECLINED" || approvalState === "DENIED") {
+    return "REJECTED";
+  }
+
+  if (review.status === "BLOCK") {
+    return "REJECTED";
+  }
+
+  if (review.status === "MANUAL_ONLY" || review.status === "NEEDS_EVIDENCE" || approvalState === "CHANGES_REQUESTED") {
+    return "NEEDS_G4_G5_BEFORE_CONTENT_USE";
+  }
+
+  if (
+    approvalState === "PENDING_HUMAN_APPROVAL" ||
+    approvalState === "PENDING_APPROVAL" ||
+    approvalState === "REVIEW_REQUESTED" ||
+    approvalState === "IN_REVIEW" ||
+    review.status === "PENDING_APPROVAL" ||
+    review.status === "PASS"
+  ) {
+    return "SENT_TO_CONTENT_DRAFT";
+  }
+
+  return "NEEDS_G4_G5_BEFORE_CONTENT_USE";
+};
+
+const buildUpdateFields = (review: G4ReviewSnapshot, handledAt: string) => {
   return {
-    g4_review_id: g4ReviewId ?? insight.g4_review_id,
-    approval_status: approvalStatus,
+    approval_status: buildG12ApprovalStatus(review),
     updated_at: handledAt,
   };
 };
@@ -379,7 +398,7 @@ const loadInsightById = async (insightId: string, fetchRunId: string | null): Pr
   const { data, error } = await supabaseAdmin
     .from(G12_SUPABASE_TABLES.insights)
     .select("*")
-    .eq("id", insightId)
+    .eq("trend_id", insightId)
     .maybeSingle();
 
   if (error || !data) {
@@ -507,33 +526,17 @@ const summarizeExistingG4Review = (review: G4ContentReviewRow) => {
   return "The insight already has a G4 review record.";
 };
 
-const getG12UpdateStatus = (status: G4ReviewSnapshot["status"]): "PASS" | "MANUAL_ONLY" | "BLOCK" | "PENDING_APPROVAL" | "NEEDS_EVIDENCE" => {
-  if (status === "BLOCK") {
-    return "BLOCK";
-  }
-
-  if (status === "MANUAL_ONLY") {
-    return "MANUAL_ONLY";
-  }
-
-  if (status === "NEEDS_EVIDENCE") {
-    return "NEEDS_EVIDENCE";
-  }
-
-  if (status === "PENDING_APPROVAL") {
-    return "PENDING_APPROVAL";
-  }
-
-  return "PASS";
-};
-
 const syncG12Insight = async (insight: G12SupabaseInsight, update: Record<string, unknown>) => {
   const { error } = await supabaseAdmin
     .from(G12_SUPABASE_TABLES.insights)
     .update(update)
-    .eq("id", insight.id);
+    .eq("trend_id", insight.trend_id ?? insight.id);
 
   if (error) {
+    console.warn("[g12-send-to-content-draft] Failed to sync insight status", {
+      trend_id: insight.trend_id ?? insight.id,
+      error,
+    });
     return false;
   }
 
@@ -554,10 +557,10 @@ const buildG4OutcomeMessage = (review: G4ReviewSnapshot, status: G4ReviewSnapsho
   }
 
   if (status === "PENDING_APPROVAL" || review.approval_state === "PENDING_HUMAN_APPROVAL") {
-    return "Content check passed. Human approval is still required before this can be used.";
+    return "Sent to content draft. Human approval is still required before this can be used.";
   }
 
-  return alreadySent ? "Content draft/check already exists in G4." : "Content draft/check created in G4.";
+  return alreadySent ? "This content has already been sent to content draft." : "Sent to content draft.";
 };
 
 const buildG4OutcomeSummary = (review: G4ReviewSnapshot, status: G4ReviewSnapshot["status"], alreadySent: boolean) => {
@@ -597,6 +600,7 @@ const buildOutcomeResponse = (
     caption_suggestions: review.caption_suggestions,
     hook_suggestions: review.hook_suggestions,
     content_draft_id: review.review_id,
+    approval_status: buildG12ApprovalStatus(review),
     insight_id: insight.id,
     fetch_run_id: insight.fetch_run_id,
     request_id: requestId,
@@ -674,6 +678,7 @@ const buildErrorResponse = (
       g4_review_id: null,
       asset_id: null,
       approval_state: null,
+      approval_status: null,
       safe_rewrite: null,
       caption_suggestions: [],
       hook_suggestions: [],
@@ -710,7 +715,7 @@ export async function sendG12TrendToContentDraft(
     const now = new Date().toISOString();
     const localReviewRow = localReviewId ? await loadG4ReviewByReviewId(localReviewId) : await loadExistingG4Review(idempotencyKey);
     const localReview = buildG4ReviewSnapshot(localReviewRow, localReviewId);
-    await syncG12Insight(insight, buildUpdateFields(insight, getG12UpdateStatus(localReview.status), localReview.review_id, now));
+    await syncG12Insight(insight, buildUpdateFields(localReview, now));
     if (localReview.status === "BLOCK") {
       return buildBlockedResponse(insight, randomUUID(), now, now, localReview, true);
     }
@@ -732,10 +737,7 @@ export async function sendG12TrendToContentDraft(
     const handledAt = toText(existingReview.created_at, new Date().toISOString());
     const now = new Date().toISOString();
 
-    await syncG12Insight(
-      insight,
-      buildUpdateFields(insight, getG12UpdateStatus(existingReviewSnapshot.status), existingReviewSnapshot.review_id, now),
-    );
+    await syncG12Insight(insight, buildUpdateFields(existingReviewSnapshot, now));
 
     if (existingReviewSnapshot.status === "BLOCK") {
       return buildBlockedResponse(insight, randomUUID(), now, handledAt, existingReviewSnapshot, true);
@@ -784,26 +786,26 @@ export async function sendG12TrendToContentDraft(
   const webhookReview = buildG4ReviewSnapshot(webhookReviewRow, webhookReviewId);
 
   if (webhookResponse.status === "BLOCK") {
-    await syncG12Insight(insight, buildUpdateFields(insight, "BLOCK", webhookReview.review_id, handledAt));
+    await syncG12Insight(insight, buildUpdateFields(webhookReview, handledAt));
     return buildBlockedResponse(insight, webhookResponse.request_id, sentAt, handledAt, webhookReview, false);
   }
 
   if (webhookResponse.status === "MANUAL_ONLY") {
-    await syncG12Insight(insight, buildUpdateFields(insight, "MANUAL_ONLY", webhookReview.review_id, handledAt));
+    await syncG12Insight(insight, buildUpdateFields(webhookReview, handledAt));
     return buildManualReviewResponse(insight, webhookResponse.request_id, sentAt, handledAt, webhookReview, false);
   }
 
   if (webhookResponse.status === "NEEDS_EVIDENCE") {
-    await syncG12Insight(insight, buildUpdateFields(insight, "NEEDS_EVIDENCE", webhookReview.review_id, handledAt));
+    await syncG12Insight(insight, buildUpdateFields(webhookReview, handledAt));
     return buildNeedsEvidenceResponse(insight, webhookResponse.request_id, sentAt, handledAt, webhookReview, false);
   }
 
   if (webhookResponse.status === "PENDING_APPROVAL") {
-    await syncG12Insight(insight, buildUpdateFields(insight, "PENDING_APPROVAL", webhookReview.review_id, handledAt));
+    await syncG12Insight(insight, buildUpdateFields(webhookReview, handledAt));
     return buildPendingApprovalResponse(insight, webhookResponse.request_id, sentAt, handledAt, webhookReview, false);
   }
 
-  await syncG12Insight(insight, buildUpdateFields(insight, getG12UpdateStatus(webhookReview.status), webhookReview.review_id, handledAt));
+  await syncG12Insight(insight, buildUpdateFields(webhookReview, handledAt));
   return buildPassResponse(insight, webhookResponse.request_id, sentAt, handledAt, webhookReview, false);
 }
 

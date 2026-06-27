@@ -36,10 +36,24 @@ export type G4ContentReviewRecord = {
 export type G4ContentPreview = {
   headline: string | null;
   contentText: string | null;
+  captionPreview: string | null;
   ctaText: string | null;
   landingPageUrl: string | null;
   pageText: string | null;
   productName: string | null;
+  profileUsername: string | null;
+  audioSound: string | null;
+  views: string | null;
+  likes: string | null;
+  comments: string | null;
+  shares: string | null;
+  trendStrength: string | null;
+  brandFitScore: string | null;
+  riskScore: string | null;
+  cleanSummary: string | null;
+  contentRecommendation: string | null;
+  hookAngle: string | null;
+  sourceUrl: string | null;
 };
 
 export type G4LatestOutcome = {
@@ -62,8 +76,11 @@ export type G4RecentOutcome = {
   assetId: string | null;
   platform: string | null;
   approvalState: string | null;
+  contentPreview: G4ContentPreview;
   whatHappened: string;
   actionNeeded: string;
+  cleanAiOutput: G4CleanAiOutput | null;
+  approvalRequest: G4ApprovalRequest | null;
 };
 
 export type G4CleanAiOutput = {
@@ -239,6 +256,17 @@ const asPreviewRecord = (value: unknown) => {
 const readPreviewField = (payload: Record<string, unknown> | null, nestedPayload: Record<string, unknown> | null, key: string) =>
   normalizePreviewValue(payload?.[key]) ?? normalizePreviewValue(nestedPayload?.[key]) ?? null;
 
+const readPreviewFieldFromKeys = (payload: Record<string, unknown> | null, nestedPayload: Record<string, unknown> | null, keys: string[]) => {
+  for (const key of keys) {
+    const value = readPreviewField(payload, nestedPayload, key);
+    if (value) {
+      return value;
+    }
+  }
+
+  return null;
+};
+
 export const extractG4ContentPreview = (row?: Pick<G4ContentReviewRecord, "raw_payload"> | null): G4ContentPreview => {
   const payload = asPreviewRecord(row?.raw_payload);
   const nestedPayload = asPreviewRecord(payload?.raw_payload);
@@ -246,10 +274,24 @@ export const extractG4ContentPreview = (row?: Pick<G4ContentReviewRecord, "raw_p
   return {
     headline: readPreviewField(payload, nestedPayload, "headline"),
     contentText: readPreviewField(payload, nestedPayload, "content_text"),
+    captionPreview: readPreviewFieldFromKeys(payload, nestedPayload, ["caption_preview", "captionPreview", "caption"]),
     ctaText: readPreviewField(payload, nestedPayload, "cta_text"),
     landingPageUrl: readPreviewField(payload, nestedPayload, "landing_page_url"),
     pageText: readPreviewField(payload, nestedPayload, "page_text"),
     productName: readPreviewField(payload, nestedPayload, "product_name"),
+    profileUsername: readPreviewFieldFromKeys(payload, nestedPayload, ["profile_username", "profileUsername", "username", "handle"]),
+    audioSound: readPreviewFieldFromKeys(payload, nestedPayload, ["audio_sound", "audioSound", "sound", "music"]),
+    views: readPreviewFieldFromKeys(payload, nestedPayload, ["views"]),
+    likes: readPreviewFieldFromKeys(payload, nestedPayload, ["likes"]),
+    comments: readPreviewFieldFromKeys(payload, nestedPayload, ["comments_count", "commentsCount", "comments"]),
+    shares: readPreviewFieldFromKeys(payload, nestedPayload, ["shares"]),
+    trendStrength: readPreviewFieldFromKeys(payload, nestedPayload, ["trend_strength", "trendStrength"]),
+    brandFitScore: readPreviewFieldFromKeys(payload, nestedPayload, ["brand_fit_score", "brandFitScore"]),
+    riskScore: readPreviewFieldFromKeys(payload, nestedPayload, ["risk_score", "riskScore"]),
+    cleanSummary: readPreviewField(payload, nestedPayload, "clean_summary"),
+    contentRecommendation: readPreviewField(payload, nestedPayload, "content_recommendation"),
+    hookAngle: readPreviewField(payload, nestedPayload, "hook_angle"),
+    sourceUrl: readPreviewField(payload, nestedPayload, "source_url"),
   };
 };
 

@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { AppSidebar } from "@/components/admin-dashboard/app-sidebar";
 import { Separator } from "@/components/ui/separator";
 import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
+import { cn } from "@/lib/utils";
 
 type WorkflowDashboardShellProps = {
   eyebrow: string;
@@ -12,6 +13,9 @@ type WorkflowDashboardShellProps = {
   description: string;
   badges?: ReactNode;
   actions?: ReactNode;
+  titleContainerClassName?: string;
+  titleClassName?: string;
+  descriptionClassName?: string;
   children: ReactNode;
 };
 
@@ -21,8 +25,13 @@ export default function WorkflowDashboardShell({
   description,
   badges,
   actions,
+  titleContainerClassName,
+  titleClassName,
+  descriptionClassName,
   children,
 }: WorkflowDashboardShellProps) {
+  const showSecondaryHeaderContent = Boolean(badges || actions);
+
   return (
     <SidebarProvider>
       <div className="relative flex min-h-screen w-full overflow-hidden bg-[#faf5f1] text-foreground">
@@ -43,16 +52,18 @@ export default function WorkflowDashboardShell({
                     </div>
 
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                      <div className="max-w-2xl space-y-2">
+                      <div className={cn("max-w-2xl space-y-2", titleContainerClassName)}>
                         <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-muted-foreground">{eyebrow}</p>
-                        <h1 className="font-serif text-4xl leading-none tracking-tight text-primary md:text-5xl">{title}</h1>
-                        <p className="max-w-xl text-sm leading-6 text-muted-foreground md:text-base">{description}</p>
+                        <h1 className={cn("font-serif text-4xl leading-none tracking-tight text-primary md:text-5xl", titleClassName)}>{title}</h1>
+                        <p className={cn("max-w-xl text-sm leading-6 text-muted-foreground md:text-base", descriptionClassName)}>{description}</p>
                       </div>
 
-                      <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap lg:max-w-3xl lg:flex-1 lg:justify-end">
-                        {badges ? <div className="flex flex-wrap items-center gap-2">{badges}</div> : null}
-                        {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
-                      </div>
+                      {showSecondaryHeaderContent ? (
+                        <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap lg:max-w-3xl lg:flex-1 lg:justify-end">
+                          {badges ? <div className="flex flex-wrap items-center gap-2">{badges}</div> : null}
+                          {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
                 </header>
