@@ -1,7 +1,7 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowRight, CircleHelp, Copy, Instagram, Music2, RefreshCcw } from "lucide-react";
+import { AlertTriangle, ArrowRight, CircleHelp, Copy, ExternalLink, Instagram, Music2, RefreshCcw } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/context/AuthContext";
@@ -94,6 +95,57 @@ const buildInitialDraft = (detail: G4WorkflowDetail) =>
   "";
 
 const getApprovalSourceId = (outcome: Pick<G4RecentOutcome, "reviewId" | "assetId"> | null) => outcome?.reviewId ?? outcome?.assetId ?? null;
+
+const normalizeRecentOutcomeKeyPart = (value: string | null | undefined) => value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
+
+type SourceContentSection = {
+  label: string;
+  value: string;
+};
+
+const buildRecentOutcomeStableKey = (row: G4RecentOutcome) => {
+  const sourceId = normalizeRecentOutcomeKeyPart(row.assetId);
+  const contentFingerprint = [
+    row.contentPreview.headline,
+    row.contentPreview.contentText,
+    row.contentPreview.captionPreview,
+    row.contentPreview.ctaText,
+    row.contentPreview.landingPageUrl,
+    row.contentPreview.pageText,
+    row.contentPreview.productName,
+    row.contentPreview.cleanSummary,
+    row.contentPreview.contentRecommendation,
+    row.contentPreview.hookAngle,
+    row.platform,
+  ]
+    .map((value) => normalizeRecentOutcomeKeyPart(value))
+    .filter(Boolean)
+    .join("||");
+
+  if (contentFingerprint) {
+    return contentFingerprint;
+  }
+
+  if (sourceId) {
+    return sourceId;
+  }
+
+  return contentFingerprint || normalizeRecentOutcomeKeyPart(row.reviewId) || normalizeRecentOutcomeKeyPart(row.time);
+};
+
+const dedupeRecentOutcomes = (rows: G4RecentOutcome[]) => {
+  const seen = new Set<string>();
+
+  return rows.filter((row) => {
+    const key = buildRecentOutcomeStableKey(row);
+    if (!key || seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+};
 
 const getPlatformLabel = (platform: string | null) => {
   const normalized = platform?.trim().toUpperCase() ?? "";
@@ -335,7 +387,64 @@ const formatCompactMetricValue = (value: string | null) => {
   return trimmed;
 };
 
-const getSourceCaptionText = (preview: Pick<G4RecentOutcome["contentPreview"], "captionPreview">) => {
+const formatSourceAudioName = (value: string | null) => {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  if (/^original sound\b/i.test(trimmed)) {
+    return "original sound";
+  }
+
+  return trimmed;
+};
+
+const getUniqueSourceContentSections = (
+  preview: Pick<
+    G4RecentOutcome["contentPreview"],
+    "headline" | "captionPreview" | "contentText" | "contentRecommendation" | "cleanSummary" | "hookAngle" | "pageText" | "ctaText"
+  >,
+) => {
+  const candidates: Array<SourceContentSection & { order: number }> = [
+    { label: "Headline", value: preview.headline ?? "", order: 0 },
+    { label: "Caption", value: preview.captionPreview ?? "", order: 1 },
+    { label: "Content text", value: preview.contentText ?? "", order: 2 },
+    { label: "Content recommendation", value: preview.contentRecommendation ?? "", order: 3 },
+    { label: "Clean summary", value: preview.cleanSummary ?? "", order: 4 },
+    { label: "Hook angle", value: preview.hookAngle ?? "", order: 5 },
+    { label: "Page text", value: preview.pageText ?? "", order: 6 },
+    { label: "Call to action", value: preview.ctaText ?? "", order: 7 },
+  ];
+
+  const seen = new Set<string>();
+
+  return candidates
+    .map(({ label, value, order }) => ({
+      label,
+      order,
+      value: value.trim(),
+    }))
+    .filter(({ value }) => Boolean(value))
+    .filter(({ value }) => {
+      const normalized = normalizeRecentOutcomeKeyPart(value);
+      if (!normalized || seen.has(normalized)) {
+        return false;
+      }
+
+      seen.add(normalized);
+      return true;
+    })
+    .sort((left, right) => left.order - right.order)
+    .map(({ label, value }) => ({ label, value }));
+};
+
+const getSourceCaptionText = (
+  preview: Pick<
+    G4RecentOutcome["contentPreview"],
+    "headline" | "captionPreview" | "contentText" | "contentRecommendation" | "cleanSummary" | "hookAngle" | "pageText" | "ctaText"
+  >,
+) => {
   const captionPreview = preview.captionPreview?.trim();
   if (captionPreview) {
     return captionPreview;
@@ -368,49 +477,181 @@ function PendingApprovalCard({
       : "Send to approval";
 
   return (
-    <div className="flex h-full flex-col rounded-[22px] border border-border/60 bg-white p-4 shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div className="space-y-1">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Status</p>
-          <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", formatG4StatusTone(row.result))}>
-            {formatG4ResultLabel(row.result)}
-          </Badge>
+    <div className="flex h-full flex-col rounded-[22px] border border-border/60 bg-white shadow-sm">
+      <div className="flex flex-1 flex-col md:flex-row">
+        {/* Left side: status, summary, and actions */}
+        <div className="flex flex-col p-4 md:max-w-[220px] md:shrink-0">
+          <div className="flex items-center justify-between gap-2">
+            <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", formatG4StatusTone(row.result))}>
+              {formatG4ResultLabel(row.result)}
+            </Badge>
+            <div className="flex size-7 items-center justify-center rounded-lg border border-border/60 bg-muted/20">
+              <PlatformIcon platform={row.platform} className="text-foreground" />
+            </div>
+          </div>
+
+          <p className="mt-2 text-[13px] leading-5 text-muted-foreground">{row.whatHappened}</p>
+
+          <div className="mt-auto flex flex-col gap-2 pt-4">
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 w-full rounded-full text-[11px] font-medium"
+              variant={approvalRequest ? "outline" : "default"}
+              disabled={approvalButtonDisabled}
+              onClick={() => void onSendApproval(sourceId)}
+            >
+              {approvalButtonLabel}
+            </Button>
+
+            <Button
+              type="button"
+              size="sm"
+              variant="outline"
+              className="group h-8 w-full rounded-full border-border/70 bg-white text-[11px] font-medium"
+              onClick={onViewDetails}
+            >
+              View Details
+              <ArrowRight className="size-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
+            </Button>
+          </div>
         </div>
-        <div className="space-y-1 text-right">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Platform</p>
-          <PlatformPill platform={row.platform} className="ml-auto" />
-        </div>
-      </div>
 
-      <div className="mt-3 space-y-2">
-        <p className="text-sm leading-6 text-foreground">{row.whatHappened}</p>
-        <p className="text-sm leading-6 text-muted-foreground">{row.actionNeeded}</p>
-      </div>
-
-      <div className="mt-4 flex flex-wrap gap-2">
-        <Button
-          type="button"
-          size="sm"
-          className="h-8 rounded-full px-3 text-[11px] font-medium"
-          variant={approvalRequest ? "outline" : "default"}
-          disabled={approvalButtonDisabled}
-          onClick={() => void onSendApproval(sourceId)}
-        >
-          {approvalButtonLabel}
-        </Button>
-
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="group h-8 rounded-full border-border/70 bg-white px-3 text-[11px] font-medium"
-          onClick={onViewDetails}
-        >
-          View Details
-          <ArrowRight className="size-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
-        </Button>
+        {/* Right side: caption & hook suggestions */}
+        {(row.cleanAiOutput?.captionSuggestions?.length || row.cleanAiOutput?.hookSuggestions?.length) ? (
+          <div className="flex flex-1 flex-col gap-2.5 border-t border-border/50 p-4 md:border-t-0 md:border-l">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Suggestions</p>
+            {row.cleanAiOutput.captionSuggestions.length ? (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/70">Captions</p>
+                  <CopyButton label="Copy" text={row.cleanAiOutput.captionSuggestions[0] ?? null} className="h-6 px-2 text-[10px]" />
+                </div>
+                <ul className="space-y-1">
+                  {row.cleanAiOutput.captionSuggestions.map((item, index) => (
+                    <li key={`cap-${index}`} className="rounded-xl border border-border/50 bg-muted/10 px-2.5 py-1.5 text-xs leading-5 text-foreground">
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+            {row.cleanAiOutput.hookSuggestions.length ? (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/70">Hooks</p>
+                  <CopyButton label="Copy" text={row.cleanAiOutput.hookSuggestions[0] ?? null} className="h-6 px-2 text-[10px]" />
+                </div>
+                <ul className="space-y-1">
+                  {row.cleanAiOutput.hookSuggestions.map((item, index) => (
+                    <li key={`hook-${index}`} className="rounded-xl border border-border/50 bg-muted/10 px-2.5 py-1.5 text-xs leading-5 text-foreground">
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
+  );
+}
+
+function OriginalPostDetailsDialog({
+  row,
+  open,
+  onOpenChange,
+}: {
+  row: Pick<G4RecentOutcome, "contentPreview" | "cleanAiOutput"> | null;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  if (!row) return null;
+  const sourceContentSections = getUniqueSourceContentSections(row.contentPreview);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-2xl gap-0 p-0 sm:rounded-[24px]">
+        <div className="flex flex-col">
+          <DialogHeader className="border-b border-border/60 bg-muted/10 px-6 py-5">
+            <DialogTitle className="font-serif text-2xl tracking-tight text-primary">Original Post Details</DialogTitle>
+            <DialogDescription className="text-sm leading-6 text-muted-foreground">
+              Review the original post data and AI suggestions.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="max-h-[70vh] overflow-y-auto px-6 py-6">
+            <div className="space-y-8">
+              {/* Original Post Data */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-sm font-semibold uppercase tracking-[0.18em] text-foreground">Original Content</h4>
+                  {row.contentPreview.sourceUrl ? (
+                    <Button variant="link" size="sm" className="h-auto p-0 text-xs text-primary" asChild>
+                      <a href={row.contentPreview.sourceUrl} target="_blank" rel="noopener noreferrer">
+                        View source <ArrowRight className="ml-1 size-3" />
+                      </a>
+                    </Button>
+                  ) : null}
+                </div>
+                <div className="space-y-3 rounded-2xl border border-border/60 bg-muted/15 p-4 text-sm leading-6">
+                  {sourceContentSections.length ? (
+                    sourceContentSections.map((section) => (
+                      <div key={`${section.label}-${section.value}`}>
+                        <span className="font-semibold text-foreground">{section.label}:</span>{" "}
+                        <span className="text-muted-foreground">{section.value}</span>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="text-muted-foreground italic">No original content data available.</div>
+                  )}
+                </div>
+              </div>
+
+              {/* AI Suggestions Section */}
+              {(row.cleanAiOutput?.captionSuggestions?.length || row.cleanAiOutput?.hookSuggestions?.length) ? (
+                <div className="space-y-4">
+                  <Separator className="bg-border/60" />
+                  <h4 className="text-sm font-semibold uppercase tracking-[0.18em] text-foreground">AI Suggestions</h4>
+                  
+                  {row.cleanAiOutput.captionSuggestions && row.cleanAiOutput.captionSuggestions.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Captions</span>
+                        <CopyButton label="Copy" text={row.cleanAiOutput.captionSuggestions[0] ?? null} className="h-6 px-2 text-[10px]" />
+                      </div>
+                      <ul className="space-y-2">
+                        {row.cleanAiOutput.captionSuggestions.map((s, i) => (
+                          <li key={i} className="rounded-xl border border-border/50 bg-muted/10 px-3 py-2 text-xs leading-5 text-foreground">
+                            {s}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+
+                  {row.cleanAiOutput.hookSuggestions && row.cleanAiOutput.hookSuggestions.length > 0 && (
+                    <div className="space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Hooks</span>
+                        <CopyButton label="Copy" text={row.cleanAiOutput.hookSuggestions[0] ?? null} className="h-6 px-2 text-[10px]" />
+                      </div>
+                      <ul className="space-y-2">
+                        {row.cleanAiOutput.hookSuggestions.map((s, i) => (
+                          <li key={i} className="rounded-xl border border-border/50 bg-muted/10 px-3 py-2 text-xs leading-5 text-foreground">
+                            {s}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -439,7 +680,7 @@ function PendingApprovalDetailsDialog({
               <div className="space-y-2">
                 <DialogTitle className="font-serif text-2xl tracking-tight text-primary">View Details</DialogTitle>
                 <DialogDescription className="max-w-3xl text-sm leading-6 text-muted-foreground">
-                  Source post data sits on the left, AI notes stay in the middle, and the suggested captions and hooks stay on the right.
+                  Source post data sits on the left and AI notes stay on the right. Caption and hook suggestions are shown on each card.
                 </DialogDescription>
               </div>
               <div className="flex flex-wrap items-center gap-2">
@@ -451,10 +692,10 @@ function PendingApprovalDetailsDialog({
             </div>
           </DialogHeader>
 
-          <div className="grid flex-1 min-h-0 gap-4 overflow-y-auto px-6 py-6 xl:grid-cols-[minmax(15rem,1fr)_minmax(18rem,1.15fr)_minmax(15rem,1fr)]">
+          <div className="grid flex-1 min-h-0 gap-4 overflow-y-auto px-6 py-6 xl:grid-cols-[minmax(18rem,1fr)_minmax(22rem,1.25fr)]">
             <Card className="rounded-[28px] border-border/60 bg-white shadow-sm">
               <CardHeader className="space-y-2">
-                <CardTitle className="font-serif text-xl tracking-tight text-primary">Source post data</CardTitle>
+                <CardTitle className="font-serif text-xl tracking-tight text-primary">Original Post Data</CardTitle>
                 <CardDescription className="text-sm leading-6 text-muted-foreground">
                   The original post fields captured when this row was reviewed.
                 </CardDescription>
@@ -489,13 +730,13 @@ function PendingApprovalDetailsDialog({
                       label="Handle"
                       value={row.contentPreview.profileUsername ?? "Not available"}
                     />
-                    <SourceDataTile label="Audio" value={row.contentPreview.audioSound ?? "original sound"} />
+                    <SourceDataTile label="Audio" value={formatSourceAudioName(row.contentPreview.audioSound) ?? "original sound"} />
                   </div>
                   <div className="mt-3">
                     {sourceUrl ? (
-                      <Button asChild variant="outline" className="h-10 w-full rounded-full border-border/70 bg-white px-4 text-sm font-semibold shadow-none">
+                      <Button asChild variant="outline" className="h-10 w-full rounded-[14px] border-border/70 bg-white px-4 text-sm font-semibold shadow-none">
                         <a href={sourceUrl} target="_blank" rel="noreferrer">
-                          <ArrowRight className="mr-2 size-4" />
+                          <ExternalLink className="mr-2 size-4" />
                           Open Original Post
                         </a>
                       </Button>
@@ -558,30 +799,7 @@ function PendingApprovalDetailsDialog({
               </CardContent>
             </Card>
 
-            <Card className="rounded-[28px] border-border/60 bg-white shadow-sm">
-              <CardHeader className="space-y-2">
-                <CardTitle className="font-serif text-xl tracking-tight text-primary">Caption and hook suggestions</CardTitle>
-                <CardDescription className="text-sm leading-6 text-muted-foreground">
-                  Use these as starting points for a safer rewrite.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <SuggestionsList
-                  title="Caption suggestions"
-                  items={row.cleanAiOutput?.captionSuggestions ?? []}
-                  emptyText="No caption suggestions provided."
-                  copyLabel="Copy caption suggestion"
-                  showCopyButton={Boolean(row.cleanAiOutput?.captionSuggestions.length)}
-                />
-                <SuggestionsList
-                  title="Hook suggestions"
-                  items={row.cleanAiOutput?.hookSuggestions ?? []}
-                  emptyText="No hook suggestions provided."
-                  copyLabel="Copy hook"
-                  showCopyButton={Boolean(row.cleanAiOutput?.hookSuggestions.length)}
-                />
-              </CardContent>
-            </Card>
+
           </div>
         </div>
       </DialogContent>
@@ -680,6 +898,7 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
   const [approvalRequest, setApprovalRequest] = useState(detail.approvalRequest);
   const [approvalSubmittingSourceId, setApprovalSubmittingSourceId] = useState<string | null>(null);
   const [selectedPendingRow, setSelectedPendingRow] = useState<G4RecentOutcome | null>(null);
+  const [selectedRecentRow, setSelectedRecentRow] = useState<G4RecentOutcome | null>(null);
 
   useEffect(() => {
     setRecheckDraft(initialDraft);
@@ -705,10 +924,18 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
       ? `Approval queued as ${approvalRequest.approvalId}.`
       : `Approval record ${approvalRequest.status.toLowerCase().replace(/_/g, " ")} as ${approvalRequest.approvalId}.`
     : "Queue this content for human approval.";
-  const pendingApprovalRows = detail.recentOutcomes.filter((row) => {
-    const isLatestOutcomeRow = getApprovalSourceId(row) === latestApprovalSourceId;
-    return row.result === "PENDING_APPROVAL" && !isLatestOutcomeRow;
-  });
+  const recentOutcomes = dedupeRecentOutcomes(detail.recentOutcomes);
+  const visiblePendingApprovalRows = recentOutcomes
+    .filter((row) => {
+      const isLatestOutcomeRow = getApprovalSourceId(row) === latestApprovalSourceId;
+      return row.result === "PENDING_APPROVAL" && !isLatestOutcomeRow;
+    })
+    .filter((row, index, arr) => {
+      const sourceId = getApprovalSourceId(row);
+      if (!sourceId) return index === arr.findIndex((r) => !getApprovalSourceId(r));
+      return index === arr.findIndex((r) => getApprovalSourceId(r) === sourceId);
+    })
+    .slice(0, 3);
 
   const handleApprovalRequest = async (sourceId: string | null = latestApprovalSourceId) => {
     if (!sourceId || approvalSubmittingSourceId !== null) {
@@ -831,17 +1058,17 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
           </Card>
         ) : null}
 
-        {pendingApprovalRows.length ? (
+        {visiblePendingApprovalRows.length ? (
           <Card className="overflow-hidden rounded-[28px] border-border/60 bg-white/95 shadow-sm">
             <CardHeader className="space-y-2">
               <CardTitle className="font-serif text-2xl tracking-tight text-primary">Pending For Approval</CardTitle>
               <CardDescription className="text-sm leading-6 text-muted-foreground">
-                {pendingApprovalRows.length} check{pendingApprovalRows.length === 1 ? "" : "s"} are waiting for human approval. Use each card to queue approval or review AI notes.
+                {visiblePendingApprovalRows.length} check{visiblePendingApprovalRows.length === 1 ? "" : "s"} are waiting for human approval. Use each card to queue approval or review AI notes.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                {pendingApprovalRows.map((row) => (
+              <div className="grid gap-3 md:grid-cols-2">
+                {visiblePendingApprovalRows.map((row) => (
                   <PendingApprovalCard
                     key={`${row.time}-${row.reviewId ?? row.assetId ?? row.platform ?? "pending"}`}
                     row={row}
@@ -855,177 +1082,116 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
           </Card>
         ) : null}
 
-        <Card id="content-being-reviewed" className="overflow-hidden rounded-[28px] border-border/60 bg-white/95 shadow-sm">
-          <CardHeader className="space-y-2">
-            <div className={cn("h-1.5 w-full rounded-full", statusAccentClass)} />
-            <CardTitle className="font-serif text-2xl tracking-tight text-primary">Content Being Reviewed</CardTitle>
-            <CardDescription className="text-sm leading-6 text-muted-foreground">
-              The exact content and landing-page text that G4 checked.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            <FieldBlock label="Headline" value={detail.contentPreview.headline ?? "Not available"} />
-            <FieldBlock label="Caption / Content" value={detail.contentPreview.contentText ?? "Not available"} className="md:col-span-2" />
-            <FieldBlock label="CTA" value={detail.contentPreview.ctaText ?? "Not available"} />
-            <FieldBlock label="Product" value={detail.contentPreview.productName ?? "Not available"} />
-            <FieldBlock
-              label="Landing page"
-              value={
-                detail.contentPreview.landingPageUrl ? (
-                  <a
-                    href={detail.contentPreview.landingPageUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="break-all text-primary underline decoration-primary/40 underline-offset-4"
-                  >
-                    {detail.contentPreview.landingPageUrl}
-                  </a>
-                ) : (
-                  "Not available"
-                )
-              }
-              className="md:col-span-2"
-            />
-            <FieldBlock label="Landing page text checked" value={detail.contentPreview.pageText ?? "Not available"} className="md:col-span-2" />
-          </CardContent>
-        </Card>
 
-        <Card className={cn("overflow-hidden rounded-[28px] border-border/60 bg-white/95 shadow-sm", getActionToneClass(status))}>
+        <Card id="recent-checks" className="rounded-[28px] border-border/60 bg-white shadow-sm">
           <CardHeader className="space-y-2">
-            <div className={cn("h-1.5 w-full rounded-full", statusAccentClass)} />
-            <CardTitle className="font-serif text-2xl tracking-tight">What Needs to Happen</CardTitle>
-            <CardDescription className="text-sm leading-6">
-              {actionPanelCopy.body}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="space-y-2">
-              <p className="text-sm font-semibold uppercase tracking-[0.18em]">Next step</p>
-              <p className="text-sm leading-6">{actionPanelCopy.title}</p>
-            </div>
-
-            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
-              {actionPanelCopy.buttonAction === "approval" ? (
-                <>
-                  <Button
-                    type="button"
-                    className="h-10 rounded-full px-5"
-                    variant={approvalRecorded ? "outline" : "default"}
-                    disabled={approvalActionDisabled}
-                    onClick={() => void handleApprovalRequest()}
-                  >
-                    {approvalButtonLabel}
-                  </Button>
-                  <p className="text-xs leading-5 text-muted-foreground">{approvalHelperText}</p>
-                </>
-              ) : (
-                <>
-                  <Button
-                    type="button"
-                    className="h-10 rounded-full px-5"
-                    variant={actionPanelCopy.disabled ? "outline" : "default"}
-                    disabled={actionPanelCopy.disabled}
-                    onClick={handlePanelAction}
-                  >
-                    {actionPanelCopy.buttonLabel}
-                    {!actionPanelCopy.disabled && actionPanelCopy.buttonAction === "view" ? <ArrowRight className="size-4" /> : null}
-                  </Button>
-                  {actionPanelCopy.helper ? <p className="text-xs leading-5 text-muted-foreground">{actionPanelCopy.helper}</p> : null}
-                </>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card id="recent-checks" className="overflow-hidden rounded-[28px] border-border/60 bg-white/95 shadow-sm">
-          <CardHeader className="space-y-2">
-            <div className={cn("h-1.5 w-full rounded-full", statusAccentClass)} />
             <CardTitle className="font-serif text-2xl tracking-tight text-primary">Recent Checks</CardTitle>
             <CardDescription className="text-sm leading-6 text-muted-foreground">
               Compact history of the latest G4 checks.
             </CardDescription>
           </CardHeader>
-          <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="min-w-[720px] w-full border-separate border-spacing-0">
-                <thead>
-                  <tr className="border-b border-border/60">
-                    <th className="px-5 py-4 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Status</th>
-                    <th className="px-5 py-4 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Content summary</th>
-                    <th className="px-5 py-4 text-left text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Next step</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {detail.recentOutcomes.length ? (
-                    detail.recentOutcomes.map((row) => {
-                      const isLatestRow = row.reviewId === latestOutcome?.reviewId || (!row.reviewId && row.assetId === latestOutcome?.assetId);
-                      const rowSourceId = getApprovalSourceId(row);
-                      const rowAction =
-                        row.result === "PENDING_APPROVAL" && !isLatestRow
-                          ? { label: "View", disabled: false, helper: null, action: "view" as const }
-                          : getRecentRowAction(row.result);
-                      const rowApprovalQueued = Boolean(row.approvalRequest);
+          <CardContent>
+            {recentOutcomes.length ? (
+              <div className="overflow-hidden rounded-[24px] border border-border/60 bg-white shadow-sm">
+                <div className="overflow-x-auto">
+                  <Table className="min-w-[800px] table-fixed">
+                    <colgroup>
+                      <col className="w-[140px]" />
+                      <col className="w-[64px]" />
+                      <col />
+                      <col className="w-[160px]" />
+                      <col className="w-[180px]" />
+                    </colgroup>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead className="px-4">Date</TableHead>
+                        <TableHead className="px-4">Platform</TableHead>
+                        <TableHead className="px-4 text-left">Content summary</TableHead>
+                        <TableHead className="px-4">Status</TableHead>
+                        <TableHead className="px-4">Action Required</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {recentOutcomes.map((row) => {
+                        const isLatestRow = row.reviewId === latestOutcome?.reviewId || (!row.reviewId && row.assetId === latestOutcome?.assetId);
+                        const rowSourceId = getApprovalSourceId(row);
+                        const rowAction =
+                          row.result === "PENDING_APPROVAL" && !isLatestRow
+                            ? { label: "View", disabled: false, helper: null, action: "view" as const }
+                            : getRecentRowAction(row.result);
+                        const rowApprovalQueued = Boolean(row.approvalRequest);
+                        const formattedDate = row.time
+                          ? new Date(row.time).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+                          : "—";
+                        const formattedTime = row.time
+                          ? new Date(row.time).toLocaleTimeString("en-GB", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase()
+                          : "";
 
-                      return (
-                        <tr key={`${row.time}-${row.reviewId ?? row.assetId ?? row.platform ?? "g4"}`} className="border-b border-border/50 last:border-b-0">
-                          <td className="px-5 py-4 align-top">
-                            <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", formatG4StatusTone(row.result))}>
-                              {formatG4ResultLabel(row.result)}
-                            </Badge>
-                          </td>
-                          <td className="px-5 py-4 align-top">
-                            <p className="max-w-[28rem] text-sm leading-6 text-foreground">{row.whatHappened}</p>
-                          </td>
-                          <td className="px-5 py-4 align-top">
-                            <div className="space-y-2">
-                              <p className="text-sm leading-6 text-foreground">{row.actionNeeded}</p>
+                        return (
+                          <TableRow key={`${row.time}-${row.reviewId ?? row.assetId ?? row.platform ?? "g4"}`}>
+                            <TableCell className="px-4 py-3 align-middle">
+                              <div className="text-sm text-foreground">{formattedDate}</div>
+                              {formattedTime ? <div className="text-xs text-muted-foreground">{formattedTime}</div> : null}
+                            </TableCell>
+                            <TableCell className="px-4 py-3 align-middle">
+                              <PlatformIcon platform={row.platform} className="text-foreground" />
+                            </TableCell>
+                            <TableCell className="px-4 py-3 align-middle">
+                              <p className="line-clamp-2 text-sm leading-5 text-foreground">{row.whatHappened}</p>
+                              <Button
+                                variant="link"
+                                className="mt-1 h-auto p-0 text-[11px] font-semibold text-primary hover:underline"
+                                onClick={() => setSelectedRecentRow(row)}
+                              >
+                                Original post
+                              </Button>
+                            </TableCell>
+                            <TableCell className="px-4 py-3 align-middle">
+                              <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", formatG4StatusTone(row.result))}>
+                                {formatG4ResultLabel(row.result)}
+                              </Badge>
+                            </TableCell>
+                            <TableCell className="px-4 py-3 align-middle">
                               {rowAction.action === "approval" ? (
-                                <div className="space-y-1">
-                                  <Button
-                                    type="button"
-                                    size="sm"
-                                    className="h-8 rounded-full px-3 text-[11px] font-medium"
-                                    variant={rowApprovalQueued ? "outline" : "default"}
-                                    disabled={rowApprovalQueued || approvalSubmittingSourceId !== null || !rowSourceId}
-                                    onClick={() => void handleApprovalRequest(rowSourceId)}
-                                  >
-                                    {approvalSubmittingSourceId === rowSourceId ? "Queueing..." : rowApprovalQueued ? "Queued" : rowAction.label}
-                                  </Button>
-                                  <p className="text-xs leading-5 text-muted-foreground">
-                                    {rowApprovalQueued ? approvalHelperText : "Queue this content for human approval."}
-                                  </p>
-                                </div>
-                              ) : rowAction.disabled ? (
-                                <div className="space-y-1">
-                                  <Button type="button" size="sm" className="h-8 rounded-full px-3 text-[11px] font-medium" disabled>
-                                    {rowAction.label}
-                                  </Button>
-                                  <p className="text-xs leading-5 text-muted-foreground">{rowAction.helper}</p>
-                                </div>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  className="h-8 w-full rounded-full text-[11px] font-medium"
+                                  variant={rowApprovalQueued ? "outline" : "default"}
+                                  disabled={rowApprovalQueued || approvalSubmittingSourceId !== null || !rowSourceId}
+                                  onClick={() => void handleApprovalRequest(rowSourceId)}
+                                >
+                                  {approvalSubmittingSourceId === rowSourceId ? "Queueing..." : rowApprovalQueued ? "Queued" : "Send to approval"}
+                                </Button>
                               ) : rowAction.action === "fix" ? (
-                                <Button type="button" size="sm" className="h-8 rounded-full px-3 text-[11px] font-medium" onClick={() => setFixPanelOpen(true)}>
+                                <Button type="button" size="sm" className="h-8 w-full rounded-full text-[11px] font-medium" onClick={() => setFixPanelOpen(true)}>
                                   {rowAction.label}
                                 </Button>
                               ) : (
-                                <Button type="button" size="sm" variant="outline" className="h-8 rounded-full border-border/70 px-3 text-[11px] font-medium" onClick={() => handleRowAction(rowAction.action)}>
+                                <Button
+                                  type="button"
+                                  size="sm"
+                                  variant="outline"
+                                  className="h-8 w-full rounded-full border-border/70 text-[11px] font-medium"
+                                  disabled={rowAction.disabled}
+                                  onClick={() => handleRowAction(rowAction.action)}
+                                >
                                   {rowAction.label}
                                 </Button>
                               )}
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })
-                  ) : (
-                    <tr>
-                      <td colSpan={5} className="px-5 py-10 text-center text-sm leading-6 text-muted-foreground">
-                        No recent checks yet.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-[24px] border border-dashed border-border/70 bg-muted/10 p-6 text-sm leading-6 text-muted-foreground">
+                No recent checks yet.
+              </div>
+            )}
           </CardContent>
         </Card>
       </WorkflowDashboardShell>
@@ -1036,6 +1202,16 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
         onOpenChange={(open) => {
           if (!open) {
             setSelectedPendingRow(null);
+          }
+        }}
+      />
+
+      <OriginalPostDetailsDialog
+        row={selectedRecentRow}
+        open={Boolean(selectedRecentRow)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedRecentRow(null);
           }
         }}
       />

@@ -52,6 +52,8 @@ const G4_WORKFLOW_PURPOSE =
   "Checks captions, claims, landing-page wording, and risky language before content moves forward." as const;
 const G4_EMPTY_ACTION = "Check content to see the latest result." as const;
 const G4_ERROR_ACTION = "Unable to load content checks right now." as const;
+const G4_FETCH_LIMIT = 100 as const;
+const G4_UNIQUE_ROW_LIMIT = 10 as const;
 
 type G4Row = G4ContentReviewRecord & Record<string, unknown>;
 type JsonRecord = Record<string, unknown>;
@@ -70,6 +72,14 @@ const asJsonRecord = (value: unknown): JsonRecord | null => {
   return value as JsonRecord;
 };
 
+const getJsonRecordCandidates = (record: JsonRecord | null | undefined) => {
+  const direct = asJsonRecord(record);
+  const payload = asJsonRecord(direct?.raw_payload);
+  const nestedPayload = asJsonRecord(payload?.raw_payload);
+
+  return [direct, payload, nestedPayload].filter((value): value is JsonRecord => Boolean(value));
+};
+
 const readJsonRecordText = (record: JsonRecord | null | undefined, keys: string[]) => {
   if (!record) {
     return null;
@@ -85,6 +95,19 @@ const readJsonRecordText = (record: JsonRecord | null | undefined, keys: string[
   return null;
 };
 
+const readJsonRecordTextFromCandidates = (records: Array<JsonRecord | null | undefined>, keys: string[]) => {
+  for (const record of records) {
+    for (const candidate of getJsonRecordCandidates(record)) {
+      const value = readJsonRecordText(candidate, keys);
+      if (value) {
+        return value;
+      }
+    }
+  }
+
+  return null;
+};
+
 const readG4RawPayloadText = (row: Pick<G4ContentReviewRecord, "raw_payload"> | null | undefined, keys: string[]) => {
   const payload = asJsonRecord(row?.raw_payload);
   const nestedPayload = asJsonRecord(payload?.raw_payload);
@@ -93,7 +116,21 @@ const readG4RawPayloadText = (row: Pick<G4ContentReviewRecord, "raw_payload"> | 
 };
 
 const getG4SourceTrendId = (row: Pick<G4ContentReviewRecord, "raw_payload"> | null | undefined) =>
-  readG4RawPayloadText(row, ["source_trend_id", "sourceTrendId", "trend_id", "trendId"]);
+  readG4RawPayloadText(row, [
+    "source_trend_id",
+    "sourceTrendId",
+    "trend_id",
+    "trendId",
+    "insight_id",
+    "insightId",
+    "source_insight_id",
+    "sourceInsightId",
+    "fetch_run_id",
+    "fetchRunId",
+  ]);
+
+const getG4SourceLookupKey = (row: Pick<G4ContentReviewRecord, "raw_payload" | "asset_id"> | null | undefined) =>
+  getG4SourceTrendId(row) ?? readG4RawPayloadText(row, ["asset_id", "assetId"]) ?? normalizeG4Text(row?.asset_id);
 
 const mergeG4ContentPreview = (base: G4ContentPreview, sourcePreview: Partial<G4SourcePreview> | null): G4ContentPreview => {
   if (!sourcePreview) {
@@ -116,40 +153,88 @@ const mergeG4ContentPreview = (base: G4ContentPreview, sourcePreview: Partial<G4
   };
 };
 
+const indexRecordByKeys = (map: Map<string, JsonRecord>, record: JsonRecord, keys: string[]) => {
+  for (const key of keys) {
+    const value = readJsonRecordTextFromCandidates([record], [key]);
+    if (value) {
+      map.set(value, record);
+    }
+  }
+};
+
+const normalizeG4SourceMatchText = (value: string | null | undefined) => value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
+
+const buildG4SourceMatchFingerprint = (preview: Pick<G4ContentPreview, "headline" | "cleanSummary" | "contentRecommendation" | "hookAngle">) => {
+  const tokens = [preview.headline, preview.cleanSummary, preview.contentRecommendation, preview.hookAngle]
+    .map((value) => normalizeG4SourceMatchText(value))
+    .filter(Boolean);
+
+  return tokens.length ? tokens.join("||") : null;
+};
+
+const buildInsightSourceMatchFingerprint = (record: JsonRecord) => {
+  const tokens = [
+    readJsonRecordTextFromCandidates([record], ["insight_title", "insightTitle", "title", "headline", "name", "trend_topic", "trendTopic"]),
+    readJsonRecordTextFromCandidates([record], ["clean_summary", "cleanSummary", "source_summary", "sourceSummary", "summary"]),
+    readJsonRecordTextFromCandidates([record], ["content_recommendation", "contentRecommendation", "recommendation", "content_recommendation_text"]),
+    readJsonRecordTextFromCandidates([record], ["hook_angle", "hookAngle", "hook"]),
+  ]
+    .map((value) => normalizeG4SourceMatchText(value))
+    .filter(Boolean);
+
+  return tokens.length ? tokens.join("||") : null;
+};
+
 const loadG4SourcePreviewMap = async (rows: G4Row[]) => {
-  const sourceTrendIds = [...new Set(rows.map((row) => getG4SourceTrendId(row)).filter((value): value is string => Boolean(value)))];
+  const sourceTrendIds = [...new Set(rows.map((row) => getG4SourceLookupKey(row)).filter((value): value is string => Boolean(value)))];
   const previewByTrendId = new Map<string, G4SourcePreview>();
 
   if (!sourceTrendIds.length) {
     return previewByTrendId;
   }
 
-  const { data: insightRows, error: insightError } = await supabaseAdmin
-    .from(G12_SUPABASE_TABLES.insights)
-    .select("trend_id, metric_id, trend_strength, brand_fit_score, risk_score")
-    .in("trend_id", sourceTrendIds);
+  const insightSelect = "*" as const;
+  const [insightByTrendResult, insightByRunResult, recentInsightsResult] = await Promise.all([
+    supabaseAdmin.from(G12_SUPABASE_TABLES.insights).select(insightSelect).in("trend_id", sourceTrendIds),
+    supabaseAdmin.from(G12_SUPABASE_TABLES.insights).select(insightSelect).in("fetch_run_id", sourceTrendIds),
+    supabaseAdmin.from(G12_SUPABASE_TABLES.insights).select(insightSelect).order("created_at", { ascending: false, nullsFirst: false }).limit(250),
+  ]);
 
-  if (insightError) {
-    console.warn("[g4-content-check-adapter] Failed to load G12 insight rows for source previews", insightError);
+  const insightErrors = [
+    insightByTrendResult.error,
+    insightByRunResult.error,
+    recentInsightsResult.error,
+  ].filter(Boolean);
+  if (insightErrors.length === 3) {
+    console.warn("[g4-content-check-adapter] Failed to load G12 insight rows for source previews", insightErrors);
     return previewByTrendId;
   }
 
-  const insightRecords = (Array.isArray(insightRows) ? insightRows : [])
+  const insightRecords = [
+    ...(Array.isArray(insightByTrendResult.data) ? insightByTrendResult.data : []),
+    ...(Array.isArray(insightByRunResult.data) ? insightByRunResult.data : []),
+    ...(Array.isArray(recentInsightsResult.data) ? recentInsightsResult.data : []),
+  ]
     .map((row) => asJsonRecord(row))
     .filter((row): row is JsonRecord => Boolean(row));
 
-  const insightByTrendId = new Map<string, JsonRecord>();
+  const insightBySourceKey = new Map<string, JsonRecord>();
+  const insightByFingerprint = new Map<string, JsonRecord>();
   const metricIds = new Set<string>();
+  const rawIds = new Set<string>();
   for (const record of insightRecords) {
-    const trendId = readJsonRecordText(record, ["trend_id"]);
-    if (!trendId) {
-      continue;
+    indexRecordByKeys(insightBySourceKey, record, ["trend_id", "fetch_run_id"]);
+    const fingerprint = buildInsightSourceMatchFingerprint(record);
+    if (fingerprint && !insightByFingerprint.has(fingerprint)) {
+      insightByFingerprint.set(fingerprint, record);
     }
-
-    insightByTrendId.set(trendId, record);
-    const metricId = readJsonRecordText(record, ["metric_id"]);
+    const metricId = readJsonRecordTextFromCandidates([record], ["metric_id"]);
     if (metricId) {
       metricIds.add(metricId);
+    }
+    const rawId = readJsonRecordTextFromCandidates([record], ["raw_id"]);
+    if (rawId) {
+      rawIds.add(rawId);
     }
   }
 
@@ -157,26 +242,22 @@ const loadG4SourcePreviewMap = async (rows: G4Row[]) => {
   if (metricIds.size) {
     const { data: metricRows, error: metricError } = await supabaseAdmin
       .from(G12_SUPABASE_TABLES.metrics)
-      .select("metric_id, raw_id, profile_username, profile_public_link, content_url, audio_sound, views, likes, comments_count, shares")
+      .select("*")
       .in("metric_id", [...metricIds]);
 
     if (metricError) {
       console.warn("[g4-content-check-adapter] Failed to load G12 metric rows for source previews", metricError);
     } else {
       for (const record of (Array.isArray(metricRows) ? metricRows : []).map((row) => asJsonRecord(row)).filter((row): row is JsonRecord => Boolean(row))) {
-        const metricId = readJsonRecordText(record, ["metric_id"]);
+        const metricId = readJsonRecordTextFromCandidates([record], ["metric_id"]);
         if (metricId) {
           metricByMetricId.set(metricId, record);
         }
+        const rawId = readJsonRecordTextFromCandidates([record], ["raw_id"]);
+        if (rawId) {
+          rawIds.add(rawId);
+        }
       }
-    }
-  }
-
-  const rawIds = new Set<string>();
-  for (const record of metricByMetricId.values()) {
-    const rawId = readJsonRecordText(record, ["raw_id"]);
-    if (rawId) {
-      rawIds.add(rawId);
     }
   }
 
@@ -184,14 +265,14 @@ const loadG4SourcePreviewMap = async (rows: G4Row[]) => {
   if (rawIds.size) {
     const { data: rawRows, error: rawError } = await supabaseAdmin
       .from(G12_SUPABASE_TABLES.rawScrapeQuarantine)
-      .select("raw_id, caption_excerpt, profile_username, profile_public_link, content_url, audio_sound, views, likes, comments_count, shares")
+      .select("*")
       .in("raw_id", [...rawIds]);
 
     if (rawError) {
       console.warn("[g4-content-check-adapter] Failed to load G12 raw scrape rows for source previews", rawError);
     } else {
       for (const record of (Array.isArray(rawRows) ? rawRows : []).map((row) => asJsonRecord(row)).filter((row): row is JsonRecord => Boolean(row))) {
-        const rawId = readJsonRecordText(record, ["raw_id"]);
+        const rawId = readJsonRecordTextFromCandidates([record], ["raw_id"]);
         if (rawId) {
           rawByRawId.set(rawId, record);
         }
@@ -199,29 +280,41 @@ const loadG4SourcePreviewMap = async (rows: G4Row[]) => {
     }
   }
 
-  for (const sourceTrendId of sourceTrendIds) {
-    const insight = insightByTrendId.get(sourceTrendId) ?? null;
-    const metricId = readJsonRecordText(insight, ["metric_id"]);
+  for (const row of rows) {
+    const sourceTrendId = getG4SourceLookupKey(row);
+    if (!sourceTrendId || previewByTrendId.has(sourceTrendId)) {
+      continue;
+    }
+
+    const rowPreview = extractG4ContentPreview(row);
+    const sourceFingerprint = buildG4SourceMatchFingerprint(rowPreview);
+    const insight = insightBySourceKey.get(sourceTrendId) ?? (sourceFingerprint ? insightByFingerprint.get(sourceFingerprint) ?? null : null);
+    const metricId = readJsonRecordTextFromCandidates([insight], ["metric_id"]);
     const metric = metricId ? metricByMetricId.get(metricId) ?? null : null;
-    const rawId = readJsonRecordText(metric, ["raw_id"]);
+    const rawId = readJsonRecordTextFromCandidates([metric, insight], ["raw_id"]);
     const rawScrape = rawId ? rawByRawId.get(rawId) ?? null : null;
 
     previewByTrendId.set(sourceTrendId, {
-      captionPreview: readJsonRecordText(rawScrape, ["caption_excerpt", "captionPreview", "caption"]),
-      profileUsername:
-        readJsonRecordText(rawScrape, ["profile_username", "profileUsername", "username", "handle"]) ??
-        readJsonRecordText(metric, ["profile_username", "profileUsername", "username", "handle"]),
-      audioSound: readJsonRecordText(metric, ["audio_sound", "audioSound", "sound", "music"]) ?? readJsonRecordText(rawScrape, ["audio_sound", "audioSound", "sound", "music"]),
-      views: readJsonRecordText(rawScrape, ["views"]) ?? readJsonRecordText(metric, ["views"]),
-      likes: readJsonRecordText(rawScrape, ["likes"]) ?? readJsonRecordText(metric, ["likes"]),
-      comments: readJsonRecordText(rawScrape, ["comments_count", "commentsCount", "comments"]) ?? readJsonRecordText(metric, ["comments_count", "commentsCount", "comments"]),
-      shares: readJsonRecordText(rawScrape, ["shares"]) ?? readJsonRecordText(metric, ["shares"]),
-      trendStrength: readJsonRecordText(insight, ["trend_strength", "trendStrength"]),
-      brandFitScore: readJsonRecordText(insight, ["brand_fit_score", "brandFitScore"]),
-      riskScore: readJsonRecordText(insight, ["risk_score", "riskScore"]),
-      sourceUrl:
-        readJsonRecordText(rawScrape, ["content_url", "contentUrl", "source_url", "sourceUrl", "profile_public_link", "profilePublicLink", "url"]) ??
-        readJsonRecordText(metric, ["content_url", "contentUrl", "profile_public_link", "profilePublicLink"]),
+      captionPreview: readJsonRecordTextFromCandidates(
+        [rawScrape, metric, insight],
+        ["caption_excerpt", "captionExcerpt", "caption_preview", "captionPreview", "caption", "text", "description"],
+      ),
+      profileUsername: readJsonRecordTextFromCandidates(
+        [rawScrape, metric, insight],
+        ["profile_username", "profileUsername", "username", "handle", "source_account_name", "sourceAccountName", "account_name", "accountName"],
+      ),
+      audioSound: readJsonRecordTextFromCandidates([metric, rawScrape], ["audio_sound", "audioSound", "sound", "music"]),
+      views: readJsonRecordTextFromCandidates([rawScrape, metric], ["views"]),
+      likes: readJsonRecordTextFromCandidates([rawScrape, metric], ["likes"]),
+      comments: readJsonRecordTextFromCandidates([rawScrape, metric], ["comments_count", "commentsCount", "comments"]),
+      shares: readJsonRecordTextFromCandidates([rawScrape, metric], ["shares"]),
+      trendStrength: readJsonRecordTextFromCandidates([insight, metric], ["trend_strength", "trendStrength"]),
+      brandFitScore: readJsonRecordTextFromCandidates([insight, metric], ["brand_fit_score", "brandFitScore"]),
+      riskScore: readJsonRecordTextFromCandidates([insight, metric], ["risk_score", "riskScore"]),
+      sourceUrl: readJsonRecordTextFromCandidates(
+        [rawScrape, metric, insight],
+        ["source_url", "sourceUrl", "content_url", "contentUrl", "profile_public_link", "profilePublicLink", "url", "post_url", "postUrl", "web_video_url", "webVideoUrl", "permalink"],
+      ),
     });
   }
 
@@ -267,6 +360,78 @@ const buildG4RecentOutcome = (row: G4Row, sourcePreview?: Partial<G4SourcePrevie
     cleanAiOutput,
     approvalRequest: buildG4ApprovalRequest(row),
   };
+};
+
+const normalizeG4FingerprintText = (value: string | null | undefined) => value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
+
+const getG4RowStableSourceId = (row: G4Row) =>
+  getG4SourceTrendId(row) ??
+  readG4RawPayloadText(row, ["idempotency_key", "idempotencyKey"]) ??
+  readG4RawPayloadText(row, ["insight_id", "insightId"]) ??
+  normalizeG4Text(row.asset_id) ??
+  normalizeG4Text(row.review_id) ??
+  normalizeG4Text(row.content_review_id);
+
+const buildG4RowContentFingerprint = (row: G4Row) => {
+  const preview = extractG4ContentPreview(row);
+  const contentTokens = [
+    preview.headline,
+    preview.contentText,
+    preview.captionPreview,
+    preview.ctaText,
+    preview.landingPageUrl,
+    preview.pageText,
+    preview.productName,
+    preview.cleanSummary,
+    preview.contentRecommendation,
+    preview.hookAngle,
+    normalizeG4Text(row.platform),
+    normalizeG4Text(row.action_type),
+  ]
+    .map((value) => normalizeG4FingerprintText(value))
+    .filter(Boolean);
+
+  if (!contentTokens.length) {
+    return null;
+  }
+
+  return contentTokens.join("||");
+};
+
+const buildG4RowDeduplicationKey = (row: G4Row) => {
+  const stableSourceId = normalizeG4FingerprintText(getG4RowStableSourceId(row));
+  const contentFingerprint = buildG4RowContentFingerprint(row);
+
+  if (contentFingerprint) {
+    return contentFingerprint;
+  }
+
+  if (stableSourceId) {
+    return stableSourceId;
+  }
+
+  return contentFingerprint ?? normalizeG4FingerprintText(normalizeG4Text(row.review_id));
+};
+
+const dedupeG4Rows = (rows: G4Row[]) => {
+  const seen = new Set<string>();
+  const uniqueRows: G4Row[] = [];
+
+  for (const row of rows) {
+    const key = buildG4RowDeduplicationKey(row);
+    if (!key || seen.has(key)) {
+      continue;
+    }
+
+    seen.add(key);
+    uniqueRows.push(row);
+
+    if (uniqueRows.length >= G4_UNIQUE_ROW_LIMIT) {
+      break;
+    }
+  }
+
+  return uniqueRows;
 };
 
 const buildG4CleanAiOutput = (row: G4Row): G4WorkflowDetail["cleanAiOutput"] => {
@@ -351,7 +516,7 @@ export async function getG4WorkflowDetail(): Promise<G4WorkflowDetail> {
     .select(G4_SELECT_COLUMNS)
     .eq("workflow_group", "G4")
     .order("created_at", { ascending: false })
-    .limit(10);
+    .limit(G4_FETCH_LIMIT);
 
   if (error) {
     return buildEmptyDetail("ERROR", G4_ERROR_ACTION);
@@ -362,11 +527,12 @@ export async function getG4WorkflowDetail(): Promise<G4WorkflowDetail> {
     return buildEmptyDetail("MANUAL_ONLY", G4_EMPTY_ACTION);
   }
 
-  const latest = rows[0];
-  const sourcePreviewByTrendId = await loadG4SourcePreviewMap(rows);
-  const latestSourcePreview = sourcePreviewByTrendId.get(getG4SourceTrendId(latest) ?? "") ?? null;
-  const recentOutcomes = rows
-    .map((row) => buildG4RecentOutcome(row, sourcePreviewByTrendId.get(getG4SourceTrendId(row) ?? "") ?? null))
+  const uniqueRows = dedupeG4Rows(rows);
+  const latest = uniqueRows[0] ?? rows[0];
+  const sourcePreviewByTrendId = await loadG4SourcePreviewMap(uniqueRows);
+  const latestSourcePreview = sourcePreviewByTrendId.get(getG4SourceLookupKey(latest) ?? "") ?? null;
+  const recentOutcomes = uniqueRows
+    .map((row) => buildG4RecentOutcome(row, sourcePreviewByTrendId.get(getG4SourceLookupKey(row) ?? "") ?? null))
     .filter((value): value is NonNullable<ReturnType<typeof buildG4RecentOutcome>> => Boolean(value));
 
   return {
