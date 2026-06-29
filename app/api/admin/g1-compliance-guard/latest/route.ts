@@ -102,6 +102,7 @@ export async function GET(request: Request) {
         response_type: "G1_COMPLIANCE_GUARD_READY",
         message,
         snapshot,
+        runs: rows,
       },
       200,
     );
