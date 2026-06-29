@@ -901,8 +901,11 @@ export const normalizeWorkflowId = (value: string | null | undefined): AdminWork
     return "WF1";
   }
 
-  if (/^G\d+$/.test(normalized) && WORKFLOW_CATALOG[normalized as AdminWorkflowId]) {
-    return normalized as AdminWorkflowId;
+  if (/^[QG]\d+$/.test(normalized)) {
+    const asG = normalized.replace(/^Q/, "G") as AdminWorkflowId;
+    if (WORKFLOW_CATALOG[asG]) {
+      return asG;
+    }
   }
 
   const byRoute = (Object.values(WORKFLOW_CATALOG) as WorkflowCatalogEntry[]).find((entry) => {

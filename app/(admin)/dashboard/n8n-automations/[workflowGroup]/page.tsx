@@ -25,6 +25,11 @@ export default async function Page({
     redirect("/dashboard/n8n-automations");
   }
 
+  const expectedSlug = catalogEntry.detailHref.split("/").pop();
+  if (expectedSlug && resolvedParams?.workflowGroup?.toLowerCase() !== expectedSlug.toLowerCase()) {
+    redirect(catalogEntry.detailHref);
+  }
+
   if (workflowId === "G1" || workflowId === "G12" || workflowId === "WF1") {
     redirect(catalogEntry.detailHref);
   }

@@ -242,11 +242,11 @@ export default function G1ComplianceGuardPage() {
   const latestOutcomeAction = hasLatestOutcomeRecord && latestOutcome
     ? getG1RemediationAction(latestOutcome)
     : {
-        label: "View Safety Checks",
-        helperText: "No action needed.",
-        href: "#recent-safety-checks",
-        disabled: false,
-      };
+      label: "View Safety Checks",
+      helperText: "No action needed.",
+      href: "#recent-safety-checks",
+      disabled: false,
+    };
   const latestWorkflowSentence = hasLatestOutcomeRecord
     ? `This check applied to ${latestOutcome?.requestedByWorkflow ?? "Unknown workflow"} on ${latestOutcome?.platformLabel ?? "Internal system"}.`
     : "No workflow actions have been checked yet.";

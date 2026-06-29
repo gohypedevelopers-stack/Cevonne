@@ -1,7 +1,24 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
-import { AlertTriangle, ArrowRight, CircleHelp, Copy, ExternalLink, Instagram, Music2, RefreshCcw } from "lucide-react";
+import { useEffect, useState, type ReactNode, Fragment } from "react";
+import { format, parseISO } from "date-fns";
+import {
+  AlertTriangle,
+  ArrowRight,
+  ChevronRight,
+  CircleHelp,
+  Copy,
+  Database,
+  ExternalLink,
+  FileCheck2,
+  Instagram,
+  Music2,
+  RefreshCcw,
+  Sparkles,
+  Eye,
+  PlayCircle,
+  CheckCircle2,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 
@@ -183,6 +200,34 @@ function PlatformIcon({ platform, className }: { platform: string | null; classN
 
   return <CircleHelp className={cn("size-4 shrink-0", className)} aria-hidden="true" />;
 }
+
+function TrendMetricChip({ label, value }: { label: string; value: ReactNode }) {
+  return (
+    <div className="min-w-0 rounded-xl border border-border/60 bg-secondary/15 px-3 py-2">
+      <p className="text-[9px] font-semibold uppercase leading-tight tracking-[0.1em] text-muted-foreground">{label}</p>
+      <div className="mt-1 min-w-0 whitespace-normal break-words text-sm font-semibold leading-5 text-foreground">{value}</div>
+    </div>
+  );
+}
+
+const parseMetrics = (preview: Pick<G4RecentOutcome["contentPreview"], "views" | "likes" | "shares" | "trendStrength" | "brandFitScore" | "contentText" | "profileUsername" | "audioSound" | "comments">) => {
+  const t = preview.contentText || "";
+  const extract = (regex: RegExp) => {
+    const match = t.match(regex);
+    return match ? match[1] : null;
+  };
+  
+  const views = preview.views || extract(/(\d+[\d.,]*\w*)\s+views/i);
+  const likes = preview.likes || extract(/(\d+[\d.,]*\w*)\s+likes/i);
+  const shares = preview.shares || extract(/(\d+[\d.,]*\w*)\s+shares/i);
+  const comments = preview.comments || extract(/(\d+[\d.,]*\w*)\s+comments/i);
+  const trendStrength = preview.trendStrength || extract(/trend strength\s+(\d+[\d.,]*\w*)/i);
+  const brandFit = preview.brandFitScore || extract(/brand fit\s+(\d+[\d.,]*\w*)/i);
+  const handle = preview.profileUsername || extract(/handle\s+(\w+)/i) || "—";
+  const audio = preview.audioSound || extract(/audio\s+(.+?)(?:;|,|$)/i) || "—";
+  
+  return { views, likes, shares, comments, trendStrength, brandFit, handle, audio };
+};
 
 function PlatformPill({ platform, className }: { platform: string | null; className?: string }) {
   return (
@@ -409,7 +454,6 @@ const getUniqueSourceContentSections = (
   const candidates: Array<SourceContentSection & { order: number }> = [
     { label: "Headline", value: preview.headline ?? "", order: 0 },
     { label: "Caption", value: preview.captionPreview ?? "", order: 1 },
-    { label: "Content text", value: preview.contentText ?? "", order: 2 },
     { label: "Content recommendation", value: preview.contentRecommendation ?? "", order: 3 },
     { label: "Clean summary", value: preview.cleanSummary ?? "", order: 4 },
     { label: "Hook angle", value: preview.hookAngle ?? "", order: 5 },
@@ -422,20 +466,17 @@ const getUniqueSourceContentSections = (
   return candidates
     .map(({ label, value, order }) => ({
       label,
-      order,
       value: value.trim(),
+      order,
     }))
-    .filter(({ value }) => Boolean(value))
-    .filter(({ value }) => {
-      const normalized = normalizeRecentOutcomeKeyPart(value);
-      if (!normalized || seen.has(normalized)) {
-        return false;
-      }
-
-      seen.add(normalized);
+    .filter((c) => {
+      if (!c.value) return false;
+      const key = `${c.label}:${c.value}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
       return true;
     })
-    .sort((left, right) => left.order - right.order)
+    .sort((a, b) => a.order - b.order)
     .map(({ label, value }) => ({ label, value }));
 };
 
@@ -558,102 +599,7 @@ function PendingApprovalCard({
   );
 }
 
-function OriginalPostDetailsDialog({
-  row,
-  open,
-  onOpenChange,
-}: {
-  row: Pick<G4RecentOutcome, "contentPreview" | "cleanAiOutput"> | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-}) {
-  if (!row) return null;
-  const sourceContentSections = getUniqueSourceContentSections(row.contentPreview);
 
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl gap-0 p-0 sm:rounded-[24px]">
-        <div className="flex flex-col">
-          <DialogHeader className="border-b border-border/60 bg-muted/10 px-6 py-5">
-            <DialogTitle className="font-serif text-2xl tracking-tight text-primary">Original Post Details</DialogTitle>
-            <DialogDescription className="text-sm leading-6 text-muted-foreground">
-              Review the original post data and AI suggestions.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="max-h-[70vh] overflow-y-auto px-6 py-6">
-            <div className="space-y-8">
-              {/* Original Post Data */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-sm font-semibold uppercase tracking-[0.18em] text-foreground">Original Content</h4>
-                  {row.contentPreview.sourceUrl ? (
-                    <Button variant="link" size="sm" className="h-auto p-0 text-xs text-primary" asChild>
-                      <a href={row.contentPreview.sourceUrl} target="_blank" rel="noopener noreferrer">
-                        View source <ArrowRight className="ml-1 size-3" />
-                      </a>
-                    </Button>
-                  ) : null}
-                </div>
-                <div className="space-y-3 rounded-2xl border border-border/60 bg-muted/15 p-4 text-sm leading-6">
-                  {sourceContentSections.length ? (
-                    sourceContentSections.map((section) => (
-                      <div key={`${section.label}-${section.value}`}>
-                        <span className="font-semibold text-foreground">{section.label}:</span>{" "}
-                        <span className="text-muted-foreground">{section.value}</span>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="text-muted-foreground italic">No original content data available.</div>
-                  )}
-                </div>
-              </div>
-
-              {/* AI Suggestions Section */}
-              {(row.cleanAiOutput?.captionSuggestions?.length || row.cleanAiOutput?.hookSuggestions?.length) ? (
-                <div className="space-y-4">
-                  <Separator className="bg-border/60" />
-                  <h4 className="text-sm font-semibold uppercase tracking-[0.18em] text-foreground">AI Suggestions</h4>
-                  
-                  {row.cleanAiOutput.captionSuggestions && row.cleanAiOutput.captionSuggestions.length > 0 && (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Captions</span>
-                        <CopyButton label="Copy" text={row.cleanAiOutput.captionSuggestions[0] ?? null} className="h-6 px-2 text-[10px]" />
-                      </div>
-                      <ul className="space-y-2">
-                        {row.cleanAiOutput.captionSuggestions.map((s, i) => (
-                          <li key={i} className="rounded-xl border border-border/50 bg-muted/10 px-3 py-2 text-xs leading-5 text-foreground">
-                            {s}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-
-                  {row.cleanAiOutput.hookSuggestions && row.cleanAiOutput.hookSuggestions.length > 0 && (
-                    <div className="space-y-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Hooks</span>
-                        <CopyButton label="Copy" text={row.cleanAiOutput.hookSuggestions[0] ?? null} className="h-6 px-2 text-[10px]" />
-                      </div>
-                      <ul className="space-y-2">
-                        {row.cleanAiOutput.hookSuggestions.map((s, i) => (
-                          <li key={i} className="rounded-xl border border-border/50 bg-muted/10 px-3 py-2 text-xs leading-5 text-foreground">
-                            {s}
-                          </li>
-                        ))}
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              ) : null}
-            </div>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
 
 function PendingApprovalDetailsDialog({
   row,
@@ -680,14 +626,8 @@ function PendingApprovalDetailsDialog({
               <div className="space-y-2">
                 <DialogTitle className="font-serif text-2xl tracking-tight text-primary">View Details</DialogTitle>
                 <DialogDescription className="max-w-3xl text-sm leading-6 text-muted-foreground">
-                  Source post data sits on the left and AI notes stay on the right. Caption and hook suggestions are shown on each card.
+                  Review original content on the left alongside AI-generated safety notes and rewrite suggestions on the right. Use this view to ensure captions and claims meet compliance guidelines before moving forward.
                 </DialogDescription>
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", formatG4StatusTone(row.result))}>
-                  {formatG4ResultLabel(row.result)}
-                </Badge>
-                <PlatformPill platform={row.platform} />
               </div>
             </div>
           </DialogHeader>
@@ -897,8 +837,10 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
   const [rechecking, setRechecking] = useState(false);
   const [approvalRequest, setApprovalRequest] = useState(detail.approvalRequest);
   const [approvalSubmittingSourceId, setApprovalSubmittingSourceId] = useState<string | null>(null);
+  const [sentApprovalSourceIds, setSentApprovalSourceIds] = useState<Set<string>>(new Set());
   const [selectedPendingRow, setSelectedPendingRow] = useState<G4RecentOutcome | null>(null);
   const [selectedRecentRow, setSelectedRecentRow] = useState<G4RecentOutcome | null>(null);
+  const [selectedCaptionHookRow, setSelectedCaptionHookRow] = useState<G4RecentOutcome | null>(null);
 
   useEffect(() => {
     setRecheckDraft(initialDraft);
@@ -927,8 +869,9 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
   const recentOutcomes = dedupeRecentOutcomes(detail.recentOutcomes);
   const visiblePendingApprovalRows = recentOutcomes
     .filter((row) => {
-      const isLatestOutcomeRow = getApprovalSourceId(row) === latestApprovalSourceId;
-      return row.result === "PENDING_APPROVAL" && !isLatestOutcomeRow;
+      const sourceId = getApprovalSourceId(row);
+      const isSent = row.approvalRequest || (sourceId && sentApprovalSourceIds.has(sourceId));
+      return row.result === "PENDING_APPROVAL" && !isSent;
     })
     .filter((row, index, arr) => {
       const sourceId = getApprovalSourceId(row);
@@ -960,6 +903,10 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
 
       if (body.approvalRequest && sourceId === latestApprovalSourceId) {
         setApprovalRequest(body.approvalRequest);
+      }
+
+      if (sourceId) {
+        setSentApprovalSourceIds((prev) => new Set(prev).add(sourceId));
       }
 
       toast.success(body.message || "Approval request queued.");
@@ -1097,16 +1044,20 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
                   <Table className="min-w-[800px] table-fixed">
                     <colgroup>
                       <col className="w-[140px]" />
-                      <col className="w-[64px]" />
+                      <col className="w-[80px]" />
                       <col />
+                      <col className="w-[200px]" />
+                      <col className="w-[160px]" />
                       <col className="w-[160px]" />
                       <col className="w-[180px]" />
                     </colgroup>
                     <TableHeader>
                       <TableRow>
                         <TableHead className="px-4">Date</TableHead>
-                        <TableHead className="px-4">Platform</TableHead>
+                        <TableHead className="px-4 text-center">Platform</TableHead>
                         <TableHead className="px-4 text-left">Content summary</TableHead>
+                        <TableHead className="px-4 text-center">Original Post Data</TableHead>
+                        <TableHead className="px-4 text-center">AI Insight</TableHead>
                         <TableHead className="px-4">Status</TableHead>
                         <TableHead className="px-4">Action Required</TableHead>
                       </TableRow>
@@ -1119,31 +1070,66 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
                           row.result === "PENDING_APPROVAL" && !isLatestRow
                             ? { label: "View", disabled: false, helper: null, action: "view" as const }
                             : getRecentRowAction(row.result);
-                        const rowApprovalQueued = Boolean(row.approvalRequest);
+                        const rowApprovalQueued = Boolean(row.approvalRequest) || Boolean(rowSourceId && sentApprovalSourceIds.has(rowSourceId));
                         const formattedDate = row.time
                           ? new Date(row.time).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
                           : "—";
                         const formattedTime = row.time
                           ? new Date(row.time).toLocaleTimeString("en-GB", { hour: "numeric", minute: "2-digit", hour12: true }).toLowerCase()
                           : "";
+                        const hasSuggestions = Boolean(row.cleanAiOutput?.captionSuggestions?.length || row.cleanAiOutput?.hookSuggestions?.length);
+
+                        const isSourcePostOpen = selectedRecentRow === row;
+                        const isAiInsightOpen = selectedCaptionHookRow === row;
 
                         return (
-                          <TableRow key={`${row.time}-${row.reviewId ?? row.assetId ?? row.platform ?? "g4"}`}>
+                          <Fragment key={`${row.time}-${row.reviewId ?? row.assetId ?? row.platform ?? "g4"}`}>
+                            <TableRow className={cn((isSourcePostOpen || isAiInsightOpen) && "border-b-0 hover:bg-transparent")}>
                             <TableCell className="px-4 py-3 align-middle">
                               <div className="text-sm text-foreground">{formattedDate}</div>
                               {formattedTime ? <div className="text-xs text-muted-foreground">{formattedTime}</div> : null}
                             </TableCell>
                             <TableCell className="px-4 py-3 align-middle">
-                              <PlatformIcon platform={row.platform} className="text-foreground" />
+                              <div className="mx-auto flex size-8 items-center justify-center rounded-md border border-border/60 bg-muted/20">
+                                <PlatformIcon platform={row.platform} className="text-foreground" />
+                              </div>
                             </TableCell>
                             <TableCell className="px-4 py-3 align-middle">
                               <p className="line-clamp-2 text-sm leading-5 text-foreground">{row.whatHappened}</p>
+                            </TableCell>
+                            <TableCell className="px-4 py-3 align-middle text-center">
                               <Button
-                                variant="link"
-                                className="mt-1 h-auto p-0 text-[11px] font-semibold text-primary hover:underline"
-                                onClick={() => setSelectedRecentRow(row)}
+                                variant="outline"
+                                size="sm"
+                                className={cn(
+                                  "h-9 w-max mx-auto justify-center rounded-full border-border/70 bg-white px-3 text-left text-xs font-semibold text-foreground shadow-none hover:bg-muted/50 whitespace-nowrap",
+                                  isSourcePostOpen && "bg-muted/50"
+                                )}
+                                onClick={() => {
+                                  setSelectedRecentRow(isSourcePostOpen ? null : row);
+                                  if (!isSourcePostOpen) setSelectedCaptionHookRow(null);
+                                }}
                               >
-                                Original post
+                                <Database className="mr-2 size-3.5 text-muted-foreground" />
+                                {isSourcePostOpen ? "Hide Original Post Data" : "Original Post Data"}
+                              </Button>
+                            </TableCell>
+                            <TableCell className="px-4 py-3 align-middle text-center">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                disabled={!hasSuggestions}
+                                className={cn(
+                                  "h-9 w-max mx-auto justify-center rounded-full border-sky-200 bg-sky-50 px-3 text-left text-xs font-semibold text-sky-700 shadow-none hover:bg-sky-100 whitespace-nowrap",
+                                  isAiInsightOpen && "bg-sky-100"
+                                )}
+                                onClick={() => {
+                                  setSelectedCaptionHookRow(isAiInsightOpen ? null : row);
+                                  if (!isAiInsightOpen) setSelectedRecentRow(null);
+                                }}
+                              >
+                                <Sparkles className="mr-2 size-3.5 text-sky-500" />
+                                {isAiInsightOpen ? "Hide AI Insight" : "AI Insight"}
                               </Button>
                             </TableCell>
                             <TableCell className="px-4 py-3 align-middle">
@@ -1181,6 +1167,112 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
                               )}
                             </TableCell>
                           </TableRow>
+                          {isSourcePostOpen && (
+                            <TableRow className="border-b-0 hover:bg-transparent">
+                              <TableCell colSpan={7} className="p-4 pt-0">
+                                <div className="rounded-2xl border border-border/60 bg-white p-4 shadow-sm">
+                                  <div className="mb-4 flex flex-wrap items-center gap-2">
+                                    <Database className="size-4 text-muted-foreground" />
+                                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Original Post Data</p>
+                                  </div>
+                                  <div className="space-y-4">
+                                    <div className="flex flex-col gap-3">
+                                      {getUniqueSourceContentSections(row.contentPreview).map((section) => (
+                                        <div key={`${section.label}-${section.value}`} className="rounded-2xl border border-border/60 bg-muted/10 p-4">
+                                          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">{section.label}</p>
+                                          <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">{section.value}</p>
+                                        </div>
+                                      ))}
+                                    </div>
+                                    {(() => {
+                                      const metrics = parseMetrics(row.contentPreview);
+                                      const hasAnyMetric = metrics.views || metrics.likes || metrics.shares || metrics.trendStrength || metrics.brandFit || row.contentPreview.sourceUrl;
+                                      
+                                      return (
+                                        <>
+                                          <div className="grid gap-2 sm:grid-cols-2">
+                                            <TrendMetricChip label="Handle" value={metrics.handle} />
+                                            <TrendMetricChip label="Audio" value={metrics.audio} />
+                                          </div>
+                                          {hasAnyMetric && (
+                                            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+                                              <TrendMetricChip label="Views" value={metrics.views || "—"} />
+                                              <TrendMetricChip label="Likes" value={metrics.likes || "—"} />
+                                              <TrendMetricChip label="Shares" value={metrics.shares || "—"} />
+                                              <TrendMetricChip label="Trend Strength" value={metrics.trendStrength || "—"} />
+                                              <TrendMetricChip label="Brand Fit" value={metrics.brandFit || "—"} />
+                                              <div className="flex min-w-0 items-stretch">
+                                                {row.contentPreview.sourceUrl ? (
+                                                  <Button asChild variant="outline" className="h-full w-full rounded-xl border-border/70 bg-white px-4 text-xs font-semibold shadow-none">
+                                                    <a href={row.contentPreview.sourceUrl} target="_blank" rel="noopener noreferrer">
+                                                      <ExternalLink className="mr-2 size-3.5" />
+                                                      Open Original Post
+                                                    </a>
+                                                  </Button>
+                                                ) : (
+                                                  <div className="flex h-full min-h-[56px] w-full items-center rounded-xl border border-border/60 bg-secondary/15 px-3 py-2">
+                                                    <p className="text-xs leading-5 text-muted-foreground">URL not available</p>
+                                                  </div>
+                                                )}
+                                              </div>
+                                            </div>
+                                          )}
+                                        </>
+                                      );
+                                    })()}
+                                  </div>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                          {isAiInsightOpen && (
+                            <TableRow className="border-b-0 hover:bg-transparent">
+                              <TableCell colSpan={7} className="p-4 pt-0">
+                                <div className="rounded-2xl border border-sky-100 bg-sky-50/50 p-4 shadow-sm">
+                                  <div className="mb-4 flex flex-wrap items-center gap-2">
+                                    <Sparkles className="size-4 text-sky-600" />
+                                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-800">AI Insight</p>
+                                  </div>
+                                  <div className="space-y-4">
+                                    {row.cleanAiOutput?.captionSuggestions && row.cleanAiOutput.captionSuggestions.length > 0 && (
+                                      <div className="space-y-3">
+                                        <div className="flex items-center justify-between gap-2">
+                                          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Captions</span>
+                                          <CopyButton label="Copy" text={row.cleanAiOutput.captionSuggestions[0] ?? null} className="h-6 px-2 text-[10px]" />
+                                        </div>
+                                        <ul className="space-y-2">
+                                          {row.cleanAiOutput.captionSuggestions.map((s, i) => (
+                                            <li key={i} className="rounded-xl border border-border/50 bg-white px-3 py-2 text-xs leading-5 text-foreground shadow-sm">
+                                              {s}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                    {row.cleanAiOutput?.hookSuggestions && row.cleanAiOutput.hookSuggestions.length > 0 && (
+                                      <div className="space-y-3">
+                                        <div className="flex items-center justify-between gap-2">
+                                          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Hooks</span>
+                                          <CopyButton label="Copy" text={row.cleanAiOutput.hookSuggestions[0] ?? null} className="h-6 px-2 text-[10px]" />
+                                        </div>
+                                        <ul className="space-y-2">
+                                          {row.cleanAiOutput.hookSuggestions.map((s, i) => (
+                                            <li key={i} className="rounded-xl border border-border/50 bg-white px-3 py-2 text-xs leading-5 text-foreground shadow-sm">
+                                              {s}
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                    {(!row.cleanAiOutput?.captionSuggestions?.length && !row.cleanAiOutput?.hookSuggestions?.length) ? (
+                                      <div className="text-sm text-muted-foreground">No suggestions available for this check.</div>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              </TableCell>
+                            </TableRow>
+                          )}
+                          </Fragment>
                         );
                       })}
                     </TableBody>
@@ -1202,16 +1294,6 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
         onOpenChange={(open) => {
           if (!open) {
             setSelectedPendingRow(null);
-          }
-        }}
-      />
-
-      <OriginalPostDetailsDialog
-        row={selectedRecentRow}
-        open={Boolean(selectedRecentRow)}
-        onOpenChange={(open) => {
-          if (!open) {
-            setSelectedRecentRow(null);
           }
         }}
       />
