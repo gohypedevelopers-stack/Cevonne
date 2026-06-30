@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { getAuthUser, jsonResponse, methodNotAllowed } from "@/server/next/route-utils";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { hasSupabaseAdminConfig, supabaseAdmin } from "@/lib/supabase-admin";
 import {
   countG12RawCounts,
   G12_RUN_SELECT,
@@ -14,6 +14,25 @@ import {
 
 const unauthorizedResponse = () => jsonResponse({ message: "Unauthorized" }, 401);
 const forbiddenResponse = () => jsonResponse({ message: "Forbidden" }, 403);
+
+const createEmptyDashboardResponse = (source: string | null = null) =>
+  ({
+    status: "EMPTY",
+    source,
+    message: "No real G12 trend data found yet. Run the Trend Fetcher to populate this page.",
+    run: null,
+    latestStoredRun: null,
+    insights: [],
+    metrics: [],
+    rawItems: [],
+    rawCounts: {},
+    latestStoredInsights: [],
+    latestStoredMetrics: [],
+    latestStoredRawItems: [],
+    storedInsights: [],
+    storedMetrics: [],
+    storedRawItems: [],
+  }) as const;
 
 const getRawItemRunId = (rawItem: Record<string, unknown>) =>
   (typeof rawItem.fetch_run_id === "string" && rawItem.fetch_run_id) ||
@@ -33,6 +52,10 @@ export async function GET(request: Request) {
 
   if (auth.role !== "ADMIN") {
     return forbiddenResponse();
+  }
+
+  if (!hasSupabaseAdminConfig()) {
+    return jsonResponse(createEmptyDashboardResponse("SUPABASE_UNAVAILABLE"), 200);
   }
 
   try {
@@ -72,25 +95,7 @@ export async function GET(request: Request) {
     }
 
     if (!latestRunRow?.fetch_run_id && !latestStoredRunRow?.fetch_run_id) {
-      return jsonResponse(
-        {
-          status: "EMPTY",
-          message: "No real G12 trend data found yet. Run the Trend Fetcher to populate this page.",
-          run: null,
-          latestStoredRun: null,
-          insights: [],
-          metrics: [],
-          rawItems: [],
-          rawCounts: {},
-          latestStoredInsights: [],
-          latestStoredMetrics: [],
-          latestStoredRawItems: [],
-          storedInsights: [],
-          storedMetrics: [],
-          storedRawItems: [],
-        },
-        200,
-      );
+      return jsonResponse(createEmptyDashboardResponse("SUPABASE_REAL_DATA"), 200);
     }
 
     const run = latestRunRow ? normalizeG12SupabaseRunRow(latestRunRow) : null;

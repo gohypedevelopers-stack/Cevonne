@@ -108,7 +108,7 @@ const CATEGORY_LABELS: Record<CevonneWorkflowGroup, string> = {
   G2: "Health monitor",
   G3: "Consent & CRM",
   G4: "Content review",
-  G5: "Publishing",
+  G5: "Asset approval",
   G6: "Messaging",
   G7: "Offer safety",
   G8: "Rights",
@@ -159,7 +159,7 @@ const WORKFLOW_SUMMARY_COPY: Record<CevonneWorkflowGroup, string> = {
   G2: "Monitors account and policy health.",
   G3: "Keeps consent, attribution, and privacy events in sync.",
   G4: "Reviews claims, captions, and creative before approval.",
-  G5: "Schedules approved assets only.",
+  G5: "Manages approval, manual publishing proof, and queue status.",
   G6: "Routes messaging through safe partner paths.",
   G7: "Checks stock, discount expiry, and offer proof before use.",
   G8: "Verifies rights and disclosure proof.",
@@ -376,6 +376,8 @@ const buildOverviewRow = (workflow: N8nWorkflowCard): WorkflowRow => {
     detailHref:
       workflow.group === "G1"
         ? "/admin/ai-automations/g1-compliance-guard"
+        : workflow.group === "G5"
+          ? "/admin/ai-automations/g5-asset-approval"
         : `/dashboard/n8n-automations/${workflow.group.toLowerCase()}`,
     n8nUrl: workflow.group === "G1" ? null : getExternalWorkflowUrl(source),
   };

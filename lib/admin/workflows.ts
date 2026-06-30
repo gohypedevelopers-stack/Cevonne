@@ -205,7 +205,7 @@ const platformOptions: WorkflowRunFieldOption[] = [
 ];
 
 const workflowSelectorOptions: WorkflowRunFieldOption[] = ADMIN_WORKFLOW_IDS.filter((id) => id !== "WF1").map((id) => ({
-  label: `${id} - ${id === "G1" ? "Compliance Guard" : id === "G2" ? "Policy + Account Health Monitor" : id === "G3" ? "CRM + Consent + Attribution" : id === "G4" ? "Content / Landing / Claim Check" : id === "G5" ? "Publishing Scheduler" : id === "G6" ? "Messaging + Quiz + Recovery Router" : id === "G7" ? "Inventory + Offer Safety" : id === "G8" ? "UGC + Creator Proof" : id === "G9" ? "Ads + Retargeting Optimizer" : id === "G10" ? "SEO + CRO" : id === "G11" ? "Decision Engine" : "Public Trend Fetcher"}`,
+  label: `${id} - ${id === "G1" ? "Compliance Guard" : id === "G2" ? "Policy + Account Health Monitor" : id === "G3" ? "CRM + Consent + Attribution" : id === "G4" ? "Content / Landing / Claim Check" : id === "G5" ? "Asset Approval + Manual Publishing Queue" : id === "G6" ? "Messaging + Quiz + Recovery Router" : id === "G7" ? "Inventory + Offer Safety" : id === "G8" ? "UGC + Creator Proof" : id === "G9" ? "Ads + Retargeting Optimizer" : id === "G10" ? "SEO + CRO" : id === "G11" ? "Decision Engine" : "Public Trend Fetcher"}`,
   value: id,
 }));
 
@@ -524,13 +524,13 @@ export const WORKFLOW_CATALOG: Record<AdminWorkflowId, WorkflowCatalogEntry> = {
   },
   G5: {
     id: "G5",
-    title: "G5 - Publishing Scheduler",
-    purpose: "Schedules approved assets only after review, dry-run, and live safety checks.",
-    detailHref: "/dashboard/n8n-automations/g5",
+    title: "G5 - Asset Approval + Manual Publishing Queue",
+    purpose: "Tracks approved assets, human approval, and manual publish proof before anything goes live.",
+    detailHref: "/admin/ai-automations/g5-asset-approval",
     runLabel: "Review Pending Asset",
     runEnabled: false,
-    runDisabledReason: "G5 is controlled through evidence, approval, dry-run, and live safety checks.",
-    emptyStateCopy: "No real G5 outcomes have been recorded yet. Publishing stays blocked until the required evidence is present.",
+    runDisabledReason: "G5 is controlled through evidence, approval, dry-run, and manual publish proof.",
+    emptyStateCopy: "No real G5 outcomes have been recorded yet. Assets stay queued until the required approval and publish proof are present.",
     fallbackStatus: "NOT_RUN_YET",
     runFields: [
       ...commonRunFields,
@@ -538,7 +538,7 @@ export const WORKFLOW_CATALOG: Record<AdminWorkflowId, WorkflowCatalogEntry> = {
         key: "asset_id",
         label: "Asset ID",
         placeholder: "asset_1234",
-        helper: "The asset that will be scheduled.",
+        helper: "The asset that will be reviewed.",
         required: true,
       }),
       selectField({

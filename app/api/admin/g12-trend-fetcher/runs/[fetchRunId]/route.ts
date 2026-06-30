@@ -2,7 +2,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 import { getAuthUser, jsonResponse, methodNotAllowed } from "@/server/next/route-utils";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { hasSupabaseAdminConfig, supabaseAdmin } from "@/lib/supabase-admin";
 import {
   countG12RawCounts,
   G12_RUN_SELECT,
@@ -15,6 +15,16 @@ import {
 const unauthorizedResponse = () => jsonResponse({ message: "Unauthorized" }, 401);
 const forbiddenResponse = () => jsonResponse({ message: "Forbidden" }, 403);
 
+const createUnavailableRunResponse = () =>
+  ({
+    status: "ERROR",
+    message: "G12 Supabase data is unavailable in this environment.",
+    run: null,
+    insights: [],
+    metrics: [],
+    rawCounts: {},
+  }) as const;
+
 export async function GET(request: Request, { params }: { params: Promise<{ fetchRunId: string }> }) {
   const auth = await getAuthUser(request);
   if (!auth) {
@@ -23,6 +33,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ fetc
 
   if (auth.role !== "ADMIN") {
     return forbiddenResponse();
+  }
+
+  if (!hasSupabaseAdminConfig()) {
+    return jsonResponse(createUnavailableRunResponse(), 200);
   }
 
   try {

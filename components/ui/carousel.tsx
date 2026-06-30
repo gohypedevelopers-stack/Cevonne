@@ -24,6 +24,13 @@ type CarouselControlProps = Omit<React.ComponentProps<typeof Button>, "variant" 
   size?: React.ComponentProps<typeof Button>["size"];
 };
 
+type CarouselProps = React.ComponentPropsWithoutRef<"div"> & {
+  orientation?: "horizontal" | "vertical";
+  opts?: Parameters<typeof useEmblaCarousel>[0];
+  setApi?: (api: ReturnType<typeof useEmblaCarousel>[1]) => void;
+  plugins?: Parameters<typeof useEmblaCarousel>[1];
+};
+
 function Carousel({
   orientation = "horizontal",
   opts,
@@ -32,7 +39,7 @@ function Carousel({
   className,
   children,
   ...props
-}) {
+}: CarouselProps) {
   const [carouselRef, api] = useEmblaCarousel({
     ...opts,
     axis: orientation === "horizontal" ? "x" : "y",

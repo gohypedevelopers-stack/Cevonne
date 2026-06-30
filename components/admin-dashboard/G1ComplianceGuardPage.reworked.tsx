@@ -233,7 +233,7 @@ export default function G1ComplianceGuardPage() {
 
   const latestRuns = useMemo(() => {
     const seen = new Set<string>();
-    const unique = [];
+    const unique: G1RawRun[] = [];
     for (const r of runs) {
       if (!seen.has(r.id)) {
         seen.add(r.id);
@@ -263,6 +263,10 @@ export default function G1ComplianceGuardPage() {
 
   const topRun = runs[0];
   const headerStatus = topRun ? topRun.status : "UNKNOWN";
+  const selectedApprovalId =
+    typeof selectedRun?.action_packet?.approval_id === "string" ? selectedRun.action_packet.approval_id : null;
+  const selectedAssetId =
+    typeof selectedRun?.action_packet?.asset_id === "string" ? selectedRun.action_packet.asset_id : null;
 
   return (
     <WorkflowDashboardShell
@@ -554,12 +558,12 @@ export default function G1ComplianceGuardPage() {
                       <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Context</p>
                       <div className="mt-2 space-y-1.5 text-sm">
                         <p><span className="text-muted-foreground">Requested by:</span> {formatWorkflowGroup(getRequestedBy(selectedRun))}</p>
-                        {selectedRun.action_packet?.approval_id && (
-                          <p><span className="text-muted-foreground">Approval ID:</span> {String(selectedRun.action_packet.approval_id)}</p>
-                        )}
-                        {selectedRun.action_packet?.asset_id && (
-                          <p><span className="text-muted-foreground">Asset ID:</span> {String(selectedRun.action_packet.asset_id)}</p>
-                        )}
+                        {selectedApprovalId ? (
+                          <p><span className="text-muted-foreground">Approval ID:</span> {selectedApprovalId}</p>
+                        ) : null}
+                        {selectedAssetId ? (
+                          <p><span className="text-muted-foreground">Asset ID:</span> {selectedAssetId}</p>
+                        ) : null}
                       </div>
                     </div>
                   </div>

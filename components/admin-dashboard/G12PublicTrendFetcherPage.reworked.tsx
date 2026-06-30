@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { ArrowRight, Clock3, Database, ExternalLink, Play, RefreshCcw, Search, Sparkles, X } from "lucide-react";
+import { ArrowRight, Clock3, Database, ExternalLink, Play, RefreshCcw, Search, Sparkles } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
 
@@ -639,6 +639,8 @@ const getHeaderStatusTone = (status: string) => {
       return "border-emerald-200 bg-emerald-50 text-emerald-700";
     case "PARTIAL_PASS":
       return "border-amber-200 bg-amber-50 text-amber-700";
+    case "NEEDS REVIEW":
+      return "border-amber-200 bg-amber-50 text-amber-700";
     case "BLOCK":
       return "border-rose-200 bg-rose-50 text-rose-700";
     case "RUNNING":
@@ -1206,7 +1208,7 @@ const patchG12DashboardForSendOutcome = (dashboard: G12DashboardResponse | null,
   }
 
   const patchArray = (records?: G12InsightRecord[]) =>
-    records?.map((record) => patchG12InsightForSendOutcome(record, outcome)) ?? records;
+    records?.map((record) => patchG12InsightForSendOutcome(record, outcome)) ?? [];
 
   return {
     ...dashboard,
@@ -1631,7 +1633,6 @@ export default function G12PublicTrendFetcherPageReworked() {
   const [awaitingFetchRunId, setAwaitingFetchRunId] = useState<string | null>(null);
   const [sendingTrendId, setSendingTrendId] = useState<string | null>(null);
   const [sendOutcome, setSendOutcome] = useState<G12SendResponse | null>(null);
-  const [dismissedFailureReasonsRunId, setDismissedFailureReasonsRunId] = useState<string | null>(null);
   const [expandedSourcePostRowId, setExpandedSourcePostRowId] = useState<string | null>(null);
   const [expandedAiInsightRowId, setExpandedAiInsightRowId] = useState<string | null>(null);
   const [platformFilter, setPlatformFilter] = useState<"ALL" | "INSTAGRAM" | "TIKTOK">("ALL");
@@ -1776,8 +1777,6 @@ export default function G12PublicTrendFetcherPageReworked() {
 
   const latestRun = dashboard?.run ?? null;
   const latestStoredRun = dashboard?.latestStoredRun ?? null;
-  const showFailureReasons =
-    Boolean(latestRun?.status === "BLOCK" && latestRun.failure_reasons.length && dismissedFailureReasonsRunId !== latestRun.fetch_run_id);
   const latestStoredRecords = useMemo(() => {
     const explicitRecords = buildTrendRecords(
       dashboard?.latestStoredInsights ?? [],
@@ -1826,6 +1825,7 @@ export default function G12PublicTrendFetcherPageReworked() {
 
     return "PASS";
   }, [awaitingFetchRunId, dashboard, latestRun, loading, submittingRun]);
+  const latestRunBadgeStatus = latestRunStatus === "BLOCK" ? "NEEDS REVIEW" : latestRunStatus;
 
   const latestRunLabel = latestRunTime ? `${formatG12DateTime(latestRunTime)} · ${formatG12RelativeTime(latestRunTime)}` : "No run yet";
 
@@ -1944,7 +1944,7 @@ export default function G12PublicTrendFetcherPageReworked() {
   const historicalRunCount = new Set(allStoredRecords.map((record) => record.fetchRunId).filter(Boolean)).size;
   const totalStoredLabel = `Total stored insights: ${formatCount(totalStoredCount)}`;
   const historicalRunLabel = `Total G12 Runs: ${formatCount(historicalRunCount)}`;
-  const headerStatusTone = getHeaderStatusTone(latestRunStatus);
+  const headerStatusTone = getHeaderStatusTone(latestRunBadgeStatus);
 
   const handleRunWorkflow = useCallback(async () => {
     if (isBusy) {
@@ -2061,8 +2061,11 @@ export default function G12PublicTrendFetcherPageReworked() {
   );
 
   const statusBadge = (
-    <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.12em]", headerStatusTone)}>
-      {latestRunStatus}
+    <Badge
+      variant="outline"
+      className={cn("h-10 rounded-full border px-5 py-0 text-sm font-semibold uppercase tracking-[0.12em]", headerStatusTone)}
+    >
+      {latestRunBadgeStatus}
     </Badge>
   );
 
@@ -2075,14 +2078,17 @@ export default function G12PublicTrendFetcherPageReworked() {
 
   return (
     <WorkflowDashboardShell
-      eyebrow="Public trend signals"
       title="G12 — Public Trend Fetcher"
-      description="Finds safe public trend signals, saves clean trend insights, and keeps raw content quarantined."
+      description="Latest workflow results and insights."
+      descriptionClassName="whitespace-nowrap"
       badges={
         <>
           {statusBadge}
-          <Badge variant="outline" className="rounded-full border-border/70 bg-secondary/20 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
-            <Clock3 className="mr-2 size-3.5" />
+          <Badge
+            variant="outline"
+            className="h-10 rounded-full border-border/70 bg-secondary/20 px-5 py-0 text-sm font-semibold text-muted-foreground"
+          >
+            <Clock3 className="mr-2 size-4" />
             {latestRunLabel}
           </Badge>
         </>
@@ -2168,29 +2174,6 @@ export default function G12PublicTrendFetcherPageReworked() {
           />
         </CardHeader>
         <CardContent className="space-y-4">
-          {showFailureReasons && latestRun ? (
-            <div className="rounded-[24px] border border-rose-200 bg-rose-50 p-4 text-sm leading-6 text-rose-950 shadow-sm">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="font-semibold">Failure reasons</p>
-                  <ul className="mt-2 list-disc space-y-1 pl-5">
-                    {latestRun.failure_reasons.map((reason, index) => (
-                      <li key={`g12-failure-${index}`}>{reason}</li>
-                    ))}
-                  </ul>
-                </div>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-8 w-8 shrink-0 rounded-full border-rose-200 bg-white p-0 text-rose-700 hover:bg-rose-100"
-                  onClick={() => setDismissedFailureReasonsRunId(latestRun.fetch_run_id)}
-                  aria-label="Dismiss failure reasons"
-                >
-                  <X className="size-4" />
-                </Button>
-              </div>
-            </div>
-          ) : null}
           {loading && !dashboard ? (
             <div className="grid gap-5 lg:grid-cols-2">
               {Array.from({ length: 2 }).map((_, index) => (
@@ -2211,11 +2194,7 @@ export default function G12PublicTrendFetcherPageReworked() {
           ) : latestStoredRun ? (
             <EmptyState
               title="No saved trend insights from the latest stored run"
-              description={
-                latestRun?.status === "BLOCK"
-                  ? "This latest run was blocked. Review the failure reasons above."
-                  : "The latest stored Supabase run did not return qualified insights."
-              }
+              description="The latest stored Supabase run did not return qualified insights."
               onRun={() => void handleRunWorkflow()}
               running={isBusy}
             />

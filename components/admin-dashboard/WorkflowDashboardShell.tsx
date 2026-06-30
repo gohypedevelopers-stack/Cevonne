@@ -8,7 +8,7 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from "@/components/ui/s
 import { cn } from "@/lib/utils";
 
 type WorkflowDashboardShellProps = {
-  eyebrow: string;
+  eyebrow?: string;
   title: string;
   description: string;
   badges?: ReactNode;
@@ -53,7 +53,7 @@ export default function WorkflowDashboardShell({
 
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
                       <div className={cn("max-w-2xl space-y-2", titleContainerClassName)}>
-                        <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-muted-foreground">{eyebrow}</p>
+                        {eyebrow ? <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-muted-foreground">{eyebrow}</p> : null}
                         <h1 className={cn("font-serif text-4xl leading-none tracking-tight text-primary md:text-5xl", titleClassName)}>{title}</h1>
                         <p className={cn("max-w-xl text-sm leading-6 text-muted-foreground md:text-base", descriptionClassName)}>{description}</p>
                       </div>
