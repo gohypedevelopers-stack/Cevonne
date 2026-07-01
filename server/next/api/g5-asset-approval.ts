@@ -10,12 +10,21 @@ import {
   summarizeG4Outcome,
   type G4ContentPreview,
 } from "@/lib/admin/g4-content-review";
+import { G12_SUPABASE_TABLES } from "@/server/next/api/g12-trend-fetcher-supabase";
 import { buildN8nWebhookUrl } from "@/lib/n8n-client";
 import { getN8nSupabaseAdmin } from "@/lib/n8n-supabase-admin";
 import { env } from "@/server/config";
 import { uploadFileToR2 } from "@/server/services/r2";
 
 type JsonRecord = Record<string, unknown>;
+type G4SourcePreview = Pick<G4ContentPreview, "captionPreview" | "views" | "likes" | "comments" | "shares" | "sourceUrl">;
+type G4SourcePreviewDetails = G4SourcePreview & {
+  profileUsername?: string | null;
+  audioSound?: string | null;
+  trendStrength?: string | null;
+  brandFitScore?: string | null;
+  riskScore?: string | null;
+};
 
 export type G5DashboardAssetRecord = {
   asset_id: string;
@@ -128,6 +137,19 @@ export type G5SelectedG4ContentRecord = {
   display_title: string;
   display_summary: string;
   platform_label: string;
+  caption_preview: string | null;
+  views: string | null;
+  likes: string | null;
+  comments: string | null;
+  shares: string | null;
+  profile_username: string | null;
+  audio_sound: string | null;
+  trend_strength: string | null;
+  brand_fit_score: string | null;
+  risk_score: string | null;
+  source_url: string | null;
+  ai_safe_rewrite: string | null;
+  hook_angle: string | null;
   content_summary: string | null;
   ai_insight: string | null;
   original_post_data: string | null;
@@ -295,6 +317,197 @@ const pickArray = (row: JsonRecord | null | undefined, keys: string[]) => {
   return [];
 };
 
+const getJsonRecordCandidates = (record: JsonRecord | null | undefined) => {
+  const direct = asRecord(record);
+  const payload = asRecord(direct?.raw_payload);
+  const nestedPayload = asRecord(payload?.raw_payload);
+
+  return [direct, payload, nestedPayload].filter((value): value is JsonRecord => Boolean(value));
+};
+
+const readJsonRecordText = (record: JsonRecord | null | undefined, keys: string[]) => {
+  if (!record) {
+    return null;
+  }
+
+  for (const key of keys) {
+    const value = toText(record[key]);
+    if (value) {
+      return value;
+    }
+  }
+
+  return null;
+};
+
+const readJsonRecordTextFromCandidates = (records: Array<JsonRecord | null | undefined>, keys: string[]) => {
+  for (const record of records) {
+    for (const candidate of getJsonRecordCandidates(record)) {
+      const value = readJsonRecordText(candidate, keys);
+      if (value) {
+        return value;
+      }
+    }
+  }
+
+  return null;
+};
+
+const getG4SourceLookupKey = (row: JsonRecord | null | undefined) =>
+  readJsonRecordTextFromCandidates(
+    [row],
+    [
+      "source_trend_id",
+      "sourceTrendId",
+      "trend_id",
+      "trendId",
+      "insight_id",
+      "insightId",
+      "source_insight_id",
+      "sourceInsightId",
+      "fetch_run_id",
+      "fetchRunId",
+      "asset_id",
+      "assetId",
+    ],
+  );
+
+const loadG4SourcePreviewMap = async (rows: JsonRecord[]) => {
+  const client = getN8nSupabaseAdmin();
+  const previewByLookupKey = new Map<string, G4SourcePreviewDetails>();
+
+  if (!client) {
+    return previewByLookupKey;
+  }
+
+  const sourceLookupKeys = [...new Set(rows.map((row) => getG4SourceLookupKey(row)).filter((value): value is string => Boolean(value)))];
+  if (!sourceLookupKeys.length) {
+    return previewByLookupKey;
+  }
+
+  const [insightByTrendResult, insightByRunResult] = await Promise.all([
+    client.schema("public").from(G12_SUPABASE_TABLES.insights).select("*").in("trend_id", sourceLookupKeys).order("created_at", { ascending: false, nullsFirst: false }).limit(250),
+    client.schema("public").from(G12_SUPABASE_TABLES.insights).select("*").in("fetch_run_id", sourceLookupKeys).order("created_at", { ascending: false, nullsFirst: false }).limit(250),
+  ]);
+
+  if (insightByTrendResult.error || insightByRunResult.error) {
+    console.warn("[g5-asset-approval] failed to load G12 source previews for G5 reviews", {
+      trend_error: insightByTrendResult.error?.message ?? null,
+      run_error: insightByRunResult.error?.message ?? null,
+    });
+    return previewByLookupKey;
+  }
+
+  const insightRecords = [
+    ...(Array.isArray(insightByTrendResult.data) ? insightByTrendResult.data : []),
+    ...(Array.isArray(insightByRunResult.data) ? insightByRunResult.data : []),
+  ]
+    .map((row) => asRecord(row))
+    .filter((row): row is JsonRecord => Boolean(row));
+
+  const insightByLookupKey = new Map<string, JsonRecord>();
+  const metricIds = new Set<string>();
+  const rawIds = new Set<string>();
+
+  for (const record of insightRecords) {
+    for (const key of [
+      readJsonRecordTextFromCandidates([record], ["trend_id"]),
+      readJsonRecordTextFromCandidates([record], ["fetch_run_id"]),
+      readJsonRecordTextFromCandidates([record], ["asset_id"]),
+      readJsonRecordTextFromCandidates([record], ["insight_id"]),
+    ]) {
+      if (key && !insightByLookupKey.has(key)) {
+        insightByLookupKey.set(key, record);
+      }
+    }
+
+    const metricId = readJsonRecordTextFromCandidates([record], ["metric_id"]);
+    if (metricId) {
+      metricIds.add(metricId);
+    }
+
+    const rawId = readJsonRecordTextFromCandidates([record], ["raw_id"]);
+    if (rawId) {
+      rawIds.add(rawId);
+    }
+  }
+
+  const metricByMetricId = new Map<string, JsonRecord>();
+  if (metricIds.size) {
+    const { data: metricRows, error: metricError } = await client
+      .schema("public")
+      .from(G12_SUPABASE_TABLES.metrics)
+      .select("*")
+      .in("metric_id", [...metricIds]);
+
+    if (metricError) {
+      console.warn("[g5-asset-approval] failed to load G12 metric rows for G5 reviews", metricError);
+    } else {
+      for (const record of (Array.isArray(metricRows) ? metricRows : []).map((row) => asRecord(row)).filter((row): row is JsonRecord => Boolean(row))) {
+        const metricId = readJsonRecordTextFromCandidates([record], ["metric_id"]);
+        if (metricId && !metricByMetricId.has(metricId)) {
+          metricByMetricId.set(metricId, record);
+        }
+
+        const rawId = readJsonRecordTextFromCandidates([record], ["raw_id"]);
+        if (rawId) {
+          rawIds.add(rawId);
+        }
+      }
+    }
+  }
+
+  const rawByRawId = new Map<string, JsonRecord>();
+  if (rawIds.size) {
+    const { data: rawRows, error: rawError } = await client
+      .schema("public")
+      .from(G12_SUPABASE_TABLES.rawScrapeQuarantine)
+      .select("*")
+      .in("raw_id", [...rawIds]);
+
+    if (rawError) {
+      console.warn("[g5-asset-approval] failed to load G12 raw scrape rows for G5 reviews", rawError);
+    } else {
+      for (const record of (Array.isArray(rawRows) ? rawRows : []).map((row) => asRecord(row)).filter((row): row is JsonRecord => Boolean(row))) {
+        const rawId = readJsonRecordTextFromCandidates([record], ["raw_id"]);
+        if (rawId && !rawByRawId.has(rawId)) {
+          rawByRawId.set(rawId, record);
+        }
+      }
+    }
+  }
+
+  for (const sourceLookupKey of sourceLookupKeys) {
+    const insight = insightByLookupKey.get(sourceLookupKey) ?? null;
+    const metricId = readJsonRecordTextFromCandidates([insight], ["metric_id"]);
+    const metric = metricId ? metricByMetricId.get(metricId) ?? null : null;
+    const rawId = readJsonRecordTextFromCandidates([metric, insight], ["raw_id"]);
+    const rawScrape = rawId ? rawByRawId.get(rawId) ?? null : null;
+
+    previewByLookupKey.set(sourceLookupKey, {
+      profileUsername: readJsonRecordTextFromCandidates([rawScrape, metric, insight], ["profile_username", "profileUsername", "username", "handle"]),
+      audioSound: readJsonRecordTextFromCandidates([rawScrape, metric, insight], ["audio_sound", "audioSound", "sound", "music"]),
+      trendStrength: readJsonRecordTextFromCandidates([rawScrape, metric, insight], ["trend_strength", "trendStrength"]),
+      brandFitScore: readJsonRecordTextFromCandidates([rawScrape, metric, insight], ["brand_fit_score", "brandFitScore"]),
+      riskScore: readJsonRecordTextFromCandidates([rawScrape, metric, insight], ["risk_score", "riskScore"]),
+      captionPreview: readJsonRecordTextFromCandidates(
+        [rawScrape, metric, insight],
+        ["caption_excerpt", "captionExcerpt", "caption_preview", "captionPreview", "caption", "text", "description"],
+      ),
+      views: readJsonRecordTextFromCandidates([rawScrape, metric], ["views"]),
+      likes: readJsonRecordTextFromCandidates([rawScrape, metric], ["likes"]),
+      comments: readJsonRecordTextFromCandidates([rawScrape, metric], ["comments_count", "commentsCount", "comments"]),
+      shares: readJsonRecordTextFromCandidates([rawScrape, metric], ["shares"]),
+      sourceUrl: readJsonRecordTextFromCandidates(
+        [rawScrape, metric, insight],
+        ["source_url", "sourceUrl", "content_url", "contentUrl", "profile_public_link", "profilePublicLink", "url", "post_url", "postUrl", "web_video_url", "webVideoUrl", "permalink"],
+      ),
+    });
+  }
+
+  return previewByLookupKey;
+};
+
 const upperText = (value: unknown) => toText(value)?.toUpperCase() ?? null;
 
 const normalizeStateKey = (value: unknown) => upperText(value)?.replace(/[\s-]+/g, "_") ?? null;
@@ -396,16 +609,23 @@ const normalizeAssetRecord = (row: JsonRecord): G5DashboardAssetRecord | null =>
   };
 };
 
-const normalizeG4ReviewRecord = (row: JsonRecord): G5ApprovedContentRecord | null => {
+const normalizeG4ReviewRecord = (row: JsonRecord, sourcePreview?: Partial<G4SourcePreview> | null): G5ApprovedContentRecord | null => {
   const id = pickText(row, ["id", "content_review_id", "contentReviewId", "review_id", "reviewId"]);
   if (!id) {
     return null;
   }
 
   const preview = extractG4ContentPreview({ raw_payload: row });
-  const hookCount = normalizeG4StringArray(row.ai_hook_suggestions).length;
-  const captionCount = normalizeG4StringArray(row.ai_caption_suggestions).length;
-  const displayTitle = preview.headline?.trim() || preview.productName?.trim() || preview.captionPreview?.trim() || "Content check passed";
+  const safeRewriteText = normalizeG4Text(row.ai_safe_rewrite);
+  const hookAngleText = normalizeG4Text(preview.hookAngle);
+  const hookCount = normalizeG4StringArray(row.ai_hook_suggestions).filter((text) => normalizeSelectionText(text) !== normalizeSelectionText(hookAngleText)).length;
+  const captionCount = normalizeG4StringArray(row.ai_caption_suggestions).filter((text) => normalizeSelectionText(text) !== normalizeSelectionText(safeRewriteText)).length;
+  const displayTitle =
+    preview.headline?.trim() ||
+    preview.productName?.trim() ||
+    sourcePreview?.captionPreview?.trim() ||
+    preview.captionPreview?.trim() ||
+    "Content check passed";
   const displaySummary =
     normalizeG4Text(row.safe_summary) ||
     normalizeG4Text(row.ai_safe_rewrite) ||
@@ -429,12 +649,22 @@ const normalizeG4ReviewRecord = (row: JsonRecord): G5ApprovedContentRecord | nul
     hook_count: hookCount,
     caption_count: captionCount,
     platform_label: platformLabel,
-    content_text: pickText(row, ["content_text", "contentText", "caption", "caption_text", "captionText", "content", "body", "summary"]),
-    caption_preview: pickText(row, ["caption_preview", "captionPreview"]) ?? preview.captionPreview,
-    views: preview.views ?? null,
-    likes: preview.likes ?? null,
-    comments: preview.comments ?? null,
-    shares: preview.shares ?? null,
+    content_text:
+      pickText(row, ["content_text", "contentText", "caption", "caption_text", "captionText", "content", "body", "message", "summary"]) ??
+      preview.contentText ??
+      sourcePreview?.captionPreview ??
+      preview.captionPreview ??
+      null,
+    caption_preview:
+      pickText(row, ["caption_preview", "captionPreview"]) ??
+      sourcePreview?.captionPreview ??
+      preview.captionPreview ??
+      preview.contentText ??
+      null,
+    views: sourcePreview?.views ?? preview.views ?? null,
+    likes: sourcePreview?.likes ?? preview.likes ?? null,
+    comments: sourcePreview?.comments ?? preview.comments ?? null,
+    shares: sourcePreview?.shares ?? preview.shares ?? null,
     title: pickText(row, ["title", "name", "headline"]) ?? preview.headline ?? null,
     asset_id: pickText(row, ["asset_id", "assetId"]),
     platform: pickText(row, ["platform", "source_platform", "sourcePlatform"]),
@@ -460,13 +690,17 @@ const collectNormalizedTexts = (...values: unknown[]) => {
 
 const buildSelectableOptions = (texts: string[], kind: "caption" | "hook") =>
   texts.map((text, index) => ({
-    id: `${kind}-${index + 1}`,
-    label: index === 0 ? `Recommended ${kind}` : `${kind === "caption" ? "Caption" : "Hook"} ${index + 1}`,
+    id: `${kind}-${index + 2}`,
+    label: `${kind === "caption" ? "Caption" : "Hook"} ${index + 2}`,
     text,
     source: "G4" as const,
   }));
 
-const buildG5SelectedG4Content = (g4Row: JsonRecord, landingRow: JsonRecord | null): G5SelectedG4ContentRecord => {
+const buildG5SelectedG4Content = (
+  g4Row: JsonRecord,
+  landingRow: JsonRecord | null,
+  sourcePreview?: Partial<G4SourcePreviewDetails> | null
+): G5SelectedG4ContentRecord => {
   const reviewPreview = extractG4ContentPreview(g4Row);
   const landingPreview = extractG4ContentPreview(landingRow ? { raw_payload: landingRow } : null);
 
@@ -476,21 +710,22 @@ const buildG5SelectedG4Content = (g4Row: JsonRecord, landingRow: JsonRecord | nu
   const displayTitle =
     reviewPreview.headline?.trim() || reviewPreview.productName?.trim() || reviewPreview.captionPreview?.trim() || "Content check passed";
 
+  const captionSuggestionTexts = normalizeG4StringArray(g4Row.ai_caption_suggestions);
+  const hookSuggestionTexts = normalizeG4StringArray(g4Row.ai_hook_suggestions);
+  const safeRewriteText = normalizeG4Text(g4Row.ai_safe_rewrite) ?? captionSuggestionTexts[0] ?? normalizeG4Text(reviewPreview.cleanSummary) ?? null;
+  const hookAngleText = normalizeG4Text(reviewPreview.hookAngle) ?? hookSuggestionTexts[0] ?? null;
+
   const captionOptions = buildSelectableOptions(
-    collectNormalizedTexts(g4Row.ai_caption_suggestions, g4Row.ai_safe_rewrite),
+    captionSuggestionTexts.filter((text) => normalizeSelectionText(text) !== normalizeSelectionText(safeRewriteText)),
     "caption"
   );
   const hookOptions = buildSelectableOptions(
-    collectNormalizedTexts(g4Row.ai_hook_suggestions, reviewPreview.hookAngle),
+    hookSuggestionTexts.filter((text) => normalizeSelectionText(text) !== normalizeSelectionText(hookAngleText)),
     "hook"
   );
 
-  const recommendedCaption =
-    captionOptions[0]?.text ??
-    normalizeG4Text(g4Row.ai_safe_rewrite) ??
-    normalizeG4Text(reviewPreview.cleanSummary) ??
-    null;
-  const recommendedHook = hookOptions[0]?.text ?? normalizeG4Text(reviewPreview.hookAngle) ?? null;
+  const recommendedCaption = safeRewriteText ?? normalizeG4Text(reviewPreview.cleanSummary) ?? null;
+  const recommendedHook = hookAngleText;
 
   const summaryCandidate =
     normalizeG4Text(g4Row.safe_summary) ??
@@ -534,6 +769,19 @@ const buildG5SelectedG4Content = (g4Row: JsonRecord, landingRow: JsonRecord | nu
     display_title: displayTitle,
     display_summary: displaySummary,
     platform_label: pickText(g4Row, ["platform", "source_platform", "sourcePlatform"]) || "Unknown",
+    caption_preview: reviewPreview.captionPreview ?? landingPreview.captionPreview ?? null,
+    views: sourcePreview?.views ?? reviewPreview.views ?? landingPreview.views ?? null,
+    likes: sourcePreview?.likes ?? reviewPreview.likes ?? landingPreview.likes ?? null,
+    comments: sourcePreview?.comments ?? reviewPreview.comments ?? landingPreview.comments ?? null,
+    shares: sourcePreview?.shares ?? reviewPreview.shares ?? landingPreview.shares ?? null,
+    profile_username: sourcePreview?.profileUsername ?? reviewPreview.profileUsername ?? landingPreview.profileUsername ?? null,
+    audio_sound: sourcePreview?.audioSound ?? reviewPreview.audioSound ?? landingPreview.audioSound ?? null,
+    trend_strength: sourcePreview?.trendStrength ?? reviewPreview.trendStrength ?? landingPreview.trendStrength ?? null,
+    brand_fit_score: sourcePreview?.brandFitScore ?? reviewPreview.brandFitScore ?? landingPreview.brandFitScore ?? null,
+    risk_score: sourcePreview?.riskScore ?? reviewPreview.riskScore ?? landingPreview.riskScore ?? null,
+    source_url: sourcePreview?.sourceUrl ?? reviewPreview.sourceUrl ?? landingPreview.sourceUrl ?? null,
+    ai_safe_rewrite: recommendedCaption,
+    hook_angle: hookAngleText,
     content_summary: contentSummary,
     ai_insight: aiInsight,
     original_post_data: originalPostData,
@@ -901,10 +1149,17 @@ export async function loadG5ApprovedContent(): Promise<G5ApprovedContentResponse
     };
   }
 
-  const reviews = (Array.isArray(data) ? data : [])
+  const g4Rows = (Array.isArray(data) ? data : [])
     .map((row) => asRecord(row))
-    .filter((row): row is JsonRecord => Boolean(row))
-    .map((row) => normalizeG4ReviewRecord(row))
+    .filter((row): row is JsonRecord => Boolean(row));
+  const sourcePreviewByLookupKey = await loadG4SourcePreviewMap(g4Rows);
+
+  const reviews = g4Rows
+    .map((row) => {
+      const sourceLookupKey = getG4SourceLookupKey(row);
+      const sourcePreview = sourceLookupKey ? sourcePreviewByLookupKey.get(sourceLookupKey) ?? null : null;
+      return normalizeG4ReviewRecord(row, sourcePreview);
+    })
     .filter((row): row is G5ApprovedContentRecord => Boolean(row))
     .filter((row) => isG4ReadyForG5(row))
     .sort((left, right) => {
@@ -1023,6 +1278,7 @@ export async function loadG5SelectedG4Content(reviewId: string): Promise<G5Selec
   const g4Rows = (Array.isArray(g4Data) ? g4Data : [])
     .map((row) => asRecord(row))
     .filter((row): row is JsonRecord => Boolean(row));
+  const sourcePreviewByLookupKey = await loadG4SourcePreviewMap(g4Rows);
 
   console.info("[g5-asset-approval] selected G4 review query result", {
     supabase: supabaseTarget,
@@ -1040,6 +1296,8 @@ export async function loadG5SelectedG4Content(reviewId: string): Promise<G5Selec
   }
 
   const selectedG4Row = g4Rows[0];
+  const selectedSourceLookupKey = getG4SourceLookupKey(selectedG4Row);
+  const selectedSourcePreview = selectedSourceLookupKey ? sourcePreviewByLookupKey.get(selectedSourceLookupKey) ?? null : null;
   console.info("[g5-asset-approval] selected G4 review row keys", {
     supabase: supabaseTarget,
     review_id: normalizedReviewId,
@@ -1102,7 +1360,7 @@ export async function loadG5SelectedG4Content(reviewId: string): Promise<G5Selec
     }
   }
 
-  const review = buildG5SelectedG4Content(selectedG4Row, landingRow);
+  const review = buildG5SelectedG4Content(selectedG4Row, landingRow, selectedSourcePreview);
 
   return {
     status: "PASS",

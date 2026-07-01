@@ -5,22 +5,28 @@ import {
   AlertTriangle,
   ArrowRight,
   BadgeCheck,
+  CalendarDays,
   CheckCircle2,
   Clock3,
   ExternalLink,
   FileUp,
+  Heart,
   Loader2,
+  MessageCircle,
+  Eye,
   RefreshCcw,
   Search,
   ShieldCheck,
   Sparkles,
+  Share2,
   Upload,
   XCircle,
+  TrendingUp,
 } from "lucide-react";
 import { toast } from "sonner";
 
 import WorkflowDashboardShell from "@/components/admin-dashboard/WorkflowDashboardShell";
-import { formatDateTime, formatRelativeTime } from "@/components/admin-dashboard/n8n-automations-common";
+import { formatDateTime } from "@/components/admin-dashboard/n8n-automations-common";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -155,6 +161,19 @@ type G5SelectedG4ContentRecord = {
   display_title: string;
   display_summary: string;
   platform_label: string;
+  caption_preview: string | null;
+  views: string | null;
+  likes: string | null;
+  comments: string | null;
+  shares: string | null;
+  profile_username: string | null;
+  audio_sound: string | null;
+  trend_strength: string | null;
+  brand_fit_score: string | null;
+  risk_score: string | null;
+  source_url: string | null;
+  ai_safe_rewrite: string | null;
+  hook_angle: string | null;
   content_summary: string | null;
   ai_insight: string | null;
   original_post_data: string | null;
@@ -475,8 +494,7 @@ const composeG5DraftText = (hookText?: string | null, captionText?: string | nul
   return hook;
 };
 
-const describeTimestamp = (value?: string | null, fallback = "Not available") =>
-  value ? `${formatDateTime(value)} · ${formatRelativeTime(value)}` : fallback;
+const describeTimestamp = (value?: string | null, fallback = "Not available") => (value ? formatDateTime(value) : fallback);
 
 const compactDateTime = (value?: string | null) => {
   return describeTimestamp(value, "Not yet run");
@@ -1212,20 +1230,14 @@ export default function G5AssetApprovalPage() {
       return null;
     }
 
-    return (
-      draftContent.caption_options.find((option) => option.id === selectedCaptionId) ??
-      (selectedCaptionId ? null : getMatchingOption(draftContent.caption_options, draftContent.recommended_caption))
-    );
+    return draftContent.caption_options.find((option) => option.id === selectedCaptionId) ?? null;
   }, [draftContent, selectedCaptionId]);
   const selectedHookOption = useMemo(() => {
     if (!draftContent) {
       return null;
     }
 
-    return (
-      draftContent.hook_options.find((option) => option.id === selectedHookId) ??
-      (selectedHookId ? null : getMatchingOption(draftContent.hook_options, draftContent.recommended_hook))
-    );
+    return draftContent.hook_options.find((option) => option.id === selectedHookId) ?? null;
   }, [draftContent, selectedHookId]);
 
   useEffect(() => {
@@ -1441,14 +1453,10 @@ export default function G5AssetApprovalPage() {
         }
 
         const selected = body.review;
-        const selectedCaptionOption =
-          getMatchingOption(selected.caption_options, selected.recommended_caption) ?? selected.caption_options[0] ?? null;
-        const selectedHookOption = getMatchingOption(selected.hook_options, selected.recommended_hook) ?? selected.hook_options[0] ?? null;
-
         setDraftContent(selected);
-        setSelectedCaptionId(selectedCaptionOption?.id ?? null);
-        setSelectedHookId(selectedHookOption?.id ?? null);
-        setDraftCaption(composeG5DraftText(selectedHookOption?.text, selectedCaptionOption?.text));
+        setSelectedCaptionId(null);
+        setSelectedHookId(null);
+        setDraftCaption(composeG5DraftText(selected.recommended_hook, selected.recommended_caption));
         setDraftMedia(null);
         setG4DialogOpen(false);
         setComposerOpen(true);
@@ -1467,17 +1475,17 @@ export default function G5AssetApprovalPage() {
   const handleSelectCaptionOption = useCallback(
     (option: G5G4CaptionOption) => {
       setSelectedCaptionId(option.id);
-      setDraftCaption(composeG5DraftText(selectedHookOption?.text, option.text));
+      setDraftCaption(composeG5DraftText(selectedHookOption?.text || draftContent?.recommended_hook, option.text));
     },
-    [selectedHookOption?.text]
+    [draftContent?.recommended_hook, selectedHookOption?.text]
   );
 
   const handleSelectHookOption = useCallback(
     (option: G5G4HookOption) => {
       setSelectedHookId(option.id);
-      setDraftCaption(composeG5DraftText(option.text, selectedCaptionOption?.text));
+      setDraftCaption(composeG5DraftText(option.text, selectedCaptionOption?.text || draftContent?.recommended_caption));
     },
-    [selectedCaptionOption?.text]
+    [draftContent?.recommended_caption, selectedCaptionOption?.text]
   );
 
   const handleRegisterAsset = useCallback(async () => {
@@ -1778,37 +1786,35 @@ export default function G5AssetApprovalPage() {
     setComposerOpen(false);
   }, []);
 
-  const originalPostDataText = draftContent?.original_post_data?.trim() || null;
-  const originalPostDataLines =
-    originalPostDataText
-      ?.split(/\n+/)
-      .map((line) => line.trim())
-      .filter(Boolean) ?? [];
-  const originalPostDataTitle = originalPostDataLines[0] || draftContent?.display_title || "Original post";
-  const originalPostDataBody =
-    originalPostDataLines
-      .slice(1)
-      .filter((line) => !/^https?:\/\//i.test(line))
-      .join(" ")
-      .trim() ||
-    draftContent?.content_summary ||
-    draftContent?.display_summary ||
-    "No additional source details were captured.";
-  const originalPostDataLink = originalPostDataLines.find((line) => /^https?:\/\//i.test(line)) || null;
   const captionPreviewText =
     selectedCaptionOption?.text ||
     draftContent?.recommended_caption ||
     draftContent?.content_summary ||
     draftContent?.display_summary ||
     "Caption will be finalized during registration.";
+  const originalPostDataText = draftContent?.original_post_data?.trim() || null;
+  const originalPostDataLines =
+    originalPostDataText
+      ?.split(/\n+/)
+      .map((line) => line.trim())
+      .filter(Boolean) ?? [];
+  const originalPostHandle = draftContent?.profile_username?.trim() || null;
+  const originalPostAudio = draftContent?.audio_sound?.trim() || null;
+  const originalPostUrl =
+    draftContent?.source_url?.trim() ||
+    originalPostDataLines.find((line) => /^https?:\/\//i.test(line)) ||
+    null;
+  const aiSafeRewriteText = draftContent?.ai_safe_rewrite?.trim() || draftContent?.recommended_caption?.trim() || null;
+  const hookAngleText = draftContent?.hook_angle?.trim() || draftContent?.recommended_hook?.trim() || null;
   const metricTiles: Array<{ label: string; value: string }> = [
-    { label: "Platform", value: draftContent?.platform_label || "Unknown" },
-    { label: "Hooks", value: `${draftContent?.hook_options.length ?? 0}` },
-    { label: "Captions", value: `${draftContent?.caption_options.length ?? 0}` },
-    { label: "Created", value: describeTimestamp(draftContent?.created_at, "Created time unavailable") },
-    { label: "State", value: draftContent?.display_status || "Ready for G5 Approval" },
+    { label: "Views", value: formatG4MetricValue(draftContent?.views) },
+    { label: "Likes", value: formatG4MetricValue(draftContent?.likes) },
+    { label: "Comments", value: formatG4MetricValue(draftContent?.comments) },
+    { label: "Shares", value: formatG4MetricValue(draftContent?.shares) },
+    { label: "Trend Strength", value: formatG4MetricValue(draftContent?.trend_strength) },
+    { label: "Brand Fit", value: formatG4MetricValue(draftContent?.brand_fit_score) },
+    { label: "Risk", value: formatG4MetricValue(draftContent?.risk_score) },
   ];
-
   const selectedContentPanel = draftContent ? (
     <div className="rounded-[28px] border border-border/70 bg-background/95 shadow-sm">
       <div className="border-b border-border/60 px-5 py-5 sm:px-6">
@@ -1858,108 +1864,136 @@ export default function G5AssetApprovalPage() {
         </div>
       </div>
 
-      <div className="grid gap-0 xl:grid-cols-[minmax(0,1.18fr)_minmax(0,0.82fr)]">
-        <div className="space-y-4 border-b border-border/60 px-5 py-5 xl:border-b-0 xl:border-r xl:border-border/60 sm:px-6">
-          <Card className="overflow-hidden rounded-[24px] border-border/60 bg-white shadow-none">
-            <CardHeader className="space-y-2 border-b border-border/50 px-4 py-4">
-              <CardTitle className="font-serif text-xl tracking-tight text-primary">Source bundle</CardTitle>
-              <CardDescription className="text-sm leading-6 text-muted-foreground">
-                The approved G4 source content that seeded this queue item.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 px-4 py-4">
-              <div className="rounded-[18px] border border-border/60 bg-[#fbf8f6] p-4">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Title</p>
-                <p className="mt-2 font-serif text-xl leading-tight text-primary text-pretty">{originalPostDataTitle}</p>
-              </div>
+      <div className="grid gap-0 xl:grid-cols-[minmax(0,0.94fr)_minmax(0,1.06fr)]">
+        <div className="space-y-3 border-b border-border/60 px-4 py-4 xl:border-b-0 xl:border-r xl:border-border/60 sm:px-5">
+          <div className="rounded-[22px] border border-border/60 bg-white p-3.5 shadow-none">
+            <div className="space-y-1">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Caption</p>
+              <p className="mt-1 text-[13px] font-semibold leading-5 text-foreground/80 text-pretty">
+                {captionPreviewText}
+              </p>
+            </div>
+          </div>
 
-              <div className="rounded-[18px] border border-border/60 bg-[#fbf8f6] p-4">
-                <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Description</p>
-                <p className="mt-2 text-sm leading-6 text-foreground/80 text-pretty">{originalPostDataBody}</p>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-[24px] border-border/60 bg-white shadow-none">
-            <CardHeader className="space-y-2 px-4 py-4">
-              <CardTitle className="font-serif text-xl tracking-tight text-primary">Caption</CardTitle>
-              <CardDescription className="text-sm leading-6 text-muted-foreground">
-                The final caption is assembled in the next step, but the selected direction is shown here.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="px-4 pb-4">
-              <div className="rounded-[18px] border border-border/60 bg-[#fbf8f6] p-4">
-                <p className="text-sm leading-6 text-foreground/80 text-pretty">{captionPreviewText}</p>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="rounded-[24px] border-border/60 bg-white shadow-none">
-            <CardHeader className="space-y-2 px-4 py-4">
-              <CardTitle className="font-serif text-xl tracking-tight text-primary">Metrics</CardTitle>
-              <CardDescription className="text-sm leading-6 text-muted-foreground">
-                Quick context for the selected G4 review.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="px-4 pb-4">
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          <Card className="rounded-[22px] border-border/60 bg-white p-3.5 shadow-none">
+            <div className="space-y-3">
+              <CardTitle className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Metrics</CardTitle>
+              <div className="grid gap-1 sm:grid-cols-2 xl:grid-cols-4">
                 {metricTiles.map((tile) => (
-                  <div key={tile.label} className="rounded-[18px] border border-border/60 bg-[#fbf8f6] p-4">
-                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">{tile.label}</p>
-                    <p className="mt-2 text-sm font-medium leading-6 text-foreground/80 text-pretty">{tile.value}</p>
+                  <div key={tile.label} className="rounded-[14px] border border-border/60 bg-[#fbf8f6] p-2.5">
+                    <p className="text-[8px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">{tile.label}</p>
+                    <p className="mt-1 text-[13px] font-semibold leading-5 text-foreground/80 text-pretty">{tile.value}</p>
                   </div>
                 ))}
               </div>
-            </CardContent>
+            </div>
           </Card>
 
-          <Card className="rounded-[24px] border-border/60 bg-white shadow-none">
-            <CardHeader className="space-y-2 px-4 py-4">
-              <CardTitle className="font-serif text-xl tracking-tight text-primary">Original Post Data</CardTitle>
-              <CardDescription className="text-sm leading-6 text-muted-foreground">
-                Structured source details captured from the original post bundle.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-3 px-4 pb-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="rounded-[18px] border border-border/60 bg-[#fbf8f6] p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Source URL</p>
-                  <p className="mt-2 text-sm leading-6 text-foreground/80 text-pretty">
-                    {originalPostDataLink ? "Captured from the source bundle." : "No source link was captured in this bundle."}
-                  </p>
+          <Card className="rounded-[22px] border-border/60 bg-white p-3.5 shadow-none">
+            <div className="space-y-3">
+              <CardTitle className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Original Post Data</CardTitle>
+              <div className="grid gap-1.5 sm:grid-cols-2">
+                <div className="rounded-[14px] border border-border/60 bg-[#fbf8f6] p-2.5">
+                  <p className="text-[8px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Handle</p>
+                  <p className="mt-1 text-[13px] font-semibold leading-5 text-foreground/80 text-pretty">{originalPostHandle || "Unknown"}</p>
                 </div>
-                <div className="rounded-[18px] border border-border/60 bg-[#fbf8f6] p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Review context</p>
-                  <p className="mt-2 text-sm leading-6 text-foreground/80 text-pretty">
-                    Original post content is ready for the G5 approval and manual publishing flow.
-                  </p>
+                <div className="rounded-[14px] border border-border/60 bg-[#fbf8f6] p-2.5">
+                  <p className="text-[8px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Audio</p>
+                  <p className="mt-1 text-[13px] font-semibold leading-5 text-foreground/80 text-pretty">{originalPostAudio || "original sound"}</p>
                 </div>
               </div>
 
-              {originalPostDataLink ? (
-                <Button asChild variant="outline" className="h-11 w-full rounded-[14px] border-border/70 bg-white px-4 text-sm font-semibold shadow-none">
-                  <a href={originalPostDataLink} target="_blank" rel="noreferrer">
-                    <ExternalLink className="mr-2 size-4" />
+              {originalPostUrl ? (
+                <Button asChild variant="outline" className="h-9 w-full rounded-[12px] border-border/70 bg-white px-3.5 text-xs font-semibold shadow-none">
+                  <a href={originalPostUrl} target="_blank" rel="noreferrer">
+                    <ExternalLink className="mr-2 size-3.5" />
                     Open Original Post
                   </a>
                 </Button>
               ) : (
-                <p className="text-xs leading-5 text-muted-foreground">Open link not available from this review bundle.</p>
+                <p className="text-[11px] leading-5 text-muted-foreground">Open link not available from this review bundle.</p>
               )}
-            </CardContent>
+            </div>
+          </Card>
+
+          <Card className="rounded-[22px] border-border/60 bg-white p-3.5 shadow-none">
+            <div className="space-y-3">
+              <CardTitle className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">AI direction</CardTitle>
+              <div className="space-y-2">
+                <div className="rounded-[14px] border border-border/60 bg-[#fbf8f6] p-2.5">
+                  <p className="text-[8px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Safe rewrite</p>
+                  <p className="mt-1 text-[13px] font-semibold leading-5 text-foreground/80 text-pretty">
+                    {aiSafeRewriteText || "Not available"}
+                  </p>
+                </div>
+                <div className="rounded-[14px] border border-border/60 bg-[#fbf8f6] p-2.5">
+                  <p className="text-[8px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Hook angle</p>
+                  <p className="mt-1 text-[13px] font-semibold leading-5 text-foreground/80 text-pretty">
+                    {hookAngleText || "Not available"}
+                  </p>
+                </div>
+              </div>
+            </div>
           </Card>
         </div>
 
-        <div className="space-y-4 px-5 py-5 sm:px-6">
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="space-y-3 px-5 py-5 sm:px-6">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <Label className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Caption options</Label>
+              <Badge variant="outline" className="rounded-full border-border/70 bg-[#fbf8f6] px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
+                {draftContent.caption_options.length} caption{draftContent.caption_options.length === 1 ? "" : "s"}
+              </Badge>
+            </div>
+
+            {draftContent.caption_options.length > 0 ? (
+              <ToggleGroup
+                type="single"
+                variant="outline"
+                value={selectedCaptionOption?.id}
+                onValueChange={(value) => {
+                  const option = draftContent.caption_options.find((item) => item.id === value);
+                  if (option) {
+                    handleSelectCaptionOption(option);
+                  }
+                }}
+                className="flex w-full flex-col gap-2"
+              >
+                {draftContent.caption_options.map((option) => (
+                  <ToggleGroupItem
+                    key={option.id}
+                    value={option.id}
+                    variant="outline"
+                    size="lg"
+                    className="h-auto w-full flex-col items-start justify-start gap-1.5 rounded-[16px] border-border/70 bg-[#fbf8f6] px-3 py-3 text-left whitespace-normal data-[state=on]:border-primary/40 data-[state=on]:bg-primary/5"
+                  >
+                    <div className="flex w-full items-center justify-between gap-2">
+                      <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">{option.label}</span>
+                      <Badge variant="outline" className="rounded-full border-border/70 bg-background px-2 py-0.5 text-[9px] font-medium text-muted-foreground">
+                        G4
+                      </Badge>
+                    </div>
+                    <p className="text-xs leading-5 text-foreground/80">{option.text}</p>
+                  </ToggleGroupItem>
+                ))}
+              </ToggleGroup>
+            ) : (
+              <Alert variant="default" className="border-amber-200 bg-amber-50/80 text-amber-800">
+                <AlertTriangle className="size-4" />
+                <AlertTitle className="text-sm font-medium text-amber-900">No caption suggestions found</AlertTitle>
+                <AlertDescription className="text-sm leading-6 text-amber-800">Enter the final caption manually during registration.</AlertDescription>
+              </Alert>
+            )}
+          </div>
+
+          <Separator />
+
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
               <Label className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Hook options</Label>
               <div className="flex flex-wrap gap-2">
                 <Badge variant="outline" className="rounded-full border-border/70 bg-[#fbf8f6] px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
                   {draftContent.hook_options.length} hook{draftContent.hook_options.length === 1 ? "" : "s"}
-                </Badge>
-                <Badge variant="outline" className="rounded-full border-border/70 bg-[#fbf8f6] px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-                  {draftContent.caption_options.length} caption{draftContent.caption_options.length === 1 ? "" : "s"}
                 </Badge>
               </div>
             </div>
@@ -1975,7 +2009,7 @@ export default function G5AssetApprovalPage() {
                     handleSelectHookOption(option);
                   }
                 }}
-                className="grid w-full gap-3 sm:grid-cols-2"
+                className="flex w-full flex-col gap-2"
               >
                 {draftContent.hook_options.map((option) => (
                   <ToggleGroupItem
@@ -1983,15 +2017,15 @@ export default function G5AssetApprovalPage() {
                     value={option.id}
                     variant="outline"
                     size="lg"
-                    className="h-auto min-h-28 w-full flex-col items-start justify-start gap-2 rounded-[18px] border-border/70 bg-[#fbf8f6] px-4 py-4 text-left whitespace-normal data-[state=on]:border-primary/40 data-[state=on]:bg-primary/5"
+                    className="h-auto w-full flex-col items-start justify-start gap-1.5 rounded-[16px] border-border/70 bg-[#fbf8f6] px-3 py-3 text-left whitespace-normal data-[state=on]:border-primary/40 data-[state=on]:bg-primary/5"
                   >
                     <div className="flex w-full items-center justify-between gap-2">
-                      <span className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">{option.label}</span>
-                      <Badge variant="outline" className="rounded-full border-border/70 bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                      <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">{option.label}</span>
+                      <Badge variant="outline" className="rounded-full border-border/70 bg-background px-2 py-0.5 text-[9px] font-medium text-muted-foreground">
                         G4
                       </Badge>
                     </div>
-                    <p className="text-sm leading-6 text-foreground/80">{option.text}</p>
+                    <p className="text-xs leading-5 text-foreground/80">{option.text}</p>
                   </ToggleGroupItem>
                 ))}
               </ToggleGroup>
@@ -2004,65 +2038,7 @@ export default function G5AssetApprovalPage() {
             )}
           </div>
 
-          <Separator />
-
-          <div className="space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <Label className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Caption options</Label>
-              {selectedCaptionOption ? (
-                <Badge variant="outline" className="rounded-full border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
-                  Selected caption
-                </Badge>
-              ) : (
-                <Badge variant="outline" className="rounded-full border-border/70 bg-white px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-                  Edit manually
-                </Badge>
-              )}
-            </div>
-
-            {draftContent.caption_options.length > 0 ? (
-              <ToggleGroup
-                type="single"
-                variant="outline"
-                value={selectedCaptionOption?.id}
-                onValueChange={(value) => {
-                  const option = draftContent.caption_options.find((item) => item.id === value);
-                  if (option) {
-                    handleSelectCaptionOption(option);
-                  }
-                }}
-                className="grid w-full gap-3 sm:grid-cols-2"
-              >
-                {draftContent.caption_options.map((option) => (
-                  <ToggleGroupItem
-                    key={option.id}
-                    value={option.id}
-                    variant="outline"
-                    size="lg"
-                    className="h-auto min-h-28 w-full flex-col items-start justify-start gap-2 rounded-[18px] border-border/70 bg-[#fbf8f6] px-4 py-4 text-left whitespace-normal data-[state=on]:border-primary/40 data-[state=on]:bg-primary/5"
-                  >
-                    <div className="flex w-full items-center justify-between gap-2">
-                      <span className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">{option.label}</span>
-                      <Badge variant="outline" className="rounded-full border-border/70 bg-background px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-                        G4
-                      </Badge>
-                    </div>
-                    <p className="text-sm leading-6 text-foreground/80">{option.text}</p>
-                  </ToggleGroupItem>
-                ))}
-              </ToggleGroup>
-            ) : (
-              <Alert variant="default" className="border-amber-200 bg-amber-50/80 text-amber-800">
-                <AlertTriangle className="size-4" />
-                <AlertTitle className="text-sm font-medium text-amber-900">No caption suggestions found</AlertTitle>
-                <AlertDescription className="text-sm leading-6 text-amber-800">Enter the final caption manually during registration.</AlertDescription>
-              </Alert>
-            )}
-          </div>
-
-          <Separator />
-
-          <div className="space-y-3">
+          <div className="space-y-2">
             <div className="space-y-2">
               <Label htmlFor="g5-caption" className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
                 Final caption
@@ -2072,9 +2048,9 @@ export default function G5AssetApprovalPage() {
                 value={draftCaption}
                 onChange={(event) => setDraftCaption(event.target.value)}
                 placeholder={draftContent.caption_options.length ? "Edit the caption before saving the queue item." : "Enter the final caption for this post."}
-                className="min-h-36 rounded-[24px] border-border/70 bg-white px-4 py-3 text-sm shadow-sm"
+                className="min-h-28 rounded-[24px] border-border/70 bg-white px-4 py-3 text-sm shadow-sm"
               />
-              <div className="flex flex-wrap items-center gap-2 text-xs leading-5 text-muted-foreground">
+              <div className="flex flex-wrap items-center gap-2 text-[11px] leading-5 text-muted-foreground">
                 <span>This becomes the final text saved with the queue item.</span>
                 {selectedCaptionOption ? (
                   <Badge variant="outline" className="rounded-full border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
@@ -2151,7 +2127,7 @@ export default function G5AssetApprovalPage() {
 
   const composerModal = draftContent ? (
     <Dialog open={composerOpen} onOpenChange={setComposerOpen}>
-      <DialogContent className="h-[100dvh] !w-[100vw] !max-w-none overflow-y-auto rounded-none border-0 bg-background p-0 shadow-none sm:h-auto sm:max-h-[92vh] sm:!w-[min(96vw,1520px)] sm:!max-w-[min(96vw,1520px)] sm:rounded-[28px] sm:border sm:border-border/70 sm:bg-background sm:shadow-xl">
+      <DialogContent className="h-[100dvh] !w-[100vw] !max-w-none overflow-y-auto rounded-none border-0 bg-background p-0 shadow-none sm:h-auto sm:max-h-[92vh] sm:!w-[min(94vw,1400px)] sm:!max-w-[min(94vw,1400px)] sm:rounded-[28px] sm:border sm:border-border/70 sm:bg-background sm:shadow-xl">
         <DialogHeader className="sr-only">
           <DialogTitle>Prepare content for publishing</DialogTitle>
           <DialogDescription>Choose a hook, caption, media file, and register the asset.</DialogDescription>
@@ -2302,7 +2278,7 @@ export default function G5AssetApprovalPage() {
                   </div>
 
                   <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-                    <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-[28px] bg-[#fbf8f6] p-2 md:grid-cols-3 xl:grid-cols-5">
+                    <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-[28px] bg-transparent p-0 md:grid-cols-3 xl:grid-cols-5">
                       <TabsTrigger
                         value="approved-content"
                         className="flex h-auto flex-col items-start justify-start gap-1 rounded-[20px] border border-border/60 bg-white px-4 py-3 text-left text-sm data-[state=active]:border-primary/30 data-[state=active]:bg-primary/5"
@@ -2345,53 +2321,110 @@ export default function G5AssetApprovalPage() {
                         <div className="flex flex-col gap-3">
                           {filteredApprovedContent.map((review) => {
                             const selected = draftContent?.id === review.id;
+                            const reviewMetrics = [
+                              {
+                                label: "Views",
+                                value: formatG4MetricValue(review.views),
+                                icon: <Eye className="size-5" aria-hidden="true" />,
+                                accentClassName: "border-violet-100 bg-violet-50 text-violet-700",
+                              },
+                              {
+                                label: "Comments",
+                                value: formatG4MetricValue(review.comments),
+                                icon: <MessageCircle className="size-5" aria-hidden="true" />,
+                                accentClassName: "border-indigo-100 bg-indigo-50 text-indigo-700",
+                              },
+                              {
+                                label: "Likes",
+                                value: formatG4MetricValue(review.likes),
+                                icon: <Heart className="size-5" aria-hidden="true" />,
+                                accentClassName: "border-rose-100 bg-rose-50 text-rose-700",
+                              },
+                              {
+                                label: "Shares",
+                                value: formatG4MetricValue(review.shares),
+                                icon: <Share2 className="size-5" aria-hidden="true" />,
+                                accentClassName: "border-emerald-100 bg-emerald-50 text-emerald-700",
+                              },
+                            ];
 
                             return (
                               <article
                                 key={review.id}
                                 className={cn(
-                                  "w-full rounded-[24px] border p-4 shadow-sm transition-colors",
-                                  selected ? "border-primary/30 bg-primary/5" : "border-border/60 bg-background hover:border-primary/30 hover:bg-accent/20"
+                                  "group w-full overflow-hidden rounded-[20px] border bg-white shadow-sm transition-[transform,border-color,background-color,box-shadow] duration-200",
+                                  selected
+                                    ? "border-violet-300"
+                                    : "border-border/60 hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md"
                                 )}
                               >
-                                <div className="flex items-start justify-between gap-3">
-                                  <div className="min-w-0 flex-1 flex flex-col gap-3">
-                                    <p className="truncate font-serif text-xl leading-tight text-primary">{review.display_title}</p>
-                                    <div className="rounded-[18px] border border-border/60 bg-[#fbf8f6] px-3 py-3">
-                                      <p className="line-clamp-2 text-sm leading-6 text-foreground/80">
-                                        {getG4ReviewCaption(review) || "No original caption available."}
-                                      </p>
+                                <div className="relative overflow-hidden border-b border-border/60 bg-white">
+                                  <div className="relative space-y-3 px-4 py-3 sm:px-5 sm:py-3">
+                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                      <Badge
+                                        variant="outline"
+                                        className="rounded-full border-violet-200/70 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-violet-700 shadow-none"
+                                      >
+                                        <TrendingUp className="mr-1.5 size-3.5" aria-hidden="true" />
+                                        Trending content
+                                      </Badge>
+                                      <div className="inline-flex items-center gap-1.5 rounded-full border border-border/70 bg-white px-2.5 py-1 text-[10px] leading-none text-muted-foreground shadow-none">
+                                        <CalendarDays className="size-3 text-violet-600" aria-hidden="true" />
+                                        <span>{describeTimestamp(review.created_at, "Created time unavailable")}</span>
+                                      </div>
                                     </div>
-                                    <div className="flex flex-wrap gap-2">
-                                      {[
-                                        { label: "Views", value: review.views },
-                                        { label: "Comments", value: review.comments },
-                                        { label: "Likes", value: review.likes },
-                                        { label: "Shares", value: review.shares },
-                                      ].map((metric) => (
-                                        <Badge
+
+                                    <div className="space-y-3">
+                                      <p className="max-w-5xl font-serif text-[clamp(1.1rem,1.4vw,1.75rem)] leading-[1] tracking-tight text-primary text-pretty">
+                                        {review.display_title}
+                                      </p>
+                                      <div className="flex min-w-0 items-center gap-2 text-[10px] leading-5">
+                                        <span className="inline-flex shrink-0 items-center gap-1.5 font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                                          <MessageCircle className="size-3 shrink-0 text-violet-600" aria-hidden="true" />
+                                          <span>Caption:</span>
+                                        </span>
+                                        <p className="min-w-0 flex-1 truncate text-xs leading-5 text-slate-600">
+                                        {getG4ReviewCaption(review) || "No original caption available."}
+                                        </p>
+                                      </div>
+                                    </div>
+
+                                    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                                      {reviewMetrics.map((metric) => (
+                                        <div
                                           key={metric.label}
-                                          variant="outline"
-                                          className="inline-flex items-center gap-2 rounded-full border-border/70 bg-white px-2.5 py-1 text-[11px] font-medium text-muted-foreground"
+                                          className="flex items-center gap-3 rounded-[16px] border border-border/60 bg-white px-3 py-2 shadow-none"
                                         >
-                                          <span className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">{metric.label}</span>
-                                          <span className="font-semibold text-foreground">{formatG4MetricValue(metric.value)}</span>
-                                        </Badge>
+                                          <div className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg border", metric.accentClassName)}>
+                                            {metric.icon}
+                                          </div>
+                                          <div className="min-w-0">
+                                            <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+                                              {metric.label}
+                                            </p>
+                                            <p className="mt-0.5 text-[1.15rem] font-semibold leading-none tracking-tight text-primary tabular-nums">
+                                              {metric.value}
+                                            </p>
+                                          </div>
+                                        </div>
                                       ))}
                                     </div>
-                                  </div>
-                                  <Badge variant="outline" className="shrink-0 rounded-full border-border/70 bg-white px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-                                    {describeTimestamp(review.created_at, "Created time unavailable")}
-                                  </Badge>
-                                </div>
 
-                                <div className="mt-4 flex flex-wrap items-center gap-2">
-                                  <Button type="button" className="h-10 rounded-full px-4" onClick={() => void handleSelectG4Review(review)}>
-                                    Use this content
-                                  </Button>
-                                  <Badge variant="outline" className="rounded-full border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
-                                    Ready for G5 Approval
-                                  </Badge>
+                                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                                      <Button
+                                        type="button"
+                                        className="inline-flex h-9 items-center rounded-full px-4 text-sm leading-none shadow-none"
+                                        onClick={() => void handleSelectG4Review(review)}
+                                      >
+                                        <Sparkles className="size-3.5" aria-hidden="true" />
+                                        Use this content
+                                      </Button>
+                                      <div className="inline-flex h-9 items-center gap-2 rounded-full border border-emerald-200 bg-white px-4 text-sm font-semibold leading-none text-emerald-700 shadow-none">
+                                        <BadgeCheck className="size-3.5" aria-hidden="true" />
+                                        Ready for G5 Approval
+                                      </div>
+                                    </div>
+                                  </div>
                                 </div>
                               </article>
                             );
