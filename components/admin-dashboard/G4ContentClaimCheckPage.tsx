@@ -248,7 +248,7 @@ const getActionPanelCopy = (status: G4Status) => {
     case "BLOCK":
       return {
         title: "Fix this content before it can move forward",
-        body: "This content cannot move to approval or publishing until the risky claim is removed or rewritten.",
+        body: "This content cannot move forward or be published until the risky claim is removed or rewritten.",
         buttonLabel: "Fix content",
         buttonAction: "fix" as const,
         disabled: false,
@@ -256,19 +256,19 @@ const getActionPanelCopy = (status: G4Status) => {
       };
     case "PENDING_APPROVAL":
       return {
-        title: "Review and approve before use",
-        body: "The content check passed, but a human approval is still required before publishing or ad use.",
-        buttonLabel: "Send to approval",
+        title: "Ready for G5",
+        body: "The content check passed and is ready to move into G5.",
+        buttonLabel: "Use this content",
         buttonAction: "approval" as const,
         disabled: false,
         helper: null,
       };
     case "PASS":
       return {
-        title: "Review approval status before use",
-        body: "Content check passed. Confirm the approval status before next workflow use.",
-        buttonLabel: "View approval status",
-        buttonAction: "view" as const,
+        title: "Ready for G5",
+        body: "Content check passed and is ready for G5.",
+        buttonLabel: "Use this content",
+        buttonAction: "approval" as const,
         disabled: false,
         helper: null,
       };
@@ -515,7 +515,7 @@ function PendingApprovalCard({
       ? approvalRequest.status === "PENDING"
         ? "Queued"
         : "Approval recorded"
-      : "Send to approval";
+      : "Use this content";
 
   return (
     <div className="flex h-full flex-col rounded-[22px] border border-border/60 bg-white shadow-sm">
@@ -855,17 +855,17 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
   const approvalActionDisabled = approvalSubmittingSourceId !== null || approvalRecorded;
   const approvalButtonLabel =
     latestApprovalSourceId && approvalSubmittingSourceId === latestApprovalSourceId
-      ? "Queueing approval..."
+      ? "Queueing G5..."
       : approvalQueued
-        ? "Approval queued"
+        ? "Queued for G5"
         : approvalRecorded
-          ? "Approval recorded"
-          : "Send to approval";
+          ? "Recorded"
+          : "Use this content";
   const approvalHelperText = approvalRequest
     ? approvalRequest.status === "PENDING"
-      ? `Approval queued as ${approvalRequest.approvalId}.`
-      : `Approval record ${approvalRequest.status.toLowerCase().replace(/_/g, " ")} as ${approvalRequest.approvalId}.`
-    : "Queue this content for human approval.";
+      ? `Queued for G5 as ${approvalRequest.approvalId}.`
+      : `Request ${approvalRequest.status.toLowerCase().replace(/_/g, " ")} as ${approvalRequest.approvalId}.`
+    : "Use this content in G5.";
   const recentOutcomes = dedupeRecentOutcomes(detail.recentOutcomes);
   const visiblePendingApprovalRows = recentOutcomes
     .filter((row) => {
@@ -898,7 +898,7 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
 
       const body = await parseJsonResponse<G4ApprovalRequestResponse>(response);
       if (!response.ok || !body) {
-        throw new Error(body?.message ?? `Unable to queue approval (${response.status}).`);
+        throw new Error(body?.message ?? `Unable to queue G5 request (${response.status}).`);
       }
 
       if (body.approvalRequest && sourceId === latestApprovalSourceId) {
@@ -912,7 +912,7 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
       toast.success(body.message || "Approval request queued.");
       router.refresh();
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to queue approval.";
+      const message = error instanceof Error ? error.message : "Unable to queue G5 request.";
       toast.error(message);
     } finally {
       setApprovalSubmittingSourceId((current) => (current === sourceId ? null : current));
@@ -1008,9 +1008,9 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
         {visiblePendingApprovalRows.length ? (
           <Card className="overflow-hidden rounded-[28px] border-border/60 bg-white/95 shadow-sm">
             <CardHeader className="space-y-2">
-              <CardTitle className="font-serif text-2xl tracking-tight text-primary">Pending For Approval</CardTitle>
+              <CardTitle className="font-serif text-2xl tracking-tight text-primary">Ready for G5</CardTitle>
               <CardDescription className="text-sm leading-6 text-muted-foreground">
-                {visiblePendingApprovalRows.length} check{visiblePendingApprovalRows.length === 1 ? "" : "s"} are waiting for human approval. Use each card to queue approval or review AI notes.
+                {visiblePendingApprovalRows.length} check{visiblePendingApprovalRows.length === 1 ? "" : "s"} are ready for G5. Use each card to hand off the content or review AI notes.
               </CardDescription>
             </CardHeader>
             <CardContent>
@@ -1147,7 +1147,7 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
                                   disabled={rowApprovalQueued || approvalSubmittingSourceId !== null || !rowSourceId}
                                   onClick={() => void handleApprovalRequest(rowSourceId)}
                                 >
-                                  {approvalSubmittingSourceId === rowSourceId ? "Queueing..." : rowApprovalQueued ? "Queued" : "Send to approval"}
+                                  {approvalSubmittingSourceId === rowSourceId ? "Queueing..." : rowApprovalQueued ? "Queued" : "Use this content"}
                                 </Button>
                               ) : rowAction.action === "fix" ? (
                                 <Button type="button" size="sm" className="h-8 w-full rounded-full text-[11px] font-medium" onClick={() => setFixPanelOpen(true)}>
@@ -1413,7 +1413,7 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
 
                     <div className="flex flex-col gap-3 border-t border-border/60 pt-4 sm:flex-row sm:items-center sm:justify-between">
                       <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-                        AI suggestions are advisory only. Re-checked content still needs rules and human approval.
+                        AI suggestions are advisory only. Re-checked content still needs rules before it moves into G5.
                       </p>
                       <Button
                         type="button"

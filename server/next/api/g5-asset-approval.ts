@@ -21,9 +21,42 @@ type G4SourcePreview = Pick<G4ContentPreview, "captionPreview" | "views" | "like
 type G4SourcePreviewDetails = G4SourcePreview & {
   profileUsername?: string | null;
   audioSound?: string | null;
+  engagementRate?: string | null;
   trendStrength?: string | null;
   brandFitScore?: string | null;
   riskScore?: string | null;
+};
+
+type G5ClientStatus =
+  | "Ready for G5"
+  | "Pending approval"
+  | "Approved"
+  | "Ready to publish"
+  | "Published manually"
+  | "Rejected"
+  | "Blocked";
+
+type G5ClientTab = "approved_content" | "pending_approval" | "ready_to_publish" | "published_manually" | "blocked_rejected";
+
+type G5OriginalPostDetails = {
+  platform: string | null;
+  handle: string | null;
+  caption: string | null;
+  post_url: string | null;
+  views: string | null;
+  likes: string | null;
+  comments: string | null;
+  shares: string | null;
+  audio: string | null;
+  engagement_rate: string | null;
+};
+
+type G5AiDirectionDetails = {
+  content_angle: string | null;
+  safe_rewrite: string | null;
+  hook_angle: string | null;
+  risk_summary: string | null;
+  compliance_note: string | null;
 };
 
 export type G5DashboardAssetRecord = {
@@ -33,6 +66,7 @@ export type G5DashboardAssetRecord = {
   intended_platform: string | null;
   platform: string | null;
   content_text: string | null;
+  hook_angle: string | null;
   media_url: string | null;
   storage_url: string | null;
   compliance_status: string | null;
@@ -59,6 +93,8 @@ export type G5DashboardAssetRecord = {
   last_readiness_check_response: string | null;
   readiness_response: string | null;
   failure_reasons: string[];
+  client_status: G5ClientStatus;
+  client_tab: G5ClientTab;
 };
 
 export type G5DashboardSummary = {
@@ -85,7 +121,7 @@ export type G5ApprovedContentRecord = {
   review_id: string | null;
   status: string | null;
   approval_state: string | null;
-  display_status: "Ready for G5 Approval";
+  display_status: "Ready for G5";
   created_at: string | null;
   display_title: string;
   display_summary: string;
@@ -132,7 +168,7 @@ export type G5SelectedG4ContentRecord = {
   review_id: string | null;
   status: string | null;
   approval_state: string | null;
-  display_status: "Ready for G5 Approval";
+  display_status: "Ready for G5";
   created_at: string | null;
   display_title: string;
   display_summary: string;
@@ -150,9 +186,20 @@ export type G5SelectedG4ContentRecord = {
   source_url: string | null;
   ai_safe_rewrite: string | null;
   hook_angle: string | null;
+  ai_risk_summary: string | null;
+  ai_compliance_note: string | null;
   content_summary: string | null;
   ai_insight: string | null;
   original_post_data: string | null;
+  engagement_rate: string | null;
+  content: {
+    title: string | null;
+    summary: string | null;
+    platform: string | null;
+    created_at: string | null;
+  };
+  original_post: G5OriginalPostDetails;
+  ai_direction: G5AiDirectionDetails;
   caption_options: G5G4CaptionOption[];
   hook_options: G5G4HookOption[];
   recommended_caption: string | null;
@@ -186,6 +233,7 @@ export type G5AssetRegisterInput = {
   asset_type: string;
   asset_title: string;
   content_text: string;
+  hook_angle?: string | null;
   media_url: string;
   storage_url: string;
   g4_review_id: string;
@@ -487,6 +535,7 @@ const loadG4SourcePreviewMap = async (rows: JsonRecord[]) => {
     previewByLookupKey.set(sourceLookupKey, {
       profileUsername: readJsonRecordTextFromCandidates([rawScrape, metric, insight], ["profile_username", "profileUsername", "username", "handle"]),
       audioSound: readJsonRecordTextFromCandidates([rawScrape, metric, insight], ["audio_sound", "audioSound", "sound", "music"]),
+      engagementRate: readJsonRecordTextFromCandidates([rawScrape, metric, insight], ["engagement_rate", "engagementRate"]),
       trendStrength: readJsonRecordTextFromCandidates([rawScrape, metric, insight], ["trend_strength", "trendStrength"]),
       brandFitScore: readJsonRecordTextFromCandidates([rawScrape, metric, insight], ["brand_fit_score", "brandFitScore"]),
       riskScore: readJsonRecordTextFromCandidates([rawScrape, metric, insight], ["risk_score", "riskScore"]),
@@ -511,6 +560,110 @@ const loadG4SourcePreviewMap = async (rows: JsonRecord[]) => {
 const upperText = (value: unknown) => toText(value)?.toUpperCase() ?? null;
 
 const normalizeStateKey = (value: unknown) => upperText(value)?.replace(/[\s-]+/g, "_") ?? null;
+
+const pickTextFromCandidates = (row: JsonRecord | null | undefined, keys: string[]) => readJsonRecordTextFromCandidates([row], keys);
+
+const pickDateFromCandidates = (row: JsonRecord | null | undefined, keys: string[]) => {
+  const text = pickTextFromCandidates(row, keys);
+  return text ? toDate(text) : null;
+};
+
+const collectTextValuesFromCandidates = (rows: JsonRecord[], keys: string[]) => {
+  const values = new Set<string>();
+
+  for (const row of rows) {
+    for (const key of keys) {
+      const value = pickTextFromCandidates(row, [key]);
+      if (value) {
+        values.add(value);
+      }
+    }
+  }
+
+  return [...values];
+};
+
+const getG5ClientStatusInfo = (asset: Pick<
+  G5DashboardAssetRecord,
+  "approval_status" | "asset_status" | "manual_publish_status" | "post_url" | "published_at" | "last_manual_publish_result_id"
+>) => {
+  const contentApprovalStatus = normalizeStateKey(asset.approval_status);
+  const publishStateStatus = normalizeStateKey(asset.asset_status);
+  const manualPublishStatus = normalizeStateKey(asset.manual_publish_status);
+  const hasManualPublishResult = Boolean(asset.last_manual_publish_result_id || (asset.post_url && asset.published_at));
+
+  if (hasManualPublishResult || manualPublishStatus === "PUBLISHED_MANUALLY" || publishStateStatus === "PUBLISHED_MANUALLY" || publishStateStatus === "PUBLISHED") {
+    return {
+      contentApprovalStatus,
+      publishStateStatus,
+      manualPublishStatus,
+      clientStatus: "Published manually" as const,
+      clientTab: "published_manually" as const,
+    };
+  }
+
+  if (publishStateStatus === "APPROVED_READY_TO_PUBLISH" || publishStateStatus === "READY_TO_PUBLISH") {
+    return {
+      contentApprovalStatus,
+      publishStateStatus,
+      manualPublishStatus,
+      clientStatus: "Ready to publish" as const,
+      clientTab: "ready_to_publish" as const,
+    };
+  }
+
+  if (publishStateStatus === "APPROVED" || contentApprovalStatus === "APPROVED") {
+    return {
+      contentApprovalStatus,
+      publishStateStatus,
+      manualPublishStatus,
+      clientStatus: "Approved" as const,
+      clientTab: "ready_to_publish" as const,
+    };
+  }
+
+  if (
+    publishStateStatus === "PENDING_APPROVAL" ||
+    contentApprovalStatus === "PENDING_APPROVAL" ||
+    contentApprovalStatus === "PENDING"
+  ) {
+    return {
+      contentApprovalStatus,
+      publishStateStatus,
+      manualPublishStatus,
+      clientStatus: "Pending approval" as const,
+      clientTab: "pending_approval" as const,
+    };
+  }
+
+  if (publishStateStatus === "REJECTED" || contentApprovalStatus === "REJECTED") {
+    return {
+      contentApprovalStatus,
+      publishStateStatus,
+      manualPublishStatus,
+      clientStatus: "Rejected" as const,
+      clientTab: "blocked_rejected" as const,
+    };
+  }
+
+  if (publishStateStatus === "BLOCKED" || publishStateStatus === "FAILED" || publishStateStatus === "ERROR" || contentApprovalStatus === "BLOCKED") {
+    return {
+      contentApprovalStatus,
+      publishStateStatus,
+      manualPublishStatus,
+      clientStatus: "Blocked" as const,
+      clientTab: "blocked_rejected" as const,
+    };
+  }
+
+  return {
+    contentApprovalStatus,
+    publishStateStatus,
+    manualPublishStatus,
+    clientStatus: "Pending approval" as const,
+    clientTab: "pending_approval" as const,
+  };
+};
 
 const isG4ReadyForG5 = (row: JsonRecord) => {
   const status = normalizeStateKey(row.status);
@@ -566,46 +719,89 @@ const mergeRecords = <T extends JsonRecord>(base: T, next: Partial<T>) => {
 };
 
 const normalizeAssetRecord = (row: JsonRecord): G5DashboardAssetRecord | null => {
-  const assetId =
-    pickText(row, ["asset_id", "assetId", "id", "approval_id", "approvalId", "content_review_id", "contentReviewId", "review_id", "reviewId"]) ?? null;
+  const assetId = pickTextFromCandidates(row, ["asset_id", "assetId", "id", "approval_id", "approvalId", "content_review_id", "contentReviewId", "review_id", "reviewId"]) ?? null;
 
   if (!assetId) {
     return null;
   }
 
+  const assetTitle = pickTextFromCandidates(row, ["asset_title", "assetTitle", "title", "name", "content_text", "contentText", "caption", "caption_text", "captionText", "summary"]);
+  const assetType = pickTextFromCandidates(row, ["asset_type", "assetType", "content_type", "contentType", "media_type", "mediaType"]);
+  const intendedPlatform = pickTextFromCandidates(row, ["intended_platform", "intendedPlatform"]);
+  const platform = pickTextFromCandidates(row, ["platform", "source_platform", "sourcePlatform"]);
+  const contentText = pickTextFromCandidates(row, ["content_text", "contentText", "caption", "caption_text", "captionText", "body", "message"]);
+  const hookAngle = pickTextFromCandidates(row, ["hook_angle", "hookAngle", "selected_hook", "selectedHook", "ai_hook_angle"]);
+  const mediaUrl = pickTextFromCandidates(row, ["media_url", "mediaUrl", "public_url", "publicUrl", "url", "image_url", "imageUrl", "video_url", "videoUrl"]);
+  const storageUrl = pickTextFromCandidates(row, ["storage_url", "storageUrl", "storage_reference", "storageReference", "storage_key", "storageKey"]);
+  const complianceStatus = pickTextFromCandidates(row, ["compliance_status", "complianceStatus", "g1_compliance_status", "g1ComplianceStatus"]);
+  const approvalStatus = pickTextFromCandidates(row, ["approval_status", "approvalStatus"]);
+  const approvedBy = pickTextFromCandidates(row, ["approved_by", "approvedBy"]);
+  const assetCreatedAt = pickDateFromCandidates(row, ["asset_created_at", "assetCreatedAt", "created_at", "createdAt"]);
+  const assetStatus = pickTextFromCandidates(row, ["asset_status", "assetStatus", "status"]);
+  const readinessStatus = pickTextFromCandidates(row, ["readiness_status", "readinessStatus"]);
+  const manualPublishStatus = pickTextFromCandidates(row, ["manual_publish_status", "manualPublishStatus", "publish_status", "publishStatus"]);
+  const approvalId = pickTextFromCandidates(row, ["approval_id", "approvalId"]);
+  const lastManualPublishResultId = pickTextFromCandidates(row, ["last_manual_publish_result_id", "lastManualPublishResultId", "manual_publish_result_id", "manualPublishResultId"]);
+  const postUrl = pickTextFromCandidates(row, ["post_url", "postUrl", "instagram_post_url", "instagramPostUrl", "published_url", "publishedUrl"]);
+  const publishedBy = pickTextFromCandidates(row, ["published_by", "publishedBy"]);
+  const publishedAt = pickDateFromCandidates(row, ["published_at", "publishedAt"]);
+  const stateUpdatedAt = pickDateFromCandidates(row, ["state_updated_at", "stateUpdatedAt", "updated_at", "updatedAt", "modified_at", "modifiedAt"]);
+  const g4ReviewId = pickTextFromCandidates(row, ["g4_review_id", "g4ReviewId", "g4_review_uuid", "g4ReviewUuid", "review_id", "reviewId", "content_review_id", "contentReviewId"]);
+  const g4ReviewUuid = pickTextFromCandidates(row, ["g4_review_uuid", "g4ReviewUuid"]);
+  const contentReviewId = pickTextFromCandidates(row, ["content_review_id", "contentReviewId"]);
+  const reviewId = pickTextFromCandidates(row, ["review_id", "reviewId"]);
+  const sourcePlatform = pickTextFromCandidates(row, ["source_platform", "sourcePlatform"]);
+  const sourceEvent = pickTextFromCandidates(row, ["source_event", "sourceEvent"]);
+  const rightsStatus = pickTextFromCandidates(row, ["rights_status", "rightsStatus"]);
+  const lastReadinessCheckAt = pickDateFromCandidates(row, ["last_readiness_check_at", "lastReadinessCheckAt", "readiness_checked_at", "readinessCheckedAt"]);
+  const lastReadinessCheckResponse = pickTextFromCandidates(row, ["last_readiness_check_response", "lastReadinessCheckResponse"]);
+  const readinessResponse = pickTextFromCandidates(row, ["readiness_response", "readinessResponse", "n8n_response", "n8nResponse", "response_text", "responseText"]);
+  const failureReasons = pickArray(row, ["failure_reasons", "failureReasons", "blocked_reasons", "blockedReasons", "rejection_reasons", "rejectionReasons"]);
+  const clientStatusInfo = getG5ClientStatusInfo({
+    approval_status: approvalStatus,
+    asset_status: assetStatus,
+    manual_publish_status: manualPublishStatus,
+    post_url: postUrl,
+    published_at: publishedAt,
+    last_manual_publish_result_id: lastManualPublishResultId,
+  });
+
   return {
     asset_id: assetId,
-    asset_title: pickText(row, ["asset_title", "assetTitle", "title", "name", "content_text", "contentText", "caption", "caption_text", "captionText", "summary"]),
-    asset_type: pickText(row, ["asset_type", "assetType", "content_type", "contentType", "media_type", "mediaType"]),
-    intended_platform: pickText(row, ["intended_platform", "intendedPlatform"]),
-    platform: pickText(row, ["platform", "source_platform", "sourcePlatform"]),
-    content_text: pickText(row, ["content_text", "contentText", "caption", "caption_text", "captionText", "body", "message"]),
-    media_url: pickText(row, ["media_url", "mediaUrl", "public_url", "publicUrl", "url", "image_url", "imageUrl", "video_url", "videoUrl"]),
-    storage_url: pickText(row, ["storage_url", "storageUrl", "storage_reference", "storageReference", "storage_key", "storageKey"]),
-    compliance_status: pickText(row, ["compliance_status", "complianceStatus", "g1_compliance_status", "g1ComplianceStatus"]),
-    approval_status: pickText(row, ["approval_status", "approvalStatus"]),
-    approved_by: pickText(row, ["approved_by", "approvedBy"]),
-    asset_created_at: pickDate(row, ["asset_created_at", "assetCreatedAt", "created_at", "createdAt"]),
-    asset_status: pickText(row, ["asset_status", "assetStatus", "status"]),
-    readiness_status: pickText(row, ["readiness_status", "readinessStatus"]),
-    manual_publish_status: pickText(row, ["manual_publish_status", "manualPublishStatus", "publish_status", "publishStatus"]),
-    approval_id: pickText(row, ["approval_id", "approvalId"]),
-    last_manual_publish_result_id: pickText(row, ["last_manual_publish_result_id", "lastManualPublishResultId", "manual_publish_result_id", "manualPublishResultId"]),
-    post_url: pickText(row, ["post_url", "postUrl", "instagram_post_url", "instagramPostUrl", "published_url", "publishedUrl"]),
-    published_by: pickText(row, ["published_by", "publishedBy"]),
-    published_at: pickDate(row, ["published_at", "publishedAt"]),
-    state_updated_at: pickDate(row, ["state_updated_at", "stateUpdatedAt", "updated_at", "updatedAt", "modified_at", "modifiedAt"]),
-    g4_review_id: pickText(row, ["g4_review_id", "g4ReviewId", "g4_review_uuid", "g4ReviewUuid", "review_id", "reviewId", "content_review_id", "contentReviewId"]),
-    g4_review_uuid: pickText(row, ["g4_review_uuid", "g4ReviewUuid"]),
-    content_review_id: pickText(row, ["content_review_id", "contentReviewId"]),
-    review_id: pickText(row, ["review_id", "reviewId"]),
-    source_platform: pickText(row, ["source_platform", "sourcePlatform"]),
-    source_event: pickText(row, ["source_event", "sourceEvent"]),
-    rights_status: pickText(row, ["rights_status", "rightsStatus"]),
-    last_readiness_check_at: pickDate(row, ["last_readiness_check_at", "lastReadinessCheckAt", "readiness_checked_at", "readinessCheckedAt"]),
-    last_readiness_check_response: pickText(row, ["last_readiness_check_response", "lastReadinessCheckResponse"]),
-    readiness_response: pickText(row, ["readiness_response", "readinessResponse", "n8n_response", "n8nResponse", "response_text", "responseText"]),
-    failure_reasons: pickArray(row, ["failure_reasons", "failureReasons", "blocked_reasons", "blockedReasons", "rejection_reasons", "rejectionReasons"]),
+    asset_title: assetTitle,
+    asset_type: assetType,
+    intended_platform: intendedPlatform,
+    platform,
+    content_text: contentText,
+    hook_angle: hookAngle,
+    media_url: mediaUrl,
+    storage_url: storageUrl,
+    compliance_status: complianceStatus,
+    approval_status: approvalStatus,
+    approved_by: approvedBy,
+    asset_created_at: assetCreatedAt,
+    asset_status: assetStatus,
+    readiness_status: readinessStatus,
+    manual_publish_status: manualPublishStatus,
+    approval_id: approvalId,
+    last_manual_publish_result_id: lastManualPublishResultId,
+    post_url: postUrl,
+    published_by: publishedBy,
+    published_at: publishedAt,
+    state_updated_at: stateUpdatedAt,
+    g4_review_id: g4ReviewId,
+    g4_review_uuid: g4ReviewUuid,
+    content_review_id: contentReviewId,
+    review_id: reviewId,
+    source_platform: sourcePlatform,
+    source_event: sourceEvent,
+    rights_status: rightsStatus,
+    last_readiness_check_at: lastReadinessCheckAt,
+    last_readiness_check_response: lastReadinessCheckResponse,
+    readiness_response: readinessResponse,
+    failure_reasons: failureReasons,
+    client_status: clientStatusInfo.clientStatus,
+    client_tab: clientStatusInfo.clientTab,
   };
 };
 
@@ -618,8 +814,8 @@ const normalizeG4ReviewRecord = (row: JsonRecord, sourcePreview?: Partial<G4Sour
   const preview = extractG4ContentPreview({ raw_payload: row });
   const safeRewriteText = normalizeG4Text(row.ai_safe_rewrite);
   const hookAngleText = normalizeG4Text(preview.hookAngle);
-  const hookCount = normalizeG4StringArray(row.ai_hook_suggestions).filter((text) => normalizeSelectionText(text) !== normalizeSelectionText(hookAngleText)).length;
-  const captionCount = normalizeG4StringArray(row.ai_caption_suggestions).filter((text) => normalizeSelectionText(text) !== normalizeSelectionText(safeRewriteText)).length;
+  const hookCount = collectSelectableOptionTexts(normalizeG4StringArray(row.ai_hook_suggestions), [hookAngleText]).options.length;
+  const captionCount = collectSelectableOptionTexts(normalizeG4StringArray(row.ai_caption_suggestions), [safeRewriteText]).options.length;
   const displayTitle =
     preview.headline?.trim() ||
     preview.productName?.trim() ||
@@ -642,7 +838,7 @@ const normalizeG4ReviewRecord = (row: JsonRecord, sourcePreview?: Partial<G4Sour
     review_id: pickText(row, ["review_id", "reviewId"]),
     status: pickText(row, ["status", "review_status", "reviewStatus"]),
     approval_state: pickText(row, ["approval_state", "approvalState"]),
-    display_status: "Ready for G5 Approval",
+    display_status: "Ready for G5",
     created_at: pickDate(row, ["created_at", "createdAt", "updated_at", "updatedAt"]),
     display_title: displayTitle,
     display_summary: displaySummary,
@@ -688,8 +884,60 @@ const collectNormalizedTexts = (...values: unknown[]) => {
   return [...normalized];
 };
 
-const buildSelectableOptions = (texts: string[], kind: "caption" | "hook") =>
-  texts.map((text, index) => ({
+const looksLikeComplianceNote = (text: string) => {
+  const normalized = normalizeSelectionText(text);
+  if (!normalized) {
+    return false;
+  }
+
+  return [
+    "ensure all claims",
+    "await further review",
+    "include appropriate rights",
+    "before publishing",
+    "supported by evidence",
+    "rights for any ugc",
+    "creator content used",
+    "review and approval",
+    "claims about lipstick",
+  ].some((phrase) => normalized.includes(phrase));
+};
+
+const collectSelectableOptionTexts = (texts: string[], excludedTexts: Array<string | null | undefined> = [], maxOptions = 3) => {
+  const excluded = new Set(excludedTexts.map((text) => normalizeSelectionText(text)).filter(Boolean));
+  const seen = new Set<string>();
+  const options: string[] = [];
+  const suppressed: string[] = [];
+
+  for (const rawText of texts) {
+    const text = normalizeG4Text(rawText);
+    if (!text) {
+      continue;
+    }
+
+    const normalized = normalizeSelectionText(text);
+    if (!normalized || excluded.has(normalized) || seen.has(normalized)) {
+      continue;
+    }
+
+    seen.add(normalized);
+
+    if (looksLikeComplianceNote(text)) {
+      suppressed.push(text);
+      continue;
+    }
+
+    options.push(text);
+    if (options.length >= maxOptions) {
+      break;
+    }
+  }
+
+  return { options, suppressed };
+};
+
+const buildSelectableOptions = (texts: string[], kind: "caption" | "hook", excludedTexts: Array<string | null | undefined> = [], maxOptions = 3) =>
+  collectSelectableOptionTexts(texts, excludedTexts, maxOptions).options.map((text, index) => ({
     id: `${kind}-${index + 2}`,
     label: `${kind === "caption" ? "Caption" : "Hook"} ${index + 2}`,
     text,
@@ -712,20 +960,29 @@ const buildG5SelectedG4Content = (
 
   const captionSuggestionTexts = normalizeG4StringArray(g4Row.ai_caption_suggestions);
   const hookSuggestionTexts = normalizeG4StringArray(g4Row.ai_hook_suggestions);
-  const safeRewriteText = normalizeG4Text(g4Row.ai_safe_rewrite) ?? captionSuggestionTexts[0] ?? normalizeG4Text(reviewPreview.cleanSummary) ?? null;
-  const hookAngleText = normalizeG4Text(reviewPreview.hookAngle) ?? hookSuggestionTexts[0] ?? null;
+  const safeRewriteText =
+    normalizeG4Text(g4Row.ai_safe_rewrite) ??
+    normalizeG4Text(g4Row.rewritten_caption) ??
+    normalizeG4Text(g4Row.safe_summary) ??
+    normalizeG4Text(reviewPreview.cleanSummary) ??
+    captionSuggestionTexts[0] ??
+    null;
+  const hookAngleText = normalizeG4Text(g4Row.hook_angle) ?? normalizeG4Text(reviewPreview.hookAngle) ?? hookSuggestionTexts[0] ?? null;
+  const contentAngleText =
+    normalizeG4Text(g4Row.ai_insight) ??
+    normalizeG4Text(g4Row.ai_summary) ??
+    normalizeG4Text(g4Row.content_summary) ??
+    normalizeG4Text(reviewPreview.contentRecommendation) ??
+    normalizeG4Text(reviewPreview.cleanSummary) ??
+    null;
 
-  const captionOptions = buildSelectableOptions(
-    captionSuggestionTexts.filter((text) => normalizeSelectionText(text) !== normalizeSelectionText(safeRewriteText)),
-    "caption"
-  );
-  const hookOptions = buildSelectableOptions(
-    hookSuggestionTexts.filter((text) => normalizeSelectionText(text) !== normalizeSelectionText(hookAngleText)),
-    "hook"
-  );
+  const captionSelection = collectSelectableOptionTexts(captionSuggestionTexts, [safeRewriteText], 3);
+  const hookSelection = collectSelectableOptionTexts(hookSuggestionTexts, [hookAngleText], 3);
+  const captionOptions = buildSelectableOptions(captionSelection.options, "caption");
+  const hookOptions = buildSelectableOptions(hookSelection.options, "hook");
 
-  const recommendedCaption = safeRewriteText ?? normalizeG4Text(reviewPreview.cleanSummary) ?? null;
-  const recommendedHook = hookAngleText;
+  const recommendedCaption = safeRewriteText ?? captionSelection.options[0] ?? normalizeG4Text(reviewPreview.cleanSummary) ?? null;
+  const recommendedHook = hookAngleText ?? hookSelection.options[0] ?? null;
 
   const summaryCandidate =
     normalizeG4Text(g4Row.safe_summary) ??
@@ -735,26 +992,70 @@ const buildG5SelectedG4Content = (
   const claimNotes = collectNormalizedTexts(g4Row.ai_claim_notes);
   const insightCandidate =
     normalizeG4Text(g4Row.ai_risk_summary) ??
+    normalizeG4Text(g4Row.risk_summary) ??
     normalizeG4Text(g4Row.ai_human_review_recommendation) ??
     normalizeG4Text(reviewPreview.contentRecommendation) ??
-    normalizeG4Text(reviewPreview.hookAngle) ??
     (claimNotes.length ? claimNotes.join(" • ") : null) ??
     null;
 
-  const originalPostBits = [
-    normalizeG4Text(landingRow?.headline) ?? landingPreview.headline ?? reviewPreview.headline,
-    normalizeG4Text(landingRow?.content_text) ?? landingPreview.contentText ?? reviewPreview.contentText,
-    normalizeG4Text(landingRow?.cta_text) ?? landingPreview.ctaText ?? reviewPreview.ctaText,
-    normalizeG4Text(landingRow?.ad_promise_text),
-    normalizeG4Text(landingRow?.landing_page_url) ?? landingPreview.landingPageUrl ?? reviewPreview.landingPageUrl,
-    normalizeG4Text(landingRow?.product_name) ?? landingPreview.productName ?? reviewPreview.productName,
-    normalizeG4Text(landingRow?.source_url) ?? landingPreview.sourceUrl ?? reviewPreview.sourceUrl,
+  const complianceCandidates = [
+    normalizeG4Text(g4Row.ai_human_review_recommendation),
+    normalizeG4Text(g4Row.compliance_note),
+    normalizeG4Text(g4Row.risk_summary),
+    normalizeG4Text(g4Row.ai_risk_summary),
+    ...captionSelection.suppressed,
+    ...hookSelection.suppressed,
+    ...(claimNotes.length ? claimNotes : []),
   ].filter((value): value is string => Boolean(value && value.trim()));
 
   const contentSummary = summaryCandidate || null;
   const aiInsight = insightCandidate || null;
-  const originalPostData = originalPostBits.length ? originalPostBits.join("\n") : null;
+  const originalPostPlatform = pickText(landingRow, ["source_platform", "sourcePlatform", "platform"]) ?? pickText(g4Row, ["platform", "source_platform", "sourcePlatform"]) ?? null;
+  const originalPostHandle =
+    pickText(landingRow, ["profile_username", "profileUsername", "username", "handle", "creator_handle", "creatorHandle"]) ??
+    sourcePreview?.profileUsername ??
+    reviewPreview.profileUsername ??
+    null;
+  const originalPostCaption =
+    normalizeG4Text(landingRow?.caption_text) ??
+    normalizeG4Text(landingRow?.caption) ??
+    normalizeG4Text(landingRow?.content_text) ??
+    sourcePreview?.captionPreview ??
+    reviewPreview.captionPreview ??
+    normalizeG4Text(g4Row.caption_preview) ??
+    normalizeG4Text(g4Row.caption) ??
+    null;
+  const originalPostUrl =
+    pickText(landingRow, ["source_url", "sourceUrl", "post_url", "postUrl", "landing_page_url", "landingPageUrl"]) ??
+    sourcePreview?.sourceUrl ??
+    reviewPreview.sourceUrl ??
+    null;
+  const originalPostViews = sourcePreview?.views ?? reviewPreview.views ?? landingPreview.views ?? null;
+  const originalPostLikes = sourcePreview?.likes ?? reviewPreview.likes ?? landingPreview.likes ?? null;
+  const originalPostComments = sourcePreview?.comments ?? reviewPreview.comments ?? landingPreview.comments ?? null;
+  const originalPostShares = sourcePreview?.shares ?? reviewPreview.shares ?? landingPreview.shares ?? null;
+  const originalPostAudio = sourcePreview?.audioSound ?? reviewPreview.audioSound ?? landingPreview.audioSound ?? null;
+  const originalPostEngagementRate = sourcePreview?.engagementRate ?? pickText(g4Row, ["engagement_rate", "engagementRate"]) ?? null;
+  const originalPostData = [
+    originalPostPlatform ? `Platform: ${originalPostPlatform}` : null,
+    originalPostHandle ? `Handle: ${originalPostHandle}` : null,
+    originalPostCaption ? `Caption: ${originalPostCaption}` : null,
+    originalPostUrl ? `Post URL: ${originalPostUrl}` : null,
+    originalPostViews ? `Views: ${originalPostViews}` : null,
+    originalPostLikes ? `Likes: ${originalPostLikes}` : null,
+    originalPostComments ? `Comments: ${originalPostComments}` : null,
+    originalPostShares ? `Shares: ${originalPostShares}` : null,
+    originalPostAudio ? `Audio: ${originalPostAudio}` : null,
+    originalPostEngagementRate ? `Engagement rate: ${originalPostEngagementRate}` : null,
+  ].filter((value): value is string => Boolean(value && value.trim())).join("\n") || null;
   const displaySummary = contentSummary || aiInsight || summarizeG4Outcome(g4Row as Parameters<typeof summarizeG4Outcome>[0]);
+  const aiDirection = {
+    content_angle: contentAngleText,
+    safe_rewrite: recommendedCaption,
+    hook_angle: recommendedHook,
+    risk_summary: normalizeG4Text(g4Row.ai_risk_summary) ?? normalizeG4Text(g4Row.risk_summary) ?? null,
+    compliance_note: complianceCandidates.length ? complianceCandidates[0] : null,
+  };
 
   return {
     id,
@@ -764,11 +1065,13 @@ const buildG5SelectedG4Content = (
     review_id: reviewId,
     status: pickText(g4Row, ["status", "review_status", "reviewStatus"]),
     approval_state: pickText(g4Row, ["approval_state", "approvalState"]),
-    display_status: "Ready for G5 Approval",
+    display_status: "Ready for G5",
     created_at: pickDate(g4Row, ["created_at", "createdAt", "updated_at", "updatedAt"]),
     display_title: displayTitle,
     display_summary: displaySummary,
     platform_label: pickText(g4Row, ["platform", "source_platform", "sourcePlatform"]) || "Unknown",
+    ai_risk_summary: aiDirection.risk_summary,
+    ai_compliance_note: aiDirection.compliance_note,
     caption_preview: reviewPreview.captionPreview ?? landingPreview.captionPreview ?? null,
     views: sourcePreview?.views ?? reviewPreview.views ?? landingPreview.views ?? null,
     likes: sourcePreview?.likes ?? reviewPreview.likes ?? landingPreview.likes ?? null,
@@ -784,7 +1087,27 @@ const buildG5SelectedG4Content = (
     hook_angle: hookAngleText,
     content_summary: contentSummary,
     ai_insight: aiInsight,
+    engagement_rate: originalPostEngagementRate,
     original_post_data: originalPostData,
+    content: {
+      title: displayTitle,
+      summary: displaySummary,
+      platform: pickText(g4Row, ["platform", "source_platform", "sourcePlatform"]) || "Unknown",
+      created_at: pickDate(g4Row, ["created_at", "createdAt", "updated_at", "updatedAt"]),
+    },
+    original_post: {
+      platform: originalPostPlatform,
+      handle: originalPostHandle,
+      caption: originalPostCaption,
+      post_url: originalPostUrl,
+      views: originalPostViews,
+      likes: originalPostLikes,
+      comments: originalPostComments,
+      shares: originalPostShares,
+      audio: originalPostAudio,
+      engagement_rate: originalPostEngagementRate,
+    },
+    ai_direction: aiDirection,
     caption_options: captionOptions,
     hook_options: hookOptions,
     recommended_caption: recommendedCaption,
@@ -841,32 +1164,42 @@ const getAssetRecencyValue = (asset: G5DashboardAssetRecord) => {
   return 0;
 };
 
-const isPublishedManually = (asset: G5DashboardAssetRecord) => {
-  const status = upperText(asset.asset_status ?? asset.manual_publish_status ?? asset.post_url);
-  return Boolean(asset.post_url && asset.published_at) || status === "PUBLISHED_MANUALLY" || status === "PUBLISHED";
+const isPublishedManually = (asset: G5DashboardAssetRecord) => asset.client_tab === "published_manually";
+
+const isReadyToPublish = (asset: G5DashboardAssetRecord) => asset.client_tab === "ready_to_publish";
+
+const isBlocked = (asset: G5DashboardAssetRecord) => asset.client_tab === "blocked_rejected";
+
+const logG5NormalizedAssetStatuses = (assets: G5DashboardAssetRecord[]) => {
+  for (const asset of assets) {
+    const statusInfo = getG5ClientStatusInfo(asset);
+    console.log("G5 normalized asset status", {
+      assetId: asset.asset_id,
+      g4ReviewId: asset.g4_review_id ?? asset.g4_review_uuid ?? asset.content_review_id ?? asset.review_id ?? null,
+      contentApprovalStatus: statusInfo.contentApprovalStatus,
+      publishStateStatus: statusInfo.publishStateStatus,
+      manualPublishStatus: statusInfo.manualPublishStatus,
+      finalClientStatus: statusInfo.clientStatus,
+      finalClientTab: statusInfo.clientTab,
+    });
+  }
 };
 
-const isReadyToPublish = (asset: G5DashboardAssetRecord) => {
-  const status = upperText(asset.asset_status ?? asset.readiness_status ?? asset.approval_status);
-  return (
-    status === "APPROVED_READY_TO_PUBLISH" ||
-    status === "READY_TO_PUBLISH" ||
-    status === "APPROVED" ||
-    status === "PASS" ||
-    upperText(asset.readiness_status) === "PASS"
-  );
-};
+const finalizeG5AssetRecord = (asset: G5DashboardAssetRecord): G5DashboardAssetRecord => {
+  const statusInfo = getG5ClientStatusInfo(asset);
 
-const isBlocked = (asset: G5DashboardAssetRecord) => {
-  const status = upperText(asset.asset_status ?? asset.approval_status ?? asset.readiness_status ?? asset.compliance_status);
-  return status === "BLOCKED" || status === "BLOCK" || status === "REJECTED" || status === "FAILED" || status === "ERROR";
+  return {
+    ...asset,
+    client_status: statusInfo.clientStatus,
+    client_tab: statusInfo.clientTab,
+  };
 };
 
 const buildDashboardSummary = (assets: G5DashboardAssetRecord[]): G5DashboardSummary => {
   const published = assets.filter(isPublishedManually).length;
   const ready = assets.filter((asset) => !isPublishedManually(asset) && isReadyToPublish(asset) && !isBlocked(asset)).length;
   const blocked = assets.filter(isBlocked).length;
-  const pending = Math.max(0, assets.length - published - ready - blocked);
+  const pending = assets.filter((asset) => asset.client_tab === "pending_approval").length;
 
   return {
     total: assets.length,
@@ -1060,7 +1393,13 @@ export async function loadG5DashboardAssets(): Promise<G5DashboardResponse> {
 
   const viewResult = await queryPublicRows("g5_manual_publish_dashboard_view", 250);
   if (viewResult.error === null) {
-    const assets = sortAssets(viewResult.rows.map((row) => normalizeAssetRecord(row)).filter((row): row is G5DashboardAssetRecord => Boolean(row)));
+    const assets = sortAssets(
+      viewResult.rows
+        .map((row) => normalizeAssetRecord(row))
+        .filter((row): row is G5DashboardAssetRecord => Boolean(row))
+        .map(finalizeG5AssetRecord),
+    );
+    logG5NormalizedAssetStatuses(assets);
 
     return {
       status: assets.length ? "PASS" : "EMPTY",
@@ -1094,7 +1433,8 @@ export async function loadG5DashboardAssets(): Promise<G5DashboardResponse> {
   mergeRows(stateResult.rows);
   mergeRows(publishResultsResult.rows);
 
-  const assets = sortAssets([...merged.values()]);
+  const assets = sortAssets([...merged.values()].map(finalizeG5AssetRecord));
+  logG5NormalizedAssetStatuses(assets);
   return {
     status: assets.length ? "PASS" : "EMPTY",
     source: "FALLBACK",
@@ -1125,13 +1465,21 @@ export async function loadG5ApprovedContent(): Promise<G5ApprovedContentResponse
     table: "public.g4_content_reviews",
   });
 
-  const { data, error } = await client
-    .schema("public")
-    .from("g4_content_reviews")
-    .select("id, content_review_id, review_id, status, approval_state, created_at, platform, safe_summary, ai_safe_rewrite, ai_risk_summary, ai_caption_suggestions, ai_hook_suggestions, ai_human_review_recommendation, raw_payload")
-    .or("status.in.(PASS,MANUAL_ONLY,APPROVED),approval_state.in.(PENDING_HUMAN_APPROVAL,READY_FOR_APPROVAL,APPROVED,PASS)")
-    .order("created_at", { ascending: false })
-    .limit(50);
+  const [contentAssetsResult, stateResult, publishResultsResult, dashboardViewResult, g4ReviewResult] = await Promise.all([
+    queryPublicRows("content_assets", 250),
+    queryPublicRows("g5_asset_publish_state", 250),
+    queryPublicRows("g5_manual_publish_results", 250),
+    queryPublicRows("g5_manual_publish_dashboard_view", 250),
+    client
+      .schema("public")
+      .from("g4_content_reviews")
+      .select("id, content_review_id, review_id, status, approval_state, created_at, platform, safe_summary, ai_safe_rewrite, ai_risk_summary, ai_caption_suggestions, ai_hook_suggestions, ai_human_review_recommendation, raw_payload")
+      .or("status.in.(PASS,MANUAL_ONLY,APPROVED),approval_state.in.(PENDING_HUMAN_APPROVAL,READY_FOR_APPROVAL,APPROVED,PASS)")
+      .order("created_at", { ascending: false })
+      .limit(250),
+  ]);
+
+  const { data, error } = g4ReviewResult;
   if (error) {
     console.error("[g5-asset-approval] failed to load G4 reviews", {
       supabase: supabaseTarget,
@@ -1149,6 +1497,18 @@ export async function loadG5ApprovedContent(): Promise<G5ApprovedContentResponse
     };
   }
 
+  const registeredG4ReviewKeys = new Set(
+    collectTextValuesFromCandidates(
+      [
+        ...contentAssetsResult.rows,
+        ...stateResult.rows,
+        ...publishResultsResult.rows,
+        ...dashboardViewResult.rows,
+      ],
+      ["g4_review_id", "g4ReviewId", "g4_review_uuid", "g4ReviewUuid", "content_review_id", "contentReviewId", "review_id", "reviewId"],
+    ),
+  );
+
   const g4Rows = (Array.isArray(data) ? data : [])
     .map((row) => asRecord(row))
     .filter((row): row is JsonRecord => Boolean(row));
@@ -1162,6 +1522,13 @@ export async function loadG5ApprovedContent(): Promise<G5ApprovedContentResponse
     })
     .filter((row): row is G5ApprovedContentRecord => Boolean(row))
     .filter((row) => isG4ReadyForG5(row))
+    .filter((row) => {
+      const candidateKeys = [row.g4_review_id, row.g4_review_uuid, row.content_review_id, row.review_id, row.id]
+        .map((value) => value?.trim() ?? "")
+        .filter(Boolean);
+
+      return !candidateKeys.some((key) => registeredG4ReviewKeys.has(key));
+    })
     .sort((left, right) => {
       const rightTime = right.created_at ? Date.parse(right.created_at) : 0;
       const leftTime = left.created_at ? Date.parse(left.created_at) : 0;
@@ -1178,43 +1545,14 @@ export async function loadG5ApprovedContent(): Promise<G5ApprovedContentResponse
   return {
     status: reviews.length ? "PASS" : "EMPTY",
     source: "TABLE",
-    message: reviews.length ? "G4 content ready for G5 approval loaded." : "No G4 content ready for G5 yet.",
+    message: reviews.length ? "G4 content ready for G5 loaded." : "No G4 content ready for G5 yet.",
     reviews,
   };
 }
 
-const G5_G4_DETAIL_COLUMNS = `
-  id,
-  content_review_id,
-  review_id,
-  status,
-  approval_state,
-  created_at,
-  safe_summary,
-  ai_risk_summary,
-  ai_safe_rewrite,
-  ai_caption_suggestions,
-  ai_hook_suggestions,
-  ai_claim_notes,
-  ai_human_review_recommendation,
-  raw_payload
-` as const;
+const G5_G4_DETAIL_COLUMNS = "*" as const;
 
-const G5_G4_LANDING_COLUMNS = `
-  review_id,
-  status,
-  content_text,
-  headline,
-  cta_text,
-  ad_promise_text,
-  landing_page_url,
-  product_name,
-  raw_payload,
-  source_platform,
-  source_event,
-  source_url,
-  created_at
-` as const;
+const G5_G4_LANDING_COLUMNS = "*" as const;
 
 export async function loadG5SelectedG4Content(reviewId: string): Promise<G5SelectedG4ContentResponse> {
   const client = getN8nSupabaseAdmin();
@@ -1316,7 +1654,7 @@ export async function loadG5SelectedG4Content(reviewId: string): Promise<G5Selec
     .schema("public")
     .from("g4_content_landing_checks")
     .select(G5_G4_LANDING_COLUMNS)
-    .eq("review_id", selectedReviewKey)
+    .or(`id.eq.${normalizedReviewId},content_review_id.eq.${normalizedReviewId},review_id.eq.${normalizedReviewId},id.eq.${selectedReviewKey},content_review_id.eq.${selectedReviewKey},review_id.eq.${selectedReviewKey}`)
     .order("created_at", { ascending: false })
     .limit(10);
 
@@ -1365,7 +1703,7 @@ export async function loadG5SelectedG4Content(reviewId: string): Promise<G5Selec
   return {
     status: "PASS",
     source: "TABLE",
-    message: "G4 content ready for G5 approval loaded.",
+    message: "G4 content ready for G5 loaded.",
     review,
   };
 }

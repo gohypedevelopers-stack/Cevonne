@@ -328,7 +328,7 @@ export const getG4ActionNeeded = (row?: Pick<G4ContentReviewRecord, "status" | "
   }
 
   if (status === "PASS" && approvalState === "PENDING_HUMAN_APPROVAL") {
-    return "Send to approval";
+    return "Use this content";
   }
 
   if (status === "PASS") {
@@ -378,7 +378,7 @@ export const summarizeG4Outcome = (row?: G4ContentReviewRecord | null) => {
   }
 
   if (status === "PASS" && normalizeStatusValue(row.approval_state) === "PENDING_HUMAN_APPROVAL") {
-    return "Content check passed. Human approval is still required before publishing or ad use.";
+    return "Content check passed. Ready for G5.";
   }
 
   if (status === "PASS") {
@@ -401,13 +401,13 @@ export const formatG4ResultLabel = (status: G4ClientStatus | string) => {
 
   switch (normalized) {
     case "PASS":
-      return "Passed";
+      return "Ready for G5";
     case "BLOCK":
       return "Blocked safely";
     case "MANUAL_ONLY":
       return "Manual review";
     case "PENDING_APPROVAL":
-      return "Ready for approval";
+      return "Ready for G5";
     case "NEEDS_EVIDENCE":
       return "Needs evidence";
     case "ERROR":
@@ -424,7 +424,7 @@ export const formatG4ApprovalStateLabel = (approvalState: string | null) => {
   const normalized = approvalState.trim().toUpperCase();
   switch (normalized) {
     case "PENDING_HUMAN_APPROVAL":
-      return "Pending human approval";
+      return "Ready for G5";
     case "NOT_APPROVED":
       return "Not approved";
     case "APPROVED":

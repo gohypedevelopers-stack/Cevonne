@@ -14,6 +14,7 @@ import {
   Loader2,
   MessageCircle,
   Eye,
+  PencilLine,
   RefreshCcw,
   Search,
   ShieldCheck,
@@ -31,17 +32,16 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from "@/components/ui/carousel";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 
@@ -54,6 +54,7 @@ type G5DashboardAssetRecord = {
   intended_platform: string | null;
   platform: string | null;
   content_text: string | null;
+  hook_angle: string | null;
   media_url: string | null;
   storage_url: string | null;
   compliance_status: string | null;
@@ -80,6 +81,8 @@ type G5DashboardAssetRecord = {
   last_readiness_check_response: string | null;
   readiness_response: string | null;
   failure_reasons: string[];
+  client_status: string;
+  client_tab: string;
 };
 
 type G5DashboardSummary = {
@@ -148,6 +151,27 @@ type G5G4HookOption = {
   source: "G4";
 };
 
+type G5OriginalPostDetails = {
+  platform: string | null;
+  handle: string | null;
+  caption: string | null;
+  post_url: string | null;
+  views: string | null;
+  likes: string | null;
+  comments: string | null;
+  shares: string | null;
+  audio: string | null;
+  engagement_rate: string | null;
+};
+
+type G5AiDirectionDetails = {
+  content_angle: string | null;
+  safe_rewrite: string | null;
+  hook_angle: string | null;
+  risk_summary: string | null;
+  compliance_note: string | null;
+};
+
 type G5SelectedG4ContentRecord = {
   id: string;
   g4_review_uuid: string;
@@ -174,9 +198,20 @@ type G5SelectedG4ContentRecord = {
   source_url: string | null;
   ai_safe_rewrite: string | null;
   hook_angle: string | null;
+  ai_risk_summary: string | null;
+  ai_compliance_note: string | null;
   content_summary: string | null;
   ai_insight: string | null;
   original_post_data: string | null;
+  engagement_rate: string | null;
+  content: {
+    title: string | null;
+    summary: string | null;
+    platform: string | null;
+    created_at: string | null;
+  };
+  original_post: G5OriginalPostDetails;
+  ai_direction: G5AiDirectionDetails;
   caption_options: G5G4CaptionOption[];
   hook_options: G5G4HookOption[];
   recommended_caption: string | null;
@@ -224,6 +259,12 @@ type G5UploadedMedia = {
 
 type BusyAction = "upload" | "register" | "approve" | "reject" | "readiness" | "publish" | null;
 
+type AssetEditDraft = {
+  assetId: string;
+  caption: string;
+  hook: string;
+};
+
 type MetricCardProps = {
   label: string;
   value: string;
@@ -235,14 +276,12 @@ type MetricCardProps = {
 type AssetInspectorPanelProps = {
   asset: G5DashboardAssetRecord | null;
   mode: "card" | "sheet";
-  manualPostUrl: string;
-  onManualPostUrlChange: (value: string) => void;
+  captionText: string;
+  hookText: string;
+  onEdit: () => void;
   onApprove: () => void;
-  onReject: () => void;
   onRunReadinessCheck: () => void;
-  onSavePostUrl: () => void;
   busyAction: BusyAction;
-  runtimeResponse: G5WebhookResponse | null;
 };
 
 type AssetCardProps = {
@@ -267,22 +306,26 @@ const SEARCH_PLACEHOLDER = "Search content, titles, or captions";
 const DESKTOP_QUERY = "(min-width: 1280px)";
 
 const ASSET_STATUS_TONES: Record<string, string> = {
-  PENDING_APPROVAL: "border-sky-200 bg-sky-50 text-sky-700",
-  APPROVED: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  APPROVED_READY_TO_PUBLISH: "border-violet-200 bg-violet-50 text-violet-700",
-  PUBLISHED_MANUALLY: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  REJECTED: "border-rose-200 bg-rose-50 text-rose-700",
-  BLOCKED: "border-amber-200 bg-amber-50 text-amber-700",
+  "Ready for G5": "border-emerald-200 bg-emerald-50 text-emerald-700",
+  "Pending approval": "border-sky-200 bg-sky-50 text-sky-700",
+  Approved: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  "Ready to publish": "border-violet-200 bg-violet-50 text-violet-700",
+  "Published manually": "border-emerald-200 bg-emerald-50 text-emerald-700",
+  Rejected: "border-rose-200 bg-rose-50 text-rose-700",
+  Blocked: "border-amber-200 bg-amber-50 text-amber-700",
   DEFAULT: "border-slate-200 bg-slate-100 text-slate-700",
 };
 
 const READINESS_TONES: Record<string, string> = {
-  READY: "border-emerald-200 bg-emerald-50 text-emerald-700",
-  DRY_RUN: "border-violet-200 bg-violet-50 text-violet-700",
-  MANUAL_FALLBACK: "border-sky-200 bg-sky-50 text-sky-700",
-  BLOCKED: "border-rose-200 bg-rose-50 text-rose-700",
-  ERROR: "border-rose-200 bg-rose-50 text-rose-700",
-  PASS: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  "Ready for G5": "border-emerald-200 bg-emerald-50 text-emerald-700",
+  "Pending approval": "border-sky-200 bg-sky-50 text-sky-700",
+  Approved: "border-blue-200 bg-blue-50 text-blue-700",
+  "Ready to publish": "border-violet-200 bg-violet-50 text-violet-700",
+  "Published manually": "border-emerald-200 bg-emerald-50 text-emerald-700",
+  "Rejected / blocked": "border-rose-200 bg-rose-50 text-rose-700",
+  "Blocked / rejected": "border-rose-200 bg-rose-50 text-rose-700",
+  Rejected: "border-rose-200 bg-rose-50 text-rose-700",
+  Blocked: "border-amber-200 bg-amber-50 text-amber-700",
   NOT_RUN_YET: "border-slate-200 bg-slate-100 text-slate-700",
   DEFAULT: "border-slate-200 bg-slate-100 text-slate-700",
 };
@@ -296,6 +339,9 @@ const STEP_DEFINITIONS = [
   { key: "publish", label: "Publish manually", icon: CheckCircle2 },
   { key: "proof", label: "Save live link", icon: ExternalLink },
 ] as const;
+
+const EMPTY_G4_REVIEWS: G5ApprovedContentRecord[] = [];
+const EMPTY_G5_ASSETS: G5DashboardAssetRecord[] = [];
 
 const buildRouteUrl = (path: string) => new URL(path.startsWith("/") ? path : `/${path}`, window.location.origin).toString();
 
@@ -313,8 +359,6 @@ const parseJson = async <T,>(response: Response): Promise<T | null> => {
 };
 
 const upperText = (value?: string | null) => value?.trim().toUpperCase() ?? "";
-
-const normalizeStateKey = (value?: string | null) => upperText(value).replace(/[\s-]+/g, "_");
 
 const getG4ReviewTitle = (review: G5ApprovedContentRecord) =>
   review.display_title?.trim() || review.title?.trim() || review.caption_preview?.trim() || "Content check passed";
@@ -377,27 +421,35 @@ const formatPlatformLabel = (value?: string | null) => {
 const getFriendlyStatusLabel = (status: string | null | undefined) => {
   const normalized = upperText(status);
   if (!normalized) {
+    return "Pending approval";
+  }
+
+  if (normalized === "READY_FOR_G5" || normalized === "READY FOR G5") {
     return "Ready for G5";
   }
 
-  if (normalized === "PASS" || normalized === "READY_FOR_APPROVAL" || normalized === "PENDING_HUMAN_APPROVAL" || normalized === "APPROVED") {
-    return "Ready for G5";
+  if (normalized === "PENDING_APPROVAL" || normalized === "PENDING APPROVAL") {
+    return "Pending approval";
   }
 
-  if (normalized === "PENDING_APPROVAL") {
-    return "Waiting for approval";
+  if (normalized === "APPROVED") {
+    return "Approved";
   }
 
-  if (normalized === "APPROVED_READY_TO_PUBLISH" || normalized === "READY_TO_PUBLISH" || normalized === "READY") {
-    return "Ready to publish manually";
+  if (normalized === "READY_TO_PUBLISH" || normalized === "READY TO PUBLISH") {
+    return "Ready to publish";
   }
 
-  if (normalized === "PUBLISHED_MANUALLY" || normalized === "PUBLISHED") {
+  if (normalized === "PUBLISHED_MANUALLY" || normalized === "PUBLISHED MANUALLY" || normalized === "PUBLISHED") {
     return "Published manually";
   }
 
-  if (normalized === "BLOCKED" || normalized === "BLOCK" || normalized === "REJECTED" || normalized === "FAILED" || normalized === "ERROR") {
-    return "Blocked / rejected";
+  if (normalized === "REJECTED") {
+    return "Rejected";
+  }
+
+  if (normalized === "BLOCKED" || normalized === "BLOCK" || normalized === "FAILED" || normalized === "ERROR") {
+    return "Blocked";
   }
 
   return normalized
@@ -410,23 +462,43 @@ const getFriendlyStatusLabel = (status: string | null | undefined) => {
 const getFriendlyReadinessLabel = (status: string | null | undefined) => {
   const normalized = upperText(status);
   if (!normalized) {
-    return "Not run yet";
+    return "Pending approval";
   }
 
-  if (normalized === "READY" || normalized === "PASS") {
+  if (normalized === "APPROVED_CONTENT" || normalized === "APPROVED CONTENT") {
+    return "Ready for G5";
+  }
+
+  if (normalized === "PENDING_APPROVAL" || normalized === "PENDING APPROVAL") {
+    return "Pending approval";
+  }
+
+  if (normalized === "READY_TO_PUBLISH" || normalized === "READY TO PUBLISH") {
     return "Ready to publish";
   }
 
-  if (normalized === "DRY_RUN") {
-    return "Preview complete";
+  if (normalized === "PUBLISHED_MANUALLY" || normalized === "PUBLISHED MANUALLY") {
+    return "Published manually";
   }
 
-  if (normalized === "MANUAL_FALLBACK") {
-    return "Manual check required";
+  if (normalized === "BLOCKED_REJECTED" || normalized === "BLOCKED / REJECTED") {
+    return "Blocked / rejected";
   }
 
-  if (normalized === "BLOCKED" || normalized === "BLOCK" || normalized === "FAILED" || normalized === "ERROR") {
-    return "Needs attention";
+  if (normalized === "APPROVED") {
+    return "Approved";
+  }
+
+  if (normalized === "READY FOR G5") {
+    return "Ready for G5";
+  }
+
+  if (normalized === "REJECTED") {
+    return "Rejected";
+  }
+
+  if (normalized === "BLOCKED") {
+    return "Blocked";
   }
 
   return normalized
@@ -434,22 +506,6 @@ const getFriendlyReadinessLabel = (status: string | null | undefined) => {
     .filter(Boolean)
     .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1).toLowerCase()}`)
     .join(" ");
-};
-
-const isG4ReadyForG5 = (review: G5ApprovedContentRecord) => {
-  const status = normalizeStateKey(review.status);
-  const approvalState = normalizeStateKey(review.approval_state);
-
-  return (
-    status === "PASS" ||
-    status === "MANUAL_ONLY" ||
-    status === "APPROVED" ||
-    status === "READY_FOR_APPROVAL" ||
-    approvalState === "PENDING_HUMAN_APPROVAL" ||
-    approvalState === "READY_FOR_APPROVAL" ||
-    approvalState === "APPROVED" ||
-    approvalState === "PASS"
-  );
 };
 
 const toSelectableG4Review = (review: G5ApprovedContentRecord): G5SelectedContentRecord => {
@@ -464,7 +520,7 @@ const toSelectableG4Review = (review: G5ApprovedContentRecord): G5SelectedConten
     g4_review_uuid: review.g4_review_uuid?.trim() || review.id,
     display_title: getG4ReviewTitle(review),
     display_summary: getG4ReviewSummary(review),
-    display_status: review.display_status?.trim() || "Ready for G5 Approval",
+    display_status: review.display_status?.trim() || "Ready for G5",
   };
 };
 
@@ -477,21 +533,6 @@ const getMatchingOption = <T extends { id: string; text: string }>(options: T[],
   }
 
   return options.find((option) => normalizeSelectionText(option.text) === normalized) ?? null;
-};
-
-const composeG5DraftText = (hookText?: string | null, captionText?: string | null) => {
-  const hook = hookText?.trim() ?? "";
-  const caption = captionText?.trim() ?? "";
-
-  if (hook && caption) {
-    return `${hook}\n\n${caption}`;
-  }
-
-  if (caption) {
-    return caption;
-  }
-
-  return hook;
 };
 
 const describeTimestamp = (value?: string | null, fallback = "Not available") => (value ? formatDateTime(value) : fallback);
@@ -513,8 +554,7 @@ const isAssetPublishedManually = (asset: G5DashboardAssetRecord | null) => {
     return false;
   }
 
-  const status = upperText(asset.asset_status ?? asset.manual_publish_status);
-  return Boolean(asset.post_url && asset.published_at) || status === "PUBLISHED_MANUALLY" || status === "PUBLISHED";
+  return asset.client_tab === "published_manually";
 };
 
 const isAssetBlocked = (asset: G5DashboardAssetRecord | null) => {
@@ -522,8 +562,7 @@ const isAssetBlocked = (asset: G5DashboardAssetRecord | null) => {
     return false;
   }
 
-  const status = upperText(asset.asset_status ?? asset.approval_status ?? asset.readiness_status ?? asset.compliance_status);
-  return status === "BLOCKED" || status === "BLOCK" || status === "REJECTED" || status === "FAILED" || status === "ERROR";
+  return asset.client_tab === "blocked_rejected";
 };
 
 const isAssetApproved = (asset: G5DashboardAssetRecord | null) => {
@@ -531,8 +570,7 @@ const isAssetApproved = (asset: G5DashboardAssetRecord | null) => {
     return false;
   }
 
-  const status = upperText(asset.asset_status ?? asset.approval_status ?? asset.readiness_status);
-  return status === "APPROVED" || status === "APPROVED_READY_TO_PUBLISH" || status === "READY_TO_PUBLISH" || status === "PASS";
+  return asset.client_status === "Approved" || asset.client_status === "Ready to publish";
 };
 
 const isReadyToPublish = (asset: G5DashboardAssetRecord | null) => {
@@ -540,82 +578,25 @@ const isReadyToPublish = (asset: G5DashboardAssetRecord | null) => {
     return false;
   }
 
-  const status = upperText(asset.asset_status ?? asset.readiness_status ?? asset.approval_status);
-  return (
-    status === "APPROVED_READY_TO_PUBLISH" ||
-    status === "READY_TO_PUBLISH" ||
-    status === "READY" ||
-    status === "PASS" ||
-    upperText(asset.readiness_status) === "READY"
-  );
+  return asset.client_tab === "ready_to_publish";
 };
 
 const getAssetStatusInfo = (asset: G5DashboardAssetRecord | null) => {
   if (!asset) {
-    return { label: "PENDING_APPROVAL", tone: ASSET_STATUS_TONES.DEFAULT };
+    return { label: "Pending approval", tone: ASSET_STATUS_TONES.DEFAULT };
   }
 
-  const rawStatus = upperText(asset.asset_status ?? asset.manual_publish_status ?? asset.approval_status);
-
-  if (isAssetPublishedManually(asset)) {
-    return { label: "PUBLISHED_MANUALLY", tone: ASSET_STATUS_TONES.PUBLISHED_MANUALLY };
-  }
-
-  if (rawStatus === "PENDING_APPROVAL" || (!rawStatus && !isAssetApproved(asset) && !isAssetBlocked(asset))) {
-    return { label: "PENDING_APPROVAL", tone: ASSET_STATUS_TONES.PENDING_APPROVAL };
-  }
-
-  if (rawStatus === "APPROVED_READY_TO_PUBLISH" || isReadyToPublish(asset)) {
-    return { label: "APPROVED_READY_TO_PUBLISH", tone: ASSET_STATUS_TONES.APPROVED_READY_TO_PUBLISH };
-  }
-
-  if (rawStatus === "APPROVED") {
-    return { label: "APPROVED", tone: ASSET_STATUS_TONES.APPROVED };
-  }
-
-  if (rawStatus === "REJECTED") {
-    return { label: "REJECTED", tone: ASSET_STATUS_TONES.REJECTED };
-  }
-
-  if (rawStatus === "BLOCKED" || isAssetBlocked(asset)) {
-    return { label: "BLOCKED", tone: ASSET_STATUS_TONES.BLOCKED };
-  }
-
-  return { label: rawStatus || "PENDING_APPROVAL", tone: ASSET_STATUS_TONES.DEFAULT };
+  const label = getFriendlyStatusLabel(asset.client_status);
+  return { label, tone: ASSET_STATUS_TONES[label] ?? ASSET_STATUS_TONES.DEFAULT };
 };
 
 const getReadinessInfo = (asset: G5DashboardAssetRecord | null) => {
   if (!asset) {
-    return { label: "NOT_RUN_YET", tone: READINESS_TONES.NOT_RUN_YET };
+    return { label: "Pending approval", tone: READINESS_TONES.NOT_RUN_YET };
   }
 
-  const rawStatus = upperText(asset.readiness_status);
-
-  if (isAssetPublishedManually(asset)) {
-    return { label: "READY", tone: READINESS_TONES.READY };
-  }
-
-  if (rawStatus === "READY" || rawStatus === "PASS") {
-    return { label: rawStatus, tone: READINESS_TONES.READY };
-  }
-
-  if (rawStatus === "DRY_RUN") {
-    return { label: "DRY_RUN", tone: READINESS_TONES.DRY_RUN };
-  }
-
-  if (rawStatus === "MANUAL_FALLBACK") {
-    return { label: "MANUAL_FALLBACK", tone: READINESS_TONES.MANUAL_FALLBACK };
-  }
-
-  if (rawStatus === "BLOCKED" || rawStatus === "BLOCK" || rawStatus === "FAILED" || rawStatus === "ERROR") {
-    return { label: rawStatus || "BLOCKED", tone: READINESS_TONES.BLOCKED };
-  }
-
-  if (rawStatus) {
-    return { label: rawStatus, tone: READINESS_TONES.DEFAULT };
-  }
-
-  return { label: "NOT_RUN_YET", tone: READINESS_TONES.NOT_RUN_YET };
+  const label = getFriendlyReadinessLabel(asset.client_status);
+  return { label, tone: READINESS_TONES[label] ?? READINESS_TONES.DEFAULT };
 };
 
 const getActionErrorMessage = (message: string) => (
@@ -809,37 +790,49 @@ const G4PickerDialog = ({ open, onOpenChange, reviews, message, busy, onSelect, 
 const AssetInspectorPanel = ({
   asset,
   mode,
-  manualPostUrl,
-  onManualPostUrlChange,
+  captionText,
+  hookText,
+  onEdit,
   onApprove,
-  onReject,
   onRunReadinessCheck,
-  onSavePostUrl,
   busyAction,
-  runtimeResponse,
 }: AssetInspectorPanelProps) => {
   const body = asset ? (
     <>
-      <div className="space-y-5">
-        <div className="space-y-3">
+      <div className="space-y-5 p-5 sm:p-6">
+        <div className="flex items-start justify-between gap-3">
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="outline" className="rounded-full border-border/70 bg-white px-2.5 py-1 text-[11px] font-medium">
               {getPlatformDisplayLabel(asset)}
             </Badge>
-            <AssetStatusBadge status={getAssetStatusInfo(asset).label} />
-            <AssetReadinessBadge status={getReadinessInfo(asset).label} />
           </div>
-          <div className="space-y-2">
-            <h2 className="font-serif text-3xl leading-tight tracking-tight text-primary">{getAssetTitle(asset)}</h2>
-            <p className="text-sm leading-6 text-muted-foreground">
-              {asset.asset_type?.trim() ? `${formatPlatformLabel(asset.asset_type)} asset` : "Ready for review in the publishing queue"}
-            </p>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 rounded-full border-border/70 bg-white px-3 text-[11px]"
+              onClick={onEdit}
+            >
+              <PencilLine className="size-4" />
+              Edit post
+            </Button>
+            <div className="text-right">
+              <p className="text-[10px] uppercase tracking-[0.24em] text-muted-foreground">Last update</p>
+              <p className="mt-1 text-sm font-medium text-foreground">{compactDateTime(asset.state_updated_at || asset.asset_created_at)}</p>
+            </div>
           </div>
         </div>
 
-        <div className="rounded-[24px] border border-border/70 bg-[#fbf8f6] p-4">
+        <div className="rounded-[24px] border border-border/70 bg-[#fbf8f6] p-5">
           {asset.media_url ? (
-            <div className="overflow-hidden rounded-[20px] border border-border/70 bg-background">
+            <a
+              href={asset.media_url}
+              target="_blank"
+              rel="noreferrer"
+              className="block overflow-hidden rounded-[20px] border border-border/70 bg-background transition hover:border-primary/30 hover:shadow-sm"
+              aria-label="Open uploaded media"
+            >
               {(() => {
                 const isVideo = upperText(asset.asset_type).includes("VIDEO") || /\.(mp4|webm|mov|m4v)$/i.test(asset.media_url ?? "");
                 if (isVideo) {
@@ -847,7 +840,7 @@ const AssetInspectorPanel = ({
                 }
                 return <img src={asset.media_url} alt={getAssetTitle(asset)} className="h-64 w-full object-cover" loading="lazy" />;
               })()}
-            </div>
+            </a>
           ) : (
             <div className="flex min-h-64 items-center justify-center rounded-[20px] border border-dashed border-border/80 bg-white">
               <div className="flex flex-col items-center gap-3 text-center">
@@ -865,51 +858,19 @@ const AssetInspectorPanel = ({
           <div className="mt-4 space-y-2">
             <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Caption preview</p>
             <p className="text-sm leading-6 text-foreground/80 whitespace-pre-wrap">
-              {asset.content_text?.trim() || asset.asset_title?.trim() || "No caption preview available."}
+              {captionText || "No caption preview available."}
+            </p>
+          </div>
+
+          <div className="mt-4 space-y-2">
+            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Selected hook</p>
+            <p className="text-sm leading-6 text-foreground/80 whitespace-pre-wrap">
+              {hookText || "No hook selected"}
             </p>
           </div>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <div className="rounded-2xl border border-border/60 bg-background p-4">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Publishing status</p>
-            <p className="mt-2 text-sm font-medium text-foreground">{getFriendlyStatusLabel(getAssetStatusInfo(asset).label)}</p>
-          </div>
-          <div className="rounded-2xl border border-border/60 bg-background p-4">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Readiness</p>
-            <p className="mt-2 text-sm font-medium text-foreground">{getFriendlyReadinessLabel(getReadinessInfo(asset).label)}</p>
-          </div>
-          <div className="rounded-2xl border border-border/60 bg-background p-4">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Media link</p>
-            {asset.media_url ? (
-              <a href={asset.media_url} target="_blank" rel="noreferrer" className="mt-2 inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline">
-                View uploaded media
-                <ExternalLink className="size-3.5" />
-              </a>
-            ) : (
-              <p className="mt-2 text-sm text-muted-foreground">Not uploaded yet</p>
-            )}
-          </div>
-          <div className="rounded-2xl border border-border/60 bg-background p-4">
-            <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Last update</p>
-            <p className="mt-2 text-sm font-medium text-foreground">{compactDateTime(asset.state_updated_at || asset.asset_created_at)}</p>
-          </div>
-        </div>
-
         <div className="space-y-3">
-          <div className="space-y-2">
-            <Label htmlFor={`g5-post-url-${asset.asset_id}`} className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">
-              Live post URL
-            </Label>
-            <Input
-              id={`g5-post-url-${asset.asset_id}`}
-              value={manualPostUrl}
-              onChange={(event) => onManualPostUrlChange(event.target.value)}
-              placeholder="https://www.instagram.com/p/..."
-              className="h-11 rounded-full border-border/70 bg-white px-4"
-            />
-          </div>
-
           <div className="grid gap-2 sm:grid-cols-2">
             <Button
               type="button"
@@ -922,16 +883,6 @@ const AssetInspectorPanel = ({
             </Button>
             <Button
               type="button"
-              onClick={onReject}
-              disabled={busyAction !== null}
-              variant="outline"
-              className="h-10 rounded-full px-4 text-sm"
-            >
-              {busyAction === "reject" ? <Loader2 className="size-4 animate-spin" /> : <XCircle className="size-4" />}
-              Send back
-            </Button>
-            <Button
-              type="button"
               onClick={onRunReadinessCheck}
               disabled={busyAction !== null}
               variant="outline"
@@ -940,69 +891,8 @@ const AssetInspectorPanel = ({
               {busyAction === "readiness" ? <Loader2 className="size-4 animate-spin" /> : <Clock3 className="size-4" />}
               Check readiness
             </Button>
-            <Button
-              type="button"
-              onClick={onSavePostUrl}
-              disabled={busyAction !== null}
-              className="h-10 rounded-full bg-primary px-4 text-sm"
-            >
-              {busyAction === "publish" ? <Loader2 className="size-4 animate-spin" /> : <ExternalLink className="size-4" />}
-              Save live link
-            </Button>
           </div>
         </div>
-
-        <Collapsible>
-          <CollapsibleTrigger asChild>
-            <Button type="button" variant="ghost" className="group h-10 w-full justify-between rounded-full border border-border/70 bg-background px-4 text-sm">
-              <span>Developer details</span>
-              <ArrowRight className="size-4 transition-transform group-data-[state=open]:rotate-90" />
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="pt-3">
-            <div className="space-y-3 rounded-[24px] border border-dashed border-border/70 bg-[#fbf8f6] p-4">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">asset_id</p>
-                  <p className="mt-1 break-all text-sm text-foreground/80">{asset.asset_id}</p>
-                </div>
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">approval_id</p>
-                  <p className="mt-1 break-all text-sm text-foreground/80">{asset.approval_id || "—"}</p>
-                </div>
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">g4_review_id</p>
-                  <p className="mt-1 break-all text-sm text-foreground/80">{asset.g4_review_id || asset.review_id || "—"}</p>
-                </div>
-                <div>
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">last_manual_publish_result_id</p>
-                  <p className="mt-1 break-all text-sm text-foreground/80">{asset.last_manual_publish_result_id || "—"}</p>
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">readiness response</p>
-                <pre className="max-h-40 overflow-auto rounded-2xl border border-border/70 bg-white p-3 text-xs leading-6 text-foreground/80 whitespace-pre-wrap break-words">
-                  {asset.readiness_response || asset.last_readiness_check_response || "—"}
-                </pre>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">runtime response</p>
-                <pre className="max-h-40 overflow-auto rounded-2xl border border-border/70 bg-white p-3 text-xs leading-6 text-foreground/80 whitespace-pre-wrap break-words">
-                  {runtimeResponse ? JSON.stringify(runtimeResponse, null, 2) : "—"}
-                </pre>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">failure_reasons</p>
-                <div className="rounded-2xl border border-border/70 bg-white p-3 text-sm text-foreground/80">
-                  {asset.failure_reasons.length > 0 ? asset.failure_reasons.join(" • ") : "None"}
-                </div>
-              </div>
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
       </div>
     </>
   ) : (
@@ -1095,28 +985,45 @@ export default function G5AssetApprovalPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
-  const [manualPostUrl, setManualPostUrl] = useState("");
+  const [assetEdits, setAssetEdits] = useState<Record<string, { caption: string; hook: string }>>({});
+  const [registeredG4ReviewKeys, setRegisteredG4ReviewKeys] = useState<string[]>([]);
   const [draftContent, setDraftContent] = useState<G5SelectedG4ContentRecord | null>(null);
   const [draftCaption, setDraftCaption] = useState("");
   const [selectedCaptionId, setSelectedCaptionId] = useState<string | null>(null);
   const [selectedHookId, setSelectedHookId] = useState<string | null>(null);
   const [g4SelectionBusy, setG4SelectionBusy] = useState(false);
-  const [draftMedia, setDraftMedia] = useState<G5UploadedMedia | null>(null);
+  const [draftMediaItems, setDraftMediaItems] = useState<G5UploadedMedia[]>([]);
+  const [selectedDraftMediaKey, setSelectedDraftMediaKey] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [detailSheetOpen, setDetailSheetOpen] = useState(false);
+  const [postEditOpen, setPostEditOpen] = useState(false);
+  const [postEditDraft, setPostEditDraft] = useState<AssetEditDraft | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
+  const [originalPostModalOpen, setOriginalPostModalOpen] = useState(false);
   const [g4DialogOpen, setG4DialogOpen] = useState(false);
-  const [runtimeResponses, setRuntimeResponses] = useState<Record<string, G5WebhookResponse | null>>({});
   const [isDesktop, setIsDesktop] = useState(false);
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState("approved-content");
   const deferredSearch = useDeferredValue(search);
 
-  const g4ReadyReviews = g4ReadyContent?.reviews ?? [];
-  const selectableG4Reviews = useMemo(() => g4ReadyReviews.filter(isG4ReadyForG5).map(toSelectableG4Review), [g4ReadyReviews]);
-  const allAssets = dashboard?.assets ?? [];
+  const g4ReadyReviews = g4ReadyContent?.reviews ?? EMPTY_G4_REVIEWS;
+  const registeredG4ReviewKeySet = useMemo(() => new Set(registeredG4ReviewKeys.map((value) => value.trim()).filter(Boolean)), [registeredG4ReviewKeys]);
+  const selectableG4Reviews = useMemo(
+    () =>
+      g4ReadyReviews
+        .map(toSelectableG4Review)
+        .filter((review) => {
+          const candidateKeys = [review.id, review.g4_review_id, review.g4_review_uuid, review.content_review_id, review.review_id]
+            .map((value) => value?.trim() ?? "")
+            .filter(Boolean);
+
+          return !candidateKeys.some((key) => registeredG4ReviewKeySet.has(key));
+        }),
+    [g4ReadyReviews, registeredG4ReviewKeySet],
+  );
+  const allAssets = dashboard?.assets ?? EMPTY_G5_ASSETS;
   const searchQuery = deferredSearch.trim().toLowerCase();
   const filteredApprovedContent = useMemo(() => {
     if (!searchQuery) {
@@ -1131,11 +1038,11 @@ export default function G5AssetApprovalPage() {
   }, [searchQuery, selectableG4Reviews]);
   const filteredPendingApprovalAssets = useMemo(() => {
     if (!searchQuery) {
-      return allAssets.filter((asset) => getAssetStatusInfo(asset).label === "PENDING_APPROVAL");
+      return allAssets.filter((asset) => asset.client_tab === "pending_approval");
     }
 
     return allAssets.filter((asset) => {
-      if (getAssetStatusInfo(asset).label !== "PENDING_APPROVAL") {
+      if (asset.client_tab !== "pending_approval") {
         return false;
       }
 
@@ -1155,11 +1062,11 @@ export default function G5AssetApprovalPage() {
   }, [allAssets, searchQuery]);
   const filteredReadyToPublishAssets = useMemo(() => {
     if (!searchQuery) {
-      return allAssets.filter((asset) => isReadyToPublish(asset) && !isAssetPublishedManually(asset) && !isAssetBlocked(asset));
+      return allAssets.filter((asset) => asset.client_tab === "ready_to_publish");
     }
 
     return allAssets.filter((asset) => {
-      if (!isReadyToPublish(asset) || isAssetPublishedManually(asset) || isAssetBlocked(asset)) {
+      if (asset.client_tab !== "ready_to_publish") {
         return false;
       }
 
@@ -1179,11 +1086,11 @@ export default function G5AssetApprovalPage() {
   }, [allAssets, searchQuery]);
   const filteredPublishedAssets = useMemo(() => {
     if (!searchQuery) {
-      return allAssets.filter((asset) => isAssetPublishedManually(asset));
+      return allAssets.filter((asset) => asset.client_tab === "published_manually");
     }
 
     return allAssets.filter((asset) => {
-      if (!isAssetPublishedManually(asset)) {
+      if (asset.client_tab !== "published_manually") {
         return false;
       }
 
@@ -1203,11 +1110,11 @@ export default function G5AssetApprovalPage() {
   }, [allAssets, searchQuery]);
   const filteredBlockedAssets = useMemo(() => {
     if (!searchQuery) {
-      return allAssets.filter((asset) => isAssetBlocked(asset));
+      return allAssets.filter((asset) => asset.client_tab === "blocked_rejected");
     }
 
     return allAssets.filter((asset) => {
-      if (!isAssetBlocked(asset)) {
+      if (asset.client_tab !== "blocked_rejected") {
         return false;
       }
 
@@ -1239,6 +1146,18 @@ export default function G5AssetApprovalPage() {
 
     return draftContent.hook_options.find((option) => option.id === selectedHookId) ?? null;
   }, [draftContent, selectedHookId]);
+  const draftHookText = selectedHookOption?.text?.trim() || null;
+  const draftMedia = useMemo(() => {
+    if (!draftMediaItems.length) {
+      return null;
+    }
+
+    if (selectedDraftMediaKey) {
+      return draftMediaItems.find((item) => item.storage_key === selectedDraftMediaKey || item.media_url === selectedDraftMediaKey) ?? draftMediaItems[draftMediaItems.length - 1] ?? null;
+    }
+
+    return draftMediaItems[draftMediaItems.length - 1] ?? null;
+  }, [draftMediaItems, selectedDraftMediaKey]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1343,17 +1262,21 @@ export default function G5AssetApprovalPage() {
   }, [allAssets, selectedAssetId]);
 
   useEffect(() => {
-    setManualPostUrl(selectedAsset?.post_url?.trim() ?? "");
-  }, [selectedAsset?.asset_id]);
-
-  useEffect(() => {
     if (isDesktop) {
       setDetailSheetOpen(false);
       return;
     }
 
     setDetailSheetOpen(Boolean(selectedAsset));
-  }, [isDesktop, selectedAsset?.asset_id]);
+  }, [isDesktop, selectedAsset]);
+
+  const selectedAssetEdit = selectedAsset ? assetEdits[selectedAsset.asset_id] ?? null : null;
+  const selectedAssetCaptionValue =
+    selectedAssetEdit?.caption?.trim() ||
+    selectedAsset?.content_text?.trim() ||
+    selectedAsset?.asset_title?.trim() ||
+    "";
+  const selectedAssetHookValue = selectedAssetEdit?.hook?.trim() || selectedAsset?.hook_angle?.trim() || "";
 
   const summary = dashboard?.summary ?? {
     total: 0,
@@ -1386,6 +1309,36 @@ export default function G5AssetApprovalPage() {
     [isDesktop]
   );
 
+  const handleOpenPostEditor = useCallback(() => {
+    if (!selectedAsset) {
+      return;
+    }
+
+    setPostEditDraft({
+      assetId: selectedAsset.asset_id,
+      caption: selectedAssetCaptionValue,
+      hook: selectedAssetHookValue,
+    });
+    setPostEditOpen(true);
+  }, [selectedAsset, selectedAssetCaptionValue, selectedAssetHookValue]);
+
+  const handleSavePostEdit = useCallback(() => {
+    if (!postEditDraft) {
+      return;
+    }
+
+    setAssetEdits((current) => ({
+      ...current,
+      [postEditDraft.assetId]: {
+        caption: postEditDraft.caption,
+        hook: postEditDraft.hook,
+      },
+    }));
+    setPostEditOpen(false);
+    setPostEditDraft(null);
+    toast.success("Post updated.");
+  }, [postEditDraft]);
+
   const refreshData = useCallback(async () => {
     await loadData("refresh");
   }, [loadData]);
@@ -1396,10 +1349,10 @@ export default function G5AssetApprovalPage() {
 
   const handleUploadMedia = useCallback(
     async (event: ChangeEvent<HTMLInputElement>) => {
-      const file = event.target.files?.[0];
+      const files = Array.from(event.target.files ?? []);
       event.target.value = "";
 
-      if (!file) {
+      if (!files.length) {
         return;
       }
 
@@ -1407,23 +1360,54 @@ export default function G5AssetApprovalPage() {
       setInlineError(null);
 
       try {
-        const formData = new FormData();
-        formData.append("file", file);
+        const uploaded = await Promise.allSettled(
+          files.map(async (file) => {
+            const formData = new FormData();
+            formData.append("file", file);
 
-        const response = await authFetch(buildRouteUrl("/api/admin/g5/upload-media"), {
-          method: "POST",
-          body: formData,
-          silent: true,
-        });
+            const response = await authFetch(buildRouteUrl("/api/admin/g5/upload-media"), {
+              method: "POST",
+              body: formData,
+              silent: true,
+            });
 
-        const body = await parseJson<G5UploadedMedia>(response);
-        if (!response.ok || !body) {
-          const message = body && "message" in body ? String(body.message) : "Unable to upload media.";
-          throw new Error(message);
+            const body = await parseJson<G5UploadedMedia>(response);
+            if (!response.ok || !body) {
+              const message = body && "message" in body ? String(body.message) : `Unable to upload ${file.name}.`;
+              throw new Error(message);
+            }
+
+            return body;
+          })
+        );
+
+        const successfulUploads = uploaded
+          .filter((result): result is PromiseFulfilledResult<G5UploadedMedia> => result.status === "fulfilled")
+          .map((result) => result.value);
+        const failedUploads = uploaded
+          .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+          .map((result) => result.reason);
+
+        if (successfulUploads.length > 0) {
+          setDraftMediaItems((current) => [...current, ...successfulUploads]);
+          const latestUpload = successfulUploads[successfulUploads.length - 1];
+          setSelectedDraftMediaKey(latestUpload.storage_key || latestUpload.media_url);
+          toast.success(
+            successfulUploads.length === 1
+              ? successfulUploads[0].message || "Media uploaded."
+              : `${successfulUploads.length} media files uploaded.`
+          );
         }
 
-        setDraftMedia(body);
-        toast.success(body.message || "Media uploaded.");
+        if (failedUploads.length > 0) {
+          const failureMessage = failedUploads
+            .map((error) => (error instanceof Error ? error.message : typeof error === "string" ? error : null))
+            .filter((value): value is string => Boolean(value))
+            .join(" ");
+          const message = failureMessage || "Unable to upload one or more media files.";
+          setInlineError(message);
+          toast.error(message);
+        }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unable to upload media.";
         setInlineError(message);
@@ -1456,8 +1440,10 @@ export default function G5AssetApprovalPage() {
         setDraftContent(selected);
         setSelectedCaptionId(null);
         setSelectedHookId(null);
-        setDraftCaption(composeG5DraftText(selected.recommended_hook, selected.recommended_caption));
-        setDraftMedia(null);
+        setDraftCaption("");
+        setDraftMediaItems([]);
+        setSelectedDraftMediaKey(null);
+        setOriginalPostModalOpen(false);
         setG4DialogOpen(false);
         setComposerOpen(true);
         toast.success(body.message || "G4 content selected.");
@@ -1475,17 +1461,16 @@ export default function G5AssetApprovalPage() {
   const handleSelectCaptionOption = useCallback(
     (option: G5G4CaptionOption) => {
       setSelectedCaptionId(option.id);
-      setDraftCaption(composeG5DraftText(selectedHookOption?.text || draftContent?.recommended_hook, option.text));
+      setDraftCaption(option.text);
     },
-    [draftContent?.recommended_hook, selectedHookOption?.text]
+    []
   );
 
   const handleSelectHookOption = useCallback(
     (option: G5G4HookOption) => {
       setSelectedHookId(option.id);
-      setDraftCaption(composeG5DraftText(option.text, selectedCaptionOption?.text || draftContent?.recommended_caption));
     },
-    [draftContent?.recommended_caption, selectedCaptionOption?.text]
+    []
   );
 
   const handleRegisterAsset = useCallback(async () => {
@@ -1530,6 +1515,7 @@ export default function G5AssetApprovalPage() {
           asset_type: draftMedia.kind || "IMAGE",
           asset_title: title,
           content_text: caption,
+          hook_angle: draftHookText,
           media_url: draftMedia.media_url,
           storage_url: draftMedia.storage_url,
           g4_review_id: draftContent.g4_review_id,
@@ -1551,12 +1537,24 @@ export default function G5AssetApprovalPage() {
       }
 
       toast.success(body.message || "Asset registered.");
+      setRegisteredG4ReviewKeys((current) => {
+        const nextKeys = new Set(current);
+        for (const value of [draftContent.id, draftContent.g4_review_id, draftContent.g4_review_uuid, draftContent.content_review_id, draftContent.review_id]) {
+          const key = value?.trim();
+          if (key) {
+            nextKeys.add(key);
+          }
+        }
+        return [...nextKeys];
+      });
       setDraftContent(null);
       setDraftCaption("");
       setSelectedCaptionId(null);
       setSelectedHookId(null);
-      setDraftMedia(null);
+      setDraftMediaItems([]);
+      setSelectedDraftMediaKey(null);
       setComposerOpen(false);
+      setActiveTab("pending-approval");
 
       const rawAssetId = body.raw?.asset_id;
       if (typeof rawAssetId === "string" && rawAssetId.trim()) {
@@ -1571,7 +1569,7 @@ export default function G5AssetApprovalPage() {
     } finally {
       setBusyAction(null);
     }
-  }, [authFetch, draftCaption, draftContent, draftMedia, g4ReadyReviews.length, refreshData, user?.email, user?.id, user?.name]);
+  }, [authFetch, draftCaption, draftContent, draftHookText, draftMedia, g4ReadyReviews.length, refreshData, user?.email, user?.id, user?.name]);
 
   const handleApprovalDecision = useCallback(
     async (decision: "APPROVED" | "REJECTED") => {
@@ -1601,18 +1599,14 @@ export default function G5AssetApprovalPage() {
 
         const body = await parseJson<G5WebhookResponse>(response);
         if (!response.ok || !body) {
-          const message = body?.message || "Unable to save approval decision.";
+          const message = body?.message || "Unable to save G5 decision.";
           throw new Error(message);
         }
 
-        setRuntimeResponses((current) => ({
-          ...current,
-          [selectedAsset.asset_id]: body,
-        }));
         toast.success(body.message || (decision === "APPROVED" ? "Asset approved." : "Asset rejected."));
         await refreshData();
       } catch (error) {
-        const message = error instanceof Error ? error.message : "Unable to save approval decision.";
+        const message = error instanceof Error ? error.message : "Unable to save G5 decision.";
         setInlineError(message);
         toast.error(message);
       } finally {
@@ -1658,7 +1652,7 @@ export default function G5AssetApprovalPage() {
           approval_id: approvalId,
           asset_type: selectedAsset.asset_type?.trim() || "IMAGE",
           media_url: selectedAsset.media_url?.trim() || "",
-          caption: selectedAsset.content_text?.trim() || selectedAsset.asset_title?.trim() || "",
+          caption: selectedAssetCaptionValue,
           actor,
         }),
         silent: true,
@@ -1670,12 +1664,8 @@ export default function G5AssetApprovalPage() {
         throw new Error(message);
       }
 
-      setRuntimeResponses((current) => ({
-        ...current,
-        [selectedAsset.asset_id]: body,
-      }));
-      toast.success(body.message || "Readiness check completed.");
-      await refreshData();
+        toast.success(body.message || "Readiness check completed.");
+        await refreshData();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to run readiness check.";
       setInlineError(message);
@@ -1683,68 +1673,7 @@ export default function G5AssetApprovalPage() {
     } finally {
       setBusyAction(null);
     }
-  }, [authFetch, refreshData, selectedAsset, user?.email, user?.id, user?.name]);
-
-  const handleSavePostUrl = useCallback(async () => {
-    if (!selectedAsset) {
-      return;
-    }
-
-    if (!isReadyToPublish(selectedAsset)) {
-      const message = "Run readiness check before marking as published.";
-      setInlineError(message);
-      toast.error(message);
-      return;
-    }
-
-    const normalizedUrl = manualPostUrl.trim();
-    if (!normalizedUrl) {
-      const message = "Paste the live Instagram URL after manual publishing.";
-      setInlineError(message);
-      toast.error(message);
-      return;
-    }
-
-    const actor = user?.name?.trim() || user?.email?.trim() || user?.id?.trim() || "admin";
-
-    setBusyAction("publish");
-    setInlineError(null);
-
-    try {
-      const response = await authFetch(buildRouteUrl("/api/admin/g5/manual-publish-result"), {
-        method: "POST",
-        body: JSON.stringify({
-          asset_id: selectedAsset.asset_id,
-          approval_id: selectedAsset.approval_id?.trim() || selectedAsset.asset_id,
-          platform: "INSTAGRAM",
-          post_url: normalizedUrl,
-          published_by: actor,
-          published_at: new Date().toISOString(),
-          notes: "Manual publish proof saved from the G5 dashboard.",
-        }),
-        silent: true,
-      });
-
-      const body = await parseJson<G5WebhookResponse>(response);
-      if (!response.ok || !body) {
-        const message = body?.message || "Unable to save post URL.";
-        throw new Error(message);
-      }
-
-      setRuntimeResponses((current) => ({
-        ...current,
-        [selectedAsset.asset_id]: body,
-      }));
-      toast.success(body.message || "Post URL saved.");
-      await refreshData();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to save post URL.";
-      setInlineError(message);
-      toast.error(message);
-    } finally {
-      setBusyAction(null);
-    }
-  }, [authFetch, manualPostUrl, refreshData, selectedAsset, user?.email, user?.id, user?.name]);
+  }, [authFetch, refreshData, selectedAsset, selectedAssetCaptionValue, user?.email, user?.id, user?.name]);
 
   const headerBadges = (
     <>
@@ -1782,264 +1711,119 @@ export default function G5AssetApprovalPage() {
     setDraftCaption("");
     setSelectedCaptionId(null);
     setSelectedHookId(null);
-    setDraftMedia(null);
+    setDraftMediaItems([]);
+    setSelectedDraftMediaKey(null);
+    setOriginalPostModalOpen(false);
     setComposerOpen(false);
   }, []);
 
-  const captionPreviewText =
-    selectedCaptionOption?.text ||
-    draftContent?.recommended_caption ||
-    draftContent?.content_summary ||
-    draftContent?.display_summary ||
-    "Caption will be finalized during registration.";
-  const originalPostDataText = draftContent?.original_post_data?.trim() || null;
-  const originalPostDataLines =
-    originalPostDataText
-      ?.split(/\n+/)
-      .map((line) => line.trim())
-      .filter(Boolean) ?? [];
-  const originalPostHandle = draftContent?.profile_username?.trim() || null;
-  const originalPostAudio = draftContent?.audio_sound?.trim() || null;
-  const originalPostUrl =
-    draftContent?.source_url?.trim() ||
-    originalPostDataLines.find((line) => /^https?:\/\//i.test(line)) ||
-    null;
-  const aiSafeRewriteText = draftContent?.ai_safe_rewrite?.trim() || draftContent?.recommended_caption?.trim() || null;
-  const hookAngleText = draftContent?.hook_angle?.trim() || draftContent?.recommended_hook?.trim() || null;
-  const metricTiles: Array<{ label: string; value: string }> = [
-    { label: "Views", value: formatG4MetricValue(draftContent?.views) },
-    { label: "Likes", value: formatG4MetricValue(draftContent?.likes) },
-    { label: "Comments", value: formatG4MetricValue(draftContent?.comments) },
-    { label: "Shares", value: formatG4MetricValue(draftContent?.shares) },
-    { label: "Trend Strength", value: formatG4MetricValue(draftContent?.trend_strength) },
-    { label: "Brand Fit", value: formatG4MetricValue(draftContent?.brand_fit_score) },
-    { label: "Risk", value: formatG4MetricValue(draftContent?.risk_score) },
-  ];
+  const originalPost = draftContent?.original_post ?? {
+    platform: draftContent?.original_post?.platform?.trim() || draftContent?.content?.platform?.trim() || draftContent?.platform_label?.trim() || null,
+    handle: draftContent?.profile_username?.trim() || null,
+    caption:
+      draftContent?.original_post?.caption?.trim() ||
+      draftContent?.caption_preview?.trim() ||
+      draftContent?.content_summary?.trim() ||
+      draftContent?.display_summary?.trim() ||
+      null,
+    post_url: draftContent?.source_url?.trim() || null,
+    views: draftContent?.views?.trim() || null,
+    likes: draftContent?.likes?.trim() || null,
+    comments: draftContent?.comments?.trim() || null,
+    shares: draftContent?.shares?.trim() || null,
+    audio: draftContent?.audio_sound?.trim() || null,
+    engagement_rate: draftContent?.engagement_rate?.trim() || null,
+  };
+  const originalPostUrl = originalPost.post_url?.trim() || null;
+  const mediaCarouselItems = useMemo(() => [...draftMediaItems].slice().reverse(), [draftMediaItems]);
+  const renderInfoTile = (label: string, value: string, className = "") => (
+    <div className={cn("rounded-[14px] border border-border/60 bg-[#fbf8f6] p-3", className)}>
+      <p className="text-[8px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">{label}</p>
+      <p className="mt-1 break-words text-[13px] font-semibold leading-5 text-foreground/80 text-pretty whitespace-pre-wrap">{value}</p>
+    </div>
+  );
   const selectedContentPanel = draftContent ? (
-    <div className="rounded-[28px] border border-border/70 bg-background/95 shadow-sm">
-      <div className="border-b border-border/60 px-5 py-5 sm:px-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div className="space-y-2">
-            <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Selected content</p>
-            <div className="space-y-1">
-              <h2 className="font-serif text-2xl leading-tight text-primary">{draftContent.display_title}</h2>
-              <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{draftContent.display_summary}</p>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge variant="outline" className="rounded-full border-border/70 bg-[#fbf8f6] px-2.5 py-1 text-[11px] font-medium">
-                {draftContent.platform_label}
-              </Badge>
-              <Badge variant="outline" className="rounded-full border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
-                {draftContent.display_status}
-              </Badge>
-              <Badge variant="outline" className="rounded-full border-border/70 bg-white px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-                {describeTimestamp(draftContent.created_at, "Created time unavailable")}
-              </Badge>
-            </div>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-10 rounded-full px-4"
-              onClick={() => {
-                setComposerOpen(false);
-                setG4DialogOpen(true);
-              }}
-            >
-              <Sparkles className="size-4" />
-              Change content
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-10 rounded-full px-4 text-muted-foreground"
-              onClick={clearDraftSelection}
-            >
-              Clear selection
-            </Button>
-          </div>
-        </div>
+    <div className="flex h-full flex-col overflow-hidden rounded-[28px] border border-border/70 bg-background/95 shadow-sm">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 px-4 py-3 sm:px-5">
+        <h2 className="font-serif text-[22px] leading-tight text-primary sm:text-[26px]">{draftContent.display_title}</h2>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          className="mr-8 h-8 rounded-full px-3.5 text-[11px] sm:mr-10"
+          onClick={() => setOriginalPostModalOpen(true)}
+        >
+          <ExternalLink className="size-4" />
+          Original post data
+        </Button>
       </div>
 
-      <div className="grid gap-0 xl:grid-cols-[minmax(0,0.94fr)_minmax(0,1.06fr)]">
-        <div className="space-y-3 border-b border-border/60 px-4 py-4 xl:border-b-0 xl:border-r xl:border-border/60 sm:px-5">
-          <div className="rounded-[22px] border border-border/60 bg-white p-3.5 shadow-none">
-            <div className="space-y-1">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Caption</p>
-              <p className="mt-1 text-[13px] font-semibold leading-5 text-foreground/80 text-pretty">
-                {captionPreviewText}
-              </p>
-            </div>
-          </div>
-
-          <Card className="rounded-[22px] border-border/60 bg-white p-3.5 shadow-none">
-            <div className="space-y-3">
-              <CardTitle className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Metrics</CardTitle>
-              <div className="grid gap-1 sm:grid-cols-2 xl:grid-cols-4">
-                {metricTiles.map((tile) => (
-                  <div key={tile.label} className="rounded-[14px] border border-border/60 bg-[#fbf8f6] p-2.5">
-                    <p className="text-[8px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">{tile.label}</p>
-                    <p className="mt-1 text-[13px] font-semibold leading-5 text-foreground/80 text-pretty">{tile.value}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </Card>
-
-          <Card className="rounded-[22px] border-border/60 bg-white p-3.5 shadow-none">
-            <div className="space-y-3">
-              <CardTitle className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">Original Post Data</CardTitle>
-              <div className="grid gap-1.5 sm:grid-cols-2">
-                <div className="rounded-[14px] border border-border/60 bg-[#fbf8f6] p-2.5">
-                  <p className="text-[8px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Handle</p>
-                  <p className="mt-1 text-[13px] font-semibold leading-5 text-foreground/80 text-pretty">{originalPostHandle || "Unknown"}</p>
-                </div>
-                <div className="rounded-[14px] border border-border/60 bg-[#fbf8f6] p-2.5">
-                  <p className="text-[8px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Audio</p>
-                  <p className="mt-1 text-[13px] font-semibold leading-5 text-foreground/80 text-pretty">{originalPostAudio || "original sound"}</p>
-                </div>
-              </div>
-
-              {originalPostUrl ? (
-                <Button asChild variant="outline" className="h-9 w-full rounded-[12px] border-border/70 bg-white px-3.5 text-xs font-semibold shadow-none">
-                  <a href={originalPostUrl} target="_blank" rel="noreferrer">
-                    <ExternalLink className="mr-2 size-3.5" />
-                    Open Original Post
-                  </a>
-                </Button>
-              ) : (
-                <p className="text-[11px] leading-5 text-muted-foreground">Open link not available from this review bundle.</p>
-              )}
-            </div>
-          </Card>
-
-          <Card className="rounded-[22px] border-border/60 bg-white p-3.5 shadow-none">
-            <div className="space-y-3">
-              <CardTitle className="text-[11px] font-semibold uppercase tracking-[0.24em] text-muted-foreground">AI direction</CardTitle>
-              <div className="space-y-2">
-                <div className="rounded-[14px] border border-border/60 bg-[#fbf8f6] p-2.5">
-                  <p className="text-[8px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Safe rewrite</p>
-                  <p className="mt-1 text-[13px] font-semibold leading-5 text-foreground/80 text-pretty">
-                    {aiSafeRewriteText || "Not available"}
-                  </p>
-                </div>
-                <div className="rounded-[14px] border border-border/60 bg-[#fbf8f6] p-2.5">
-                  <p className="text-[8px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Hook angle</p>
-                  <p className="mt-1 text-[13px] font-semibold leading-5 text-foreground/80 text-pretty">
-                    {hookAngleText || "Not available"}
-                  </p>
-                </div>
-              </div>
-            </div>
-          </Card>
-        </div>
-
-        <div className="space-y-3 px-5 py-5 sm:px-6">
+      <div className="grid min-h-0 flex-1 gap-0 xl:grid-cols-[minmax(0,1.02fr)_minmax(0,0.98fr)]">
+        <div className="space-y-2.5 border-b border-border/60 px-4 py-4 xl:border-b-0 xl:border-r xl:border-border/60 sm:px-5 sm:py-4">
           <div className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <Label className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Caption options</Label>
-              <Badge variant="outline" className="rounded-full border-border/70 bg-[#fbf8f6] px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-                {draftContent.caption_options.length} caption{draftContent.caption_options.length === 1 ? "" : "s"}
-              </Badge>
-            </div>
+            <Label className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Choose Caption</Label>
 
             {draftContent.caption_options.length > 0 ? (
-              <ToggleGroup
-                type="single"
-                variant="outline"
-                value={selectedCaptionOption?.id}
-                onValueChange={(value) => {
-                  const option = draftContent.caption_options.find((item) => item.id === value);
-                  if (option) {
-                    handleSelectCaptionOption(option);
-                  }
-                }}
-                className="flex w-full flex-col gap-2"
-              >
+              <>
                 {draftContent.caption_options.map((option) => (
-                  <ToggleGroupItem
+                  <button
                     key={option.id}
-                    value={option.id}
-                    variant="outline"
-                    size="lg"
-                    className="h-auto w-full flex-col items-start justify-start gap-1.5 rounded-[16px] border-border/70 bg-[#fbf8f6] px-3 py-3 text-left whitespace-normal data-[state=on]:border-primary/40 data-[state=on]:bg-primary/5"
+                    type="button"
+                    aria-pressed={selectedCaptionOption?.id === option.id}
+                    className={cn(
+                      "w-full rounded-[14px] border border-border/70 bg-[#fbf8f6] px-3 py-2.5 text-left shadow-none transition-colors hover:border-primary/40 hover:bg-primary/5",
+                      selectedCaptionOption?.id === option.id && "border-primary/40 bg-primary/5"
+                    )}
+                    onClick={() => handleSelectCaptionOption(option)}
                   >
-                    <div className="flex w-full items-center justify-between gap-2">
-                      <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">{option.label}</span>
-                      <Badge variant="outline" className="rounded-full border-border/70 bg-background px-2 py-0.5 text-[9px] font-medium text-muted-foreground">
-                        G4
-                      </Badge>
-                    </div>
-                    <p className="text-xs leading-5 text-foreground/80">{option.text}</p>
-                  </ToggleGroupItem>
+                    <p className="mt-1.5 text-[11px] leading-5 text-foreground/80">{option.text}</p>
+                  </button>
                 ))}
-              </ToggleGroup>
+              </>
             ) : (
               <Alert variant="default" className="border-amber-200 bg-amber-50/80 text-amber-800">
                 <AlertTriangle className="size-4" />
-                <AlertTitle className="text-sm font-medium text-amber-900">No caption suggestions found</AlertTitle>
-                <AlertDescription className="text-sm leading-6 text-amber-800">Enter the final caption manually during registration.</AlertDescription>
+                <AlertTitle className="text-sm font-medium text-amber-900">No generated captions found</AlertTitle>
+                <AlertDescription className="text-sm leading-6 text-amber-800">You can write or paste one manually.</AlertDescription>
               </Alert>
             )}
           </div>
 
-          <Separator />
+          <Separator className="my-1" />
 
           <div className="space-y-2">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <Label className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Hook options</Label>
-              <div className="flex flex-wrap gap-2">
-                <Badge variant="outline" className="rounded-full border-border/70 bg-[#fbf8f6] px-2.5 py-1 text-[11px] font-medium text-muted-foreground">
-                  {draftContent.hook_options.length} hook{draftContent.hook_options.length === 1 ? "" : "s"}
-                </Badge>
-              </div>
-            </div>
+            <Label className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Choose Hook</Label>
 
             {draftContent.hook_options.length > 0 ? (
-              <ToggleGroup
-                type="single"
-                variant="outline"
-                value={selectedHookOption?.id}
-                onValueChange={(value) => {
-                  const option = draftContent.hook_options.find((item) => item.id === value);
-                  if (option) {
-                    handleSelectHookOption(option);
-                  }
-                }}
-                className="flex w-full flex-col gap-2"
-              >
+              <>
                 {draftContent.hook_options.map((option) => (
-                  <ToggleGroupItem
+                  <button
                     key={option.id}
-                    value={option.id}
-                    variant="outline"
-                    size="lg"
-                    className="h-auto w-full flex-col items-start justify-start gap-1.5 rounded-[16px] border-border/70 bg-[#fbf8f6] px-3 py-3 text-left whitespace-normal data-[state=on]:border-primary/40 data-[state=on]:bg-primary/5"
+                    type="button"
+                    aria-pressed={selectedHookOption?.id === option.id}
+                    className={cn(
+                      "w-full rounded-[14px] border border-border/70 bg-[#fbf8f6] px-3 py-2.5 text-left shadow-none transition-colors hover:border-primary/40 hover:bg-primary/5",
+                      selectedHookOption?.id === option.id && "border-primary/40 bg-primary/5"
+                    )}
+                    onClick={() => handleSelectHookOption(option)}
                   >
-                    <div className="flex w-full items-center justify-between gap-2">
-                      <span className="text-[10px] uppercase tracking-[0.2em] text-muted-foreground">{option.label}</span>
-                      <Badge variant="outline" className="rounded-full border-border/70 bg-background px-2 py-0.5 text-[9px] font-medium text-muted-foreground">
-                        G4
-                      </Badge>
-                    </div>
-                    <p className="text-xs leading-5 text-foreground/80">{option.text}</p>
-                  </ToggleGroupItem>
+                    <p className="mt-1.5 text-[11px] leading-5 text-foreground/80">{option.text}</p>
+                  </button>
                 ))}
-              </ToggleGroup>
+              </>
             ) : (
               <Alert variant="default" className="border-amber-200 bg-amber-50/80 text-amber-800">
                 <AlertTriangle className="size-4" />
-                <AlertTitle className="text-sm font-medium text-amber-900">No hook suggestions found</AlertTitle>
-                <AlertDescription className="text-sm leading-6 text-amber-800">Write the opening line manually while keeping the final caption aligned to this review.</AlertDescription>
+                <AlertTitle className="text-sm font-medium text-amber-900">No generated hooks found</AlertTitle>
+                <AlertDescription className="text-sm leading-6 text-amber-800">You can continue with caption only.</AlertDescription>
               </Alert>
             )}
           </div>
+        </div>
 
+        <div className="flex h-full min-h-0 flex-col gap-2.5 px-4 py-4 sm:px-5 sm:py-4">
           <div className="space-y-2">
-            <div className="space-y-2">
+            <div className="space-y-1.5">
               <Label htmlFor="g5-caption" className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
                 Final caption
               </Label>
@@ -2047,44 +1831,100 @@ export default function G5AssetApprovalPage() {
                 id="g5-caption"
                 value={draftCaption}
                 onChange={(event) => setDraftCaption(event.target.value)}
-                placeholder={draftContent.caption_options.length ? "Edit the caption before saving the queue item." : "Enter the final caption for this post."}
-                className="min-h-28 rounded-[24px] border-border/70 bg-white px-4 py-3 text-sm shadow-sm"
+                placeholder={draftContent.caption_options.length ? "Edit the final caption before saving the queue item." : "Enter the final caption for this post."}
+                className="min-h-14 rounded-[20px] border-border/70 bg-white px-3.5 py-2.5 text-[13px] leading-5 shadow-sm"
               />
-              <div className="flex flex-wrap items-center gap-2 text-[11px] leading-5 text-muted-foreground">
-                <span>This becomes the final text saved with the queue item.</span>
-                {selectedCaptionOption ? (
-                  <Badge variant="outline" className="rounded-full border-emerald-200 bg-emerald-50 px-2.5 py-1 text-[11px] font-semibold text-emerald-700">
-                    {selectedCaptionOption.label}
-                  </Badge>
-                ) : null}
-                {selectedHookOption ? (
-                  <Badge variant="outline" className="rounded-full border-violet-200 bg-violet-50 px-2.5 py-1 text-[11px] font-semibold text-violet-700">
-                    {selectedHookOption.label}
-                  </Badge>
-                ) : null}
-              </div>
             </div>
 
-            <div className="grid gap-2 sm:grid-cols-2">
-              <Button type="button" variant="outline" onClick={openFilePicker} disabled={busyAction === "upload"} className="h-11 rounded-full px-4">
+            <div className="rounded-[20px] border border-violet-200/70 bg-violet-50/60 p-3">
+              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Selected hook</p>
+              <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-5 text-foreground/85">{draftHookText || "No hook selected"}</p>
+            </div>
+
+            {draftMediaItems.length > 0 ? (
+              <Carousel
+                opts={{ align: "start", loop: mediaCarouselItems.length > 1 }}
+                className="relative flex h-[300px] flex-none flex-col overflow-hidden rounded-[20px] border border-emerald-200 bg-emerald-50/70 p-2 sm:h-[320px]"
+              >
+                <div className="flex items-center justify-between gap-3 pb-2">
+                  <div className="min-w-0">
+                    <p className="text-[10px] uppercase tracking-[0.24em] text-emerald-700">Uploaded media</p>
+                    <p className="truncate text-[13px] font-medium text-emerald-950">
+                      {draftMediaItems.length} file{draftMediaItems.length === 1 ? "" : "s"} uploaded
+                    </p>
+                  </div>
+                </div>
+
+                <CarouselContent className="h-full min-h-0 flex-1" style={{ marginLeft: 0 }}>
+                  {mediaCarouselItems.map((media) => {
+                    const selected = draftMedia?.storage_key === media.storage_key || draftMedia?.media_url === media.media_url;
+                    const isVideo = media.kind?.toUpperCase() === "VIDEO" || media.content_type.toLowerCase().startsWith("video/");
+
+                    return (
+                      <CarouselItem key={media.storage_key || media.media_url} className="h-full" style={{ paddingLeft: 0 }}>
+                        <button
+                          type="button"
+                          onClick={() => setSelectedDraftMediaKey(media.storage_key || media.media_url)}
+                          className={cn(
+                            "group flex h-full w-full flex-col overflow-hidden rounded-[16px] border bg-white p-2 text-left transition-colors",
+                            selected ? "border-emerald-400 ring-1 ring-emerald-400/30" : "border-emerald-200/70 hover:border-emerald-300"
+                          )}
+                        >
+                          <div className="relative flex-1 overflow-hidden rounded-[14px] bg-black/5">
+                            {isVideo ? (
+                              <video
+                                src={media.media_url}
+                                controls
+                                playsInline
+                                preload="metadata"
+                                className="h-full w-full bg-black object-contain"
+                              />
+                            ) : (
+                              <img
+                                src={media.media_url}
+                                alt={media.filename}
+                                className="h-full w-full object-contain"
+                              />
+                            )}
+                          </div>
+                          <div className="mt-2">
+                            <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-700">{media.kind}</p>
+                          </div>
+                        </button>
+                      </CarouselItem>
+                    );
+                  })}
+                </CarouselContent>
+
+                {mediaCarouselItems.length > 1 ? (
+                  <>
+                    <CarouselPrevious
+                      style={{ left: "0.5rem" }}
+                      className="border-emerald-200 bg-white text-emerald-900 shadow-sm hover:bg-emerald-50"
+                    />
+                    <CarouselNext
+                      style={{ right: "0.5rem" }}
+                      className="border-emerald-200 bg-white text-emerald-900 shadow-sm hover:bg-emerald-50"
+                    />
+                  </>
+                ) : null}
+              </Carousel>
+            ) : (
+              <div className="flex h-[300px] flex-none items-center justify-center rounded-[20px] border border-dashed border-border/70 bg-[#fbf8f6] p-4 text-sm text-muted-foreground sm:h-[320px]">
+                Upload media after choosing the final caption.
+              </div>
+            )}
+
+            <div className="grid gap-2 pt-1 sm:grid-cols-2">
+              <Button type="button" variant="outline" onClick={openFilePicker} disabled={busyAction === "upload"} className="h-9 rounded-full px-4 text-sm">
                 {busyAction === "upload" ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-                Upload media
+                Add media
               </Button>
-              <Button type="button" onClick={handleRegisterAsset} disabled={busyAction === "register"} className="h-11 rounded-full bg-primary px-4">
+              <Button type="button" onClick={handleRegisterAsset} disabled={busyAction === "register"} className="h-9 rounded-full bg-primary px-4 text-sm">
                 {busyAction === "register" ? <Loader2 className="size-4 animate-spin" /> : <BadgeCheck className="size-4" />}
                 Register asset
               </Button>
             </div>
-
-            {draftMedia ? (
-              <div className="rounded-[24px] border border-emerald-200 bg-emerald-50/70 p-4 text-sm text-emerald-900">
-                Media uploaded: {draftMedia.filename}
-              </div>
-            ) : (
-              <div className="rounded-[24px] border border-dashed border-border/70 bg-[#fbf8f6] p-4 text-sm text-muted-foreground">
-                Upload media after choosing the final caption.
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -2117,7 +1957,7 @@ export default function G5AssetApprovalPage() {
             <div className="mt-3 grid gap-3">
               <div className="rounded-2xl border border-border/60 bg-white p-3 text-sm leading-6 text-foreground/80">Choose a review that is ready for G5</div>
               <div className="rounded-2xl border border-border/60 bg-white p-3 text-sm leading-6 text-foreground/80">Upload the media file for the post</div>
-              <div className="rounded-2xl border border-border/60 bg-white p-3 text-sm leading-6 text-foreground/80">Register the item and finish approval</div>
+              <div className="rounded-2xl border border-border/60 bg-white p-3 text-sm leading-6 text-foreground/80">Register the item and finish the G5 step</div>
             </div>
           </div>
         </div>
@@ -2125,9 +1965,127 @@ export default function G5AssetApprovalPage() {
     </div>
   );
 
+  const originalPostModal = draftContent ? (
+    <Dialog open={originalPostModalOpen} onOpenChange={setOriginalPostModalOpen}>
+      <DialogContent className="h-[100dvh] !w-[100vw] !max-w-none overflow-y-auto rounded-none border-0 bg-background p-0 shadow-none sm:h-auto sm:max-h-[90vh] sm:!w-[min(92vw,980px)] sm:!max-w-[min(92vw,980px)] sm:rounded-[28px] sm:border sm:border-border/70 sm:bg-background sm:shadow-xl">
+        <DialogHeader className="border-b border-border/60 px-5 py-4 sm:px-6">
+          <DialogTitle className="font-serif text-2xl leading-tight text-primary">Original post data</DialogTitle>
+          <DialogDescription className="text-sm leading-6 text-muted-foreground">
+            Source details for {draftContent.display_title}
+          </DialogDescription>
+        </DialogHeader>
+        <div className="space-y-3 px-5 py-5 sm:px-6">
+          <div className="rounded-[14px] border border-border/60 bg-[#fbf8f6] p-3">
+            <p className="text-[8px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Original caption</p>
+            <p className="mt-1 text-[13px] font-semibold leading-6 text-foreground/80 text-pretty whitespace-pre-wrap">
+              {originalPost.caption || "Not available"}
+            </p>
+          </div>
+
+          <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
+            {renderInfoTile("Platform", originalPost.platform || "Unknown")}
+            {renderInfoTile("Handle", originalPost.handle || "Unknown")}
+            {renderInfoTile("Audio", originalPost.audio || "original sound")}
+          </div>
+
+          <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
+            {renderInfoTile("Views", formatG4MetricValue(originalPost.views))}
+            {renderInfoTile("Likes", formatG4MetricValue(originalPost.likes))}
+            {renderInfoTile("Comments", formatG4MetricValue(originalPost.comments))}
+            {renderInfoTile("Shares", formatG4MetricValue(originalPost.shares))}
+            {renderInfoTile("Engagement rate", formatG4MetricValue(originalPost.engagement_rate))}
+          </div>
+
+          {originalPostUrl ? (
+            <Button asChild variant="outline" className="h-10 w-full rounded-[12px] border-border/70 bg-white px-3.5 text-xs font-semibold shadow-none">
+              <a href={originalPostUrl} target="_blank" rel="noreferrer">
+                <ExternalLink className="mr-2 size-3.5" />
+                Open Original Post
+              </a>
+            </Button>
+          ) : (
+            <p className="text-[11px] leading-5 text-muted-foreground">Open link not available from this review bundle.</p>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
+  ) : null;
+
+  const editPostModal = postEditDraft ? (
+    <Dialog
+      open={postEditOpen}
+      onOpenChange={(open) => {
+        setPostEditOpen(open);
+        if (!open) {
+          setPostEditDraft(null);
+        }
+      }}
+    >
+      <DialogContent className="h-[100dvh] !w-[100vw] !max-w-none overflow-hidden rounded-none border-0 bg-background p-0 shadow-none sm:h-auto sm:max-h-[80vh] sm:!w-[min(92vw,720px)] sm:!max-w-[min(92vw,720px)] sm:rounded-[28px] sm:border sm:border-border/70 sm:bg-background sm:shadow-xl">
+        <DialogHeader className="border-b border-border/60 px-5 py-4 sm:px-6">
+          <DialogTitle className="font-serif text-2xl leading-tight text-primary">Edit post</DialogTitle>
+          <DialogDescription className="text-sm leading-6 text-muted-foreground">
+            Update the caption and hook shown in the inspector before publishing.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4 px-5 py-5 sm:px-6">
+          <div className="space-y-2">
+            <Label htmlFor="g5-edit-caption" className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
+              Caption
+            </Label>
+            <Textarea
+              id="g5-edit-caption"
+              value={postEditDraft.caption}
+              onChange={(event) =>
+                setPostEditDraft((current) => (current ? { ...current, caption: event.target.value } : current))
+              }
+              className="min-h-24 rounded-[20px] border-border/70 bg-white px-3.5 py-2.5 text-[13px] leading-6 shadow-sm"
+              placeholder="Write the caption for this post."
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="g5-edit-hook" className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
+              Hook
+            </Label>
+            <Input
+              id="g5-edit-hook"
+              value={postEditDraft.hook}
+              onChange={(event) => setPostEditDraft((current) => (current ? { ...current, hook: event.target.value } : current))}
+              className="h-11 rounded-[20px] border-border/70 bg-white px-3.5 text-[13px] shadow-sm"
+              placeholder="Add the hook text for this post."
+            />
+          </div>
+
+          <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-10 rounded-full px-4 text-sm"
+              onClick={() => {
+                setPostEditOpen(false);
+                setPostEditDraft(null);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="h-10 rounded-full bg-primary px-4 text-sm"
+              onClick={handleSavePostEdit}
+            >
+              Save changes
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  ) : null;
+
   const composerModal = draftContent ? (
     <Dialog open={composerOpen} onOpenChange={setComposerOpen}>
-      <DialogContent className="h-[100dvh] !w-[100vw] !max-w-none overflow-y-auto rounded-none border-0 bg-background p-0 shadow-none sm:h-auto sm:max-h-[92vh] sm:!w-[min(94vw,1400px)] sm:!max-w-[min(94vw,1400px)] sm:rounded-[28px] sm:border sm:border-border/70 sm:bg-background sm:shadow-xl">
+      <DialogContent className="h-[100dvh] !w-[100vw] !max-w-none overflow-hidden rounded-none border-0 bg-background p-0 shadow-none sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:overflow-y-auto sm:!w-[min(94vw,1400px)] sm:!max-w-[min(94vw,1400px)] sm:rounded-[28px] sm:border sm:border-border/70 sm:bg-background sm:shadow-xl">
         <DialogHeader className="sr-only">
           <DialogTitle>Prepare content for publishing</DialogTitle>
           <DialogDescription>Choose a hook, caption, media file, and register the asset.</DialogDescription>
@@ -2144,7 +2102,7 @@ export default function G5AssetApprovalPage() {
         description={PAGE_DESCRIPTION}
         badges={headerBadges}
       >
-        <input ref={fileInputRef} type="file" className="hidden" accept="image/*,video/*" onChange={handleUploadMedia} />
+        <input ref={fileInputRef} type="file" className="hidden" accept="image/*,video/*" multiple onChange={handleUploadMedia} />
 
         {pageError ? getActionErrorMessage(pageError) : null}
 
@@ -2254,7 +2212,7 @@ export default function G5AssetApprovalPage() {
                     <div className="space-y-1">
                       <CardTitle className="font-serif text-2xl leading-tight text-primary">Content queue</CardTitle>
                       <CardDescription className="text-sm leading-6 text-muted-foreground">
-                        Choose approved content, then review the items moving through approval, publishing, and proof.
+                      Choose approved content, then review the items moving through G5, publishing, and proof.
                       </CardDescription>
                     </div>
                     <Badge variant="outline" className="rounded-full border-border/70 px-3 py-1 text-[11px] font-medium text-muted-foreground">
@@ -2421,7 +2379,7 @@ export default function G5AssetApprovalPage() {
                                       </Button>
                                       <div className="inline-flex h-9 items-center gap-2 rounded-full border border-emerald-200 bg-white px-4 text-sm font-semibold leading-none text-emerald-700 shadow-none">
                                         <BadgeCheck className="size-3.5" aria-hidden="true" />
-                                        Ready for G5 Approval
+                                        Ready for G5
                                       </div>
                                     </div>
                                   </div>
@@ -2515,14 +2473,12 @@ export default function G5AssetApprovalPage() {
                 <AssetInspectorPanel
                   asset={selectedAsset}
                   mode="card"
-                  manualPostUrl={manualPostUrl}
-                  onManualPostUrlChange={setManualPostUrl}
+                  captionText={selectedAssetCaptionValue}
+                  hookText={selectedAssetHookValue}
+                  onEdit={handleOpenPostEditor}
                   onApprove={() => void handleApprovalDecision("APPROVED")}
-                  onReject={() => void handleApprovalDecision("REJECTED")}
                   onRunReadinessCheck={() => void handleRunReadinessCheck()}
-                  onSavePostUrl={() => void handleSavePostUrl()}
                   busyAction={busyAction}
-                  runtimeResponse={selectedAsset ? runtimeResponses[selectedAsset.asset_id] ?? null : null}
                 />
               </div>
             </div>
@@ -2535,19 +2491,19 @@ export default function G5AssetApprovalPage() {
           <AssetInspectorPanel
             asset={selectedAsset}
             mode="sheet"
-            manualPostUrl={manualPostUrl}
-            onManualPostUrlChange={setManualPostUrl}
+            captionText={selectedAssetCaptionValue}
+            hookText={selectedAssetHookValue}
+            onEdit={handleOpenPostEditor}
             onApprove={() => void handleApprovalDecision("APPROVED")}
-            onReject={() => void handleApprovalDecision("REJECTED")}
             onRunReadinessCheck={() => void handleRunReadinessCheck()}
-            onSavePostUrl={() => void handleSavePostUrl()}
             busyAction={busyAction}
-            runtimeResponse={selectedAsset ? runtimeResponses[selectedAsset.asset_id] ?? null : null}
           />
         </SheetContent>
       </Sheet>
 
+      {editPostModal}
       {composerModal}
+      {originalPostModal}
 
       <G4PickerDialog
         open={g4DialogOpen}

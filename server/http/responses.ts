@@ -30,8 +30,9 @@ export const errorResult = (message: string, status: number = STATUS_CODES.INTER
 
 export const serializeError = (error: any, { production = process.env.NODE_ENV === "production" } = {}) => {
   const status = Number(error?.statusCode || error?.status || STATUS_CODES.INTERNAL_SERVER_ERROR);
+  const expose = typeof error?.expose === "boolean" ? error.expose : status < STATUS_CODES.INTERNAL_SERVER_ERROR;
   const message =
-    production && status >= STATUS_CODES.INTERNAL_SERVER_ERROR
+    production && status >= STATUS_CODES.INTERNAL_SERVER_ERROR && !expose
       ? "Internal server error"
       : error?.message || "Unexpected error";
 

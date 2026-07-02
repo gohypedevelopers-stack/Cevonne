@@ -13,6 +13,7 @@ const requestSchema = z.object({
   asset_type: z.string().trim().min(1),
   asset_title: z.string().trim().min(1),
   content_text: z.string().trim().min(1),
+  hook_angle: z.string().trim().min(1).nullable().optional(),
   media_url: z.string().trim().min(1),
   storage_url: z.string().trim().min(1),
   g4_review_id: z.string().trim().min(1),

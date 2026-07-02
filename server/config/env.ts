@@ -12,13 +12,23 @@ const normalizeDatabaseUrl = (value: string | undefined) => {
       return raw;
     }
 
-    if (parsed.searchParams.get("uselibpqcompat") === "true") {
-      return parsed.toString();
-    }
+    const hostname = parsed.hostname.toLowerCase();
+    const isNeonPoolerHost = hostname.endsWith(".neon.tech") && hostname.includes("-pooler.");
+    if (isNeonPoolerHost) {
+      const existingOptions = parsed.searchParams.get("options")?.trim();
 
-    const sslMode = parsed.searchParams.get("sslmode")?.toLowerCase();
-    if (sslMode && ["prefer", "require", "verify-ca"].includes(sslMode)) {
-      parsed.searchParams.set("sslmode", "verify-full");
+      if (existingOptions) {
+        const cleanedOptions = existingOptions
+          .split(/\s+/)
+          .filter((token) => token && !/^project=/i.test(token) && !/^endpoint=/i.test(token))
+          .join(" ");
+
+        if (cleanedOptions) {
+          parsed.searchParams.set("options", cleanedOptions);
+        } else {
+          parsed.searchParams.delete("options");
+        }
+      }
     }
 
     return parsed.toString();
@@ -81,7 +91,6 @@ export const env = Object.freeze({
   databaseUrl: normalizeDatabaseUrl(
     process.env.DATABASE_URL ||
       process.env.POSTGRES_PRISMA_URL ||
-      process.env.POSTGRES_URL_NON_POOLING ||
       process.env.POSTGRES_URL ||
       process.env.NEON_DATABASE_URL ||
       ""
