@@ -30,7 +30,7 @@ export async function POST(request: Request) {
   }
 
   const result = await postN8nWebhook({
-    path: env.n8nG4ContentCheckPath,
+    path: env.n8nG4ContentUserActionPath,
     payload: (body ?? {}) as Record<string, unknown>,
   });
 

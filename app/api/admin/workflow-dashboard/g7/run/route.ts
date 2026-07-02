@@ -1,7 +1,9 @@
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-import { runG7OfferProof } from "@/server/next/api/g7-offer-safety-adapter";
+import { buildG7OfferProofPayload, buildG7SubmissionMessage } from "@/lib/admin/g7-dashboard-summary";
+import { postN8nWebhook } from "@/lib/n8n-client";
+import { env } from "@/server/config";
 import { getAuthUser, invalidJsonResponse, jsonResponse, methodNotAllowed, readJsonBody } from "@/server/next/route-utils";
 
 const unauthorizedResponse = () => jsonResponse({ message: "Unauthorized" }, 401);
@@ -17,15 +19,6 @@ const pickText = (value: unknown) => {
 
   const text = value.trim();
   return text ? text : null;
-};
-
-const isValidHttpUrl = (value: string) => {
-  try {
-    const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:";
-  } catch {
-    return false;
-  }
 };
 
 export async function POST(request: Request) {
@@ -47,48 +40,57 @@ export async function POST(request: Request) {
     return invalidJsonResponse();
   }
 
-  const productOrSku = pickText(body?.product_or_sku);
-  const offerCode = pickText(body?.offer_code);
-  const offerUrl = pickText(body?.offer_url);
-  const urgencyClaimText = pickText(body?.urgency_claim_text);
-  const actor = pickText(body?.actor);
+  const sku = pickText(body?.sku);
+  const urgencyClaim = pickText(body?.urgency_claim);
+  const discountCode = pickText(body?.discount_code);
+  const intendedUse = pickText(body?.intended_use) ?? "ORGANIC_POST";
+  const requestedByWorkflow = pickText(body?.requested_by_workflow) ?? "G4";
+  const actor = pickText(body?.actor) ?? "admin_ui";
 
-  if (!productOrSku || !offerCode || !offerUrl || !urgencyClaimText || !actor) {
+  if (!sku) {
     return jsonResponse(
       {
         status: "ERROR",
-        message: "Please fill in every required field before checking offer proof.",
-      },
-      400,
-    );
-  }
-
-  if (!isValidHttpUrl(offerUrl)) {
-    return jsonResponse(
-      {
-        status: "ERROR",
-        message: "Please enter a valid offer URL.",
+        message: "Please add a SKU before checking offer proof.",
       },
       400,
     );
   }
 
   try {
-    const result = await runG7OfferProof({
-      product_or_sku: productOrSku,
-      offer_code: offerCode,
-      offer_url: offerUrl,
-      urgency_claim_text: urgencyClaimText,
-      actor,
-      requested_by: auth.email ?? auth.name ?? auth.id,
+    const result = await postN8nWebhook({
+      url: env.n8nG7OfferProofUrl || undefined,
+      payload: buildG7OfferProofPayload({
+        sku,
+        urgency_claim: urgencyClaim,
+        discount_code: discountCode,
+        intended_use: intendedUse,
+        requested_by_workflow: requestedByWorkflow,
+        actor,
+      }),
     });
+
+    const status = result.status === "PASS" || result.status === "BLOCK" || result.status === "NEEDS_EVIDENCE" ? result.status : "ERROR";
+    if (status === "ERROR") {
+      return jsonResponse(
+        {
+          status: "ERROR",
+          message: "Offer proof check failed. No claim was approved.",
+        },
+        502,
+      );
+    }
 
     return jsonResponse(
       {
-        status: result.status,
-        message: result.message,
-        handled_at: result.handled_at,
-        detail: result.detail,
+        status,
+        message: buildG7SubmissionMessage({
+          status,
+          failReason: result.fail_reason,
+          failureReasons: result.failure_reasons,
+          message: result.message,
+        }),
+        handled_at: result.handled_at ?? new Date().toISOString(),
       },
       200,
     );
@@ -96,9 +98,9 @@ export async function POST(request: Request) {
     return jsonResponse(
       {
         status: "ERROR",
-        message: "Unable to check offer proof right now.",
+        message: "Offer proof check failed. No claim was approved.",
       },
-      500,
+      502,
     );
   }
 }

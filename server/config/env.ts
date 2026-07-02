@@ -139,6 +139,7 @@ export const env = Object.freeze({
   n8nG2AccountHealthUpdatePath: process.env.N8N_G2_ACCOUNT_HEALTH_UPDATE_PATH || "g2-account-health-update",
   n8nG2OfficialEvidencePath: process.env.N8N_G2_OFFICIAL_EVIDENCE_PATH || "g2-official-evidence",
   n8nG4ContentCheckPath: resolveG4ContentCheckPath(),
+  n8nG4ContentUserActionPath: process.env.N8N_G4_CONTENT_USER_ACTION_PATH || "g4-content-user-action",
   n8nG5PublishingSchedulerPath: process.env.N8N_G5_PUBLISHING_SCHEDULER_PATH || "g5-publishing-scheduler",
   n8nG5AssetRegisterPath: process.env.N8N_G5_ASSET_REGISTER_PATH || "g5-asset-register",
   n8nG5PublishingActionPath: process.env.N8N_G5_PUBLISHING_ACTION_PATH || "g5-publishing-action",

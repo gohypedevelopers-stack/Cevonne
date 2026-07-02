@@ -60,6 +60,9 @@ export type G4LatestOutcome = {
   result: G4ClientStatus;
   reviewId: string | null;
   assetId: string | null;
+  sourceId: string | null;
+  sourcePlatform: string | null;
+  sourceEvent: string | null;
   platform: string | null;
   approvalState: string | null;
   summary: string;
@@ -74,6 +77,9 @@ export type G4RecentOutcome = {
   result: G4ClientStatus;
   reviewId: string | null;
   assetId: string | null;
+  sourceId: string | null;
+  sourcePlatform: string | null;
+  sourceEvent: string | null;
   platform: string | null;
   approvalState: string | null;
   contentPreview: G4ContentPreview;
@@ -223,29 +229,7 @@ export const normalizeG4Timestamp = (value: unknown): string | null => {
   return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
 };
 
-const normalizeStatusValue = (value: unknown) => {
-  const primitive = normalizePrimitiveText(value);
-  return primitive ? primitive.toUpperCase() : "";
-};
-
-const normalizePreviewValue = (value: unknown) => {
-  if (typeof value === "string") {
-    const trimmed = value.trim();
-    return trimmed || null;
-  }
-
-  if (typeof value === "number" && Number.isFinite(value)) {
-    return String(value);
-  }
-
-  if (typeof value === "boolean") {
-    return value ? "true" : "false";
-  }
-
-  return null;
-};
-
-const asPreviewRecord = (value: unknown) => {
+const asRecord = (value: unknown): Record<string, unknown> | null => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return null;
   }
@@ -253,12 +237,13 @@ const asPreviewRecord = (value: unknown) => {
   return value as Record<string, unknown>;
 };
 
-const readPreviewField = (payload: Record<string, unknown> | null, nestedPayload: Record<string, unknown> | null, key: string) =>
-  normalizePreviewValue(payload?.[key]) ?? normalizePreviewValue(nestedPayload?.[key]) ?? null;
+const readRecordText = (record: Record<string, unknown> | null | undefined, keys: string[]) => {
+  if (!record) {
+    return null;
+  }
 
-const readPreviewFieldFromKeys = (payload: Record<string, unknown> | null, nestedPayload: Record<string, unknown> | null, keys: string[]) => {
   for (const key of keys) {
-    const value = readPreviewField(payload, nestedPayload, key);
+    const value = normalizePrimitiveText(record[key]);
     if (value) {
       return value;
     }
@@ -267,31 +252,146 @@ const readPreviewFieldFromKeys = (payload: Record<string, unknown> | null, neste
   return null;
 };
 
-export const extractG4ContentPreview = (row?: Pick<G4ContentReviewRecord, "raw_payload"> | null): G4ContentPreview => {
-  const payload = asPreviewRecord(row?.raw_payload);
-  const nestedPayload = asPreviewRecord(payload?.raw_payload);
+const readRecordTextFromRecords = (records: Array<Record<string, unknown> | null | undefined>, keys: string[]) => {
+  for (const record of records) {
+    const value = readRecordText(record, keys);
+    if (value) {
+      return value;
+    }
+  }
+
+  return null;
+};
+
+const normalizeBlobKey = (value: string) => value.trim().toLowerCase().replace(/[^a-z0-9]+/g, "");
+
+const parseKeyValueBlob = (value: string | null | undefined) => {
+  if (!value) {
+    return null;
+  }
+
+  const entries = new Map<string, string>();
+  let activeKey: string | null = null;
+
+  for (const rawLine of value.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) {
+      continue;
+    }
+
+    const match = line.match(/^([^:]{1,80}):\s*(.*)$/);
+    if (match) {
+      activeKey = normalizeBlobKey(match[1]);
+      entries.set(activeKey, match[2].trim());
+      continue;
+    }
+
+    if (activeKey) {
+      entries.set(activeKey, `${entries.get(activeKey) ?? ""} ${line}`.trim());
+    }
+  }
+
+  return entries.size ? entries : null;
+};
+
+const readBlobField = (blob: Map<string, string> | null, keys: string[]) => {
+  if (!blob) {
+    return null;
+  }
+
+  for (const key of keys) {
+    const value = blob.get(normalizeBlobKey(key));
+    if (value) {
+      return value;
+    }
+  }
+
+  return null;
+};
+
+const readRawPayloadText = (row: unknown, keys: string[]) => {
+  const source = asRecord(row);
+  const payload = asRecord(source?.raw_payload);
+  const nestedPayload = asRecord(payload?.raw_payload);
+  return readRecordTextFromRecords([source, payload, nestedPayload], keys);
+};
+
+export const getG4ReviewSourceIds = (
+  row?: Pick<G4ContentReviewRecord, "raw_payload" | "asset_id" | "review_id" | "content_review_id"> | null,
+) => {
+  const sourceIds = [
+    readRawPayloadText(row, ["source_trend_id", "sourceTrendId"]),
+    readRawPayloadText(row, ["idempotency_key", "idempotencyKey"]),
+    readRawPayloadText(row, ["insight_id", "insightId", "source_insight_id", "sourceInsightId"]),
+    readRawPayloadText(row, ["fetch_run_id", "fetchRunId"]),
+    readRawPayloadText(row, ["asset_id", "assetId"]),
+    normalizePrimitiveText(row?.asset_id),
+    normalizePrimitiveText(row?.review_id),
+    normalizePrimitiveText(row?.content_review_id),
+  ];
+
+  return [...new Set(sourceIds.filter((value): value is string => Boolean(value && value.trim())))];
+};
+
+export const getG4ReviewSourceId = (
+  row?: Pick<G4ContentReviewRecord, "raw_payload" | "asset_id" | "review_id" | "content_review_id"> | null,
+) => getG4ReviewSourceIds(row)[0] ?? null;
+
+const normalizeStatusValue = (value: unknown) => {
+  const primitive = normalizePrimitiveText(value);
+  return primitive ? primitive.toUpperCase() : "";
+};
+
+export const extractG4ContentPreview = (row?: unknown): G4ContentPreview => {
+  const source = asRecord(row);
+  const payload = asRecord(source?.raw_payload);
+  const nestedPayload = asRecord(payload?.raw_payload);
+
+  const originalPost = asRecord(source?.original_post) ?? asRecord(source?.originalPost) ?? asRecord(payload?.original_post) ?? asRecord(payload?.originalPost) ?? asRecord(nestedPayload?.original_post) ?? asRecord(nestedPayload?.originalPost);
+  const originalPostDataRecord =
+    asRecord(source?.original_post_data) ??
+    asRecord(source?.originalPostData) ??
+    asRecord(payload?.original_post_data) ??
+    asRecord(payload?.originalPostData) ??
+    asRecord(nestedPayload?.original_post_data) ??
+    asRecord(nestedPayload?.originalPostData);
+  const originalPostDataText = readRecordTextFromRecords([source, payload, nestedPayload], ["original_post_data", "originalPostData"]);
+  const originalPostDataBlob = parseKeyValueBlob(originalPostDataText);
+
+  const readGeneralField = (keys: string[]) =>
+    readRecordTextFromRecords([source, payload, nestedPayload], keys) ?? readBlobField(originalPostDataBlob, keys);
+
+  const readOriginalPostField = (keys: string[]) =>
+    readRecordTextFromRecords([originalPost, originalPostDataRecord, source, payload, nestedPayload], keys) ??
+    readBlobField(originalPostDataBlob, keys);
 
   return {
-    headline: readPreviewField(payload, nestedPayload, "headline"),
-    contentText: readPreviewField(payload, nestedPayload, "content_text"),
-    captionPreview: readPreviewFieldFromKeys(payload, nestedPayload, ["caption_preview", "captionPreview", "caption"]),
-    ctaText: readPreviewField(payload, nestedPayload, "cta_text"),
-    landingPageUrl: readPreviewField(payload, nestedPayload, "landing_page_url"),
-    pageText: readPreviewField(payload, nestedPayload, "page_text"),
-    productName: readPreviewField(payload, nestedPayload, "product_name"),
-    profileUsername: readPreviewFieldFromKeys(payload, nestedPayload, ["profile_username", "profileUsername", "username", "handle"]),
-    audioSound: readPreviewFieldFromKeys(payload, nestedPayload, ["audio_sound", "audioSound", "sound", "music"]),
-    views: readPreviewFieldFromKeys(payload, nestedPayload, ["views"]),
-    likes: readPreviewFieldFromKeys(payload, nestedPayload, ["likes"]),
-    comments: readPreviewFieldFromKeys(payload, nestedPayload, ["comments_count", "commentsCount", "comments"]),
-    shares: readPreviewFieldFromKeys(payload, nestedPayload, ["shares"]),
-    trendStrength: readPreviewFieldFromKeys(payload, nestedPayload, ["trend_strength", "trendStrength"]),
-    brandFitScore: readPreviewFieldFromKeys(payload, nestedPayload, ["brand_fit_score", "brandFitScore"]),
-    riskScore: readPreviewFieldFromKeys(payload, nestedPayload, ["risk_score", "riskScore"]),
-    cleanSummary: readPreviewField(payload, nestedPayload, "clean_summary"),
-    contentRecommendation: readPreviewField(payload, nestedPayload, "content_recommendation"),
-    hookAngle: readPreviewField(payload, nestedPayload, "hook_angle"),
-    sourceUrl: readPreviewField(payload, nestedPayload, "source_url"),
+    headline: readGeneralField(["headline", "title", "name", "display_title"]),
+    contentText:
+      readGeneralField(["content_text", "contentText", "content", "body", "message"]) ??
+      readOriginalPostField(["caption", "caption_text", "captionText"]),
+    captionPreview:
+      readOriginalPostField(["caption", "caption_text", "captionText", "caption_preview", "captionPreview"]) ??
+      readGeneralField(["caption_preview", "captionPreview", "caption"]),
+    ctaText: readGeneralField(["cta_text", "ctaText", "cta", "call_to_action", "callToAction"]),
+    landingPageUrl: readGeneralField(["landing_page_url", "landingPageUrl", "landing_url", "landingUrl", "page_url", "pageUrl"]),
+    pageText: readGeneralField(["page_text", "pageText", "landing_page_text", "landingPageText"]),
+    productName: readGeneralField(["product_name", "productName", "product", "brand_name", "brandName", "brand"]),
+    profileUsername: readOriginalPostField(["profile_username", "profileUsername", "username", "handle", "creator_handle", "creatorHandle", "account_name", "accountName"]),
+    audioSound: readOriginalPostField(["audio_sound", "audioSound", "sound", "music", "audio"]),
+    views: readOriginalPostField(["views"]),
+    likes: readOriginalPostField(["likes"]),
+    comments: readOriginalPostField(["comments_count", "commentsCount", "comments"]),
+    shares: readOriginalPostField(["shares"]),
+    trendStrength: readGeneralField(["trend_strength", "trendStrength"]),
+    brandFitScore: readGeneralField(["brand_fit_score", "brandFitScore"]),
+    riskScore: readGeneralField(["risk_score", "riskScore"]),
+    cleanSummary: readGeneralField(["clean_summary", "cleanSummary", "safe_summary", "safeSummary"]),
+    contentRecommendation: readGeneralField(["content_recommendation", "contentRecommendation", "ai_insight", "aiInsight", "summary"]),
+    hookAngle: readOriginalPostField(["hook_angle", "hookAngle", "hook", "hook_text", "hookText"]) ?? readGeneralField(["hook_angle", "hookAngle", "hook", "hook_text", "hookText"]),
+    sourceUrl:
+      readOriginalPostField(["source_url", "sourceUrl", "content_url", "contentUrl", "profile_public_link", "profilePublicLink", "url", "post_url", "postUrl", "web_video_url", "webVideoUrl", "permalink"]) ??
+      readGeneralField(["source_url", "sourceUrl", "content_url", "contentUrl", "profile_public_link", "profilePublicLink", "url", "post_url", "postUrl", "web_video_url", "webVideoUrl", "permalink"]),
   };
 };
 

@@ -5,6 +5,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { CEVONNE_MANUAL_REVIEW_MESSAGE, CEVONNE_SAFE_RESPONSE_MESSAGE, CEVONNE_TEMPORARY_FAILURE_MESSAGE } from "@/lib/cevonne/response";
 import {
   extractG4ContentPreview,
+  getG4ReviewSourceIds,
   normalizeG4StringArray,
   normalizeG4Text,
   summarizeG4Outcome,
@@ -14,6 +15,7 @@ import { G12_SUPABASE_TABLES } from "@/server/next/api/g12-trend-fetcher-supabas
 import { buildN8nWebhookUrl } from "@/lib/n8n-client";
 import { getN8nSupabaseAdmin } from "@/lib/n8n-supabase-admin";
 import { env } from "@/server/config";
+import { getCevonneAdminApprovals } from "@/server/next/api/cevonne-admin-store";
 import { uploadFileToR2 } from "@/server/services/r2";
 
 type JsonRecord = Record<string, unknown>;
@@ -583,6 +585,68 @@ const collectTextValuesFromCandidates = (rows: JsonRecord[], keys: string[]) => 
   return [...values];
 };
 
+const G5_G4_ASSET_LINKS_TABLE = "g5_g4_asset_links" as const;
+
+const normalizeG4ApprovedContentKeyText = (value: string | null | undefined) => value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
+
+const getG4ApprovedContentCreatedAtValue = (row: JsonRecord) => {
+  const createdAt = pickDateFromCandidates(row, ["created_at", "createdAt", "updated_at", "updatedAt"]);
+  return createdAt ? Date.parse(createdAt) || 0 : 0;
+};
+
+const buildG4ApprovedContentIdentity = (row: JsonRecord) => {
+  const preview = extractG4ContentPreview(row);
+
+  const contentReviewId = pickTextFromCandidates(row, ["content_review_id", "contentReviewId"]);
+  const reviewId = pickTextFromCandidates(row, ["review_id", "reviewId"]);
+  const sourceUrl =
+    pickTextFromCandidates(row, ["source_url", "sourceUrl", "original_post_url", "originalPostUrl", "post_url", "postUrl", "permalink"]) ??
+    preview.sourceUrl;
+  const caption = normalizeG4Text(
+    preview.captionPreview ??
+      pickTextFromCandidates(row, ["caption_preview", "captionPreview", "content_text", "contentText", "caption", "caption_text", "captionText"]) ??
+      preview.contentText,
+  );
+  const platform = normalizeG4Text(pickTextFromCandidates(row, ["platform", "source_platform", "sourcePlatform"]));
+  const title = normalizeG4Text(preview.headline ?? pickTextFromCandidates(row, ["title", "headline", "name"]) ?? preview.productName);
+  const createdAt = pickDateFromCandidates(row, ["created_at", "createdAt", "updated_at", "updatedAt"]);
+  const createdDate = createdAt ? createdAt.slice(0, 10) : null;
+  const rowId = pickTextFromCandidates(row, ["id"]);
+
+  const candidateKeys = [
+    contentReviewId ? `content_review_id:${normalizeG4ApprovedContentKeyText(contentReviewId)}` : null,
+    reviewId ? `review_id:${normalizeG4ApprovedContentKeyText(reviewId)}` : null,
+    sourceUrl ? `source_url:${normalizeG4ApprovedContentKeyText(sourceUrl)}` : null,
+    caption ? `caption_platform:${normalizeG4ApprovedContentKeyText(caption)}|${normalizeG4ApprovedContentKeyText(platform)}` : null,
+    title ? `title_created:${normalizeG4ApprovedContentKeyText(title)}|${normalizeG4ApprovedContentKeyText(createdDate)}` : null,
+    rowId ? `id:${normalizeG4ApprovedContentKeyText(rowId)}` : null,
+  ].filter((value): value is string => Boolean(value));
+
+  return {
+    candidateKeys,
+    primaryKey: candidateKeys[0] ?? null,
+  };
+};
+
+const dedupeG4ApprovedContentRows = (rows: JsonRecord[]) => {
+  const uniqueRows: JsonRecord[] = [];
+  const seenKeys = new Set<string>();
+
+  for (const row of rows) {
+    const identity = buildG4ApprovedContentIdentity(row);
+    const key = identity.primaryKey;
+
+    if (!key || seenKeys.has(key)) {
+      continue;
+    }
+
+    seenKeys.add(key);
+    uniqueRows.push(row);
+  }
+
+  return uniqueRows;
+};
+
 const getG5ClientStatusInfo = (asset: Pick<
   G5DashboardAssetRecord,
   "approval_status" | "asset_status" | "manual_publish_status" | "post_url" | "published_at" | "last_manual_publish_result_id"
@@ -671,13 +735,9 @@ const isG4ReadyForG5 = (row: JsonRecord) => {
 
   return (
     status === "PASS" ||
-    status === "MANUAL_ONLY" ||
-    status === "APPROVED" ||
-    status === "READY_FOR_APPROVAL" ||
     approvalState === "PENDING_HUMAN_APPROVAL" ||
     approvalState === "READY_FOR_APPROVAL" ||
-    approvalState === "APPROVED" ||
-    approvalState === "PASS"
+    approvalState === "APPROVED"
   );
 };
 
@@ -815,7 +875,7 @@ const normalizeG4ReviewRecord = (row: JsonRecord, sourcePreview?: Partial<G4Sour
   const safeRewriteText = normalizeG4Text(row.ai_safe_rewrite);
   const hookAngleText = normalizeG4Text(preview.hookAngle);
   const hookCount = collectSelectableOptionTexts(normalizeG4StringArray(row.ai_hook_suggestions), [hookAngleText]).options.length;
-  const captionCount = collectSelectableOptionTexts(normalizeG4StringArray(row.ai_caption_suggestions), [safeRewriteText]).options.length;
+  const captionCount = collectSelectableOptionTexts(normalizeG4StringArray(row.ai_caption_suggestions), []).options.length;
   const displayTitle =
     preview.headline?.trim() ||
     preview.productName?.trim() ||
@@ -976,7 +1036,7 @@ const buildG5SelectedG4Content = (
     normalizeG4Text(reviewPreview.cleanSummary) ??
     null;
 
-  const captionSelection = collectSelectableOptionTexts(captionSuggestionTexts, [safeRewriteText], 3);
+  const captionSelection = collectSelectableOptionTexts(captionSuggestionTexts, [], 3);
   const hookSelection = collectSelectableOptionTexts(hookSuggestionTexts, [hookAngleText], 3);
   const captionOptions = buildSelectableOptions(captionSelection.options, "caption");
   const hookOptions = buildSelectableOptions(hookSelection.options, "hook");
@@ -1465,16 +1525,17 @@ export async function loadG5ApprovedContent(): Promise<G5ApprovedContentResponse
     table: "public.g4_content_reviews",
   });
 
-  const [contentAssetsResult, stateResult, publishResultsResult, dashboardViewResult, g4ReviewResult] = await Promise.all([
+  const [contentAssetsResult, stateResult, publishResultsResult, dashboardViewResult, g5G4LinkResult, g4ReviewResult] = await Promise.all([
     queryPublicRows("content_assets", 250),
     queryPublicRows("g5_asset_publish_state", 250),
     queryPublicRows("g5_manual_publish_results", 250),
     queryPublicRows("g5_manual_publish_dashboard_view", 250),
+    queryPublicRows(G5_G4_ASSET_LINKS_TABLE, 500),
     client
       .schema("public")
       .from("g4_content_reviews")
       .select("id, content_review_id, review_id, status, approval_state, created_at, platform, safe_summary, ai_safe_rewrite, ai_risk_summary, ai_caption_suggestions, ai_hook_suggestions, ai_human_review_recommendation, raw_payload")
-      .or("status.in.(PASS,MANUAL_ONLY,APPROVED),approval_state.in.(PENDING_HUMAN_APPROVAL,READY_FOR_APPROVAL,APPROVED,PASS)")
+      .or("status.eq.PASS,approval_state.in.(PENDING_HUMAN_APPROVAL,READY_FOR_APPROVAL,APPROVED)")
       .order("created_at", { ascending: false })
       .limit(250),
   ]);
@@ -1504,31 +1565,43 @@ export async function loadG5ApprovedContent(): Promise<G5ApprovedContentResponse
         ...stateResult.rows,
         ...publishResultsResult.rows,
         ...dashboardViewResult.rows,
+        ...g5G4LinkResult.rows,
       ],
       ["g4_review_id", "g4ReviewId", "g4_review_uuid", "g4ReviewUuid", "content_review_id", "contentReviewId", "review_id", "reviewId"],
-    ),
+    )
+      .map((value) => normalizeG4ApprovedContentKeyText(value))
+      .filter(Boolean),
   );
 
   const g4Rows = (Array.isArray(data) ? data : [])
     .map((row) => asRecord(row))
     .filter((row): row is JsonRecord => Boolean(row));
-  const sourcePreviewByLookupKey = await loadG4SourcePreviewMap(g4Rows);
+  const orderedG4Rows = [...g4Rows].sort((left, right) => getG4ApprovedContentCreatedAtValue(right) - getG4ApprovedContentCreatedAtValue(left));
+  const dedupedG4Rows = dedupeG4ApprovedContentRows(orderedG4Rows);
+  const registeredG4ContentKeys = new Set<string>();
 
-  const reviews = g4Rows
+  for (const row of orderedG4Rows) {
+    const identity = buildG4ApprovedContentIdentity(row);
+    if (identity.candidateKeys.some((key) => registeredG4ReviewKeys.has(key)) && identity.primaryKey) {
+      registeredG4ContentKeys.add(identity.primaryKey);
+    }
+  }
+
+  const sourcePreviewByLookupKey = await loadG4SourcePreviewMap(dedupedG4Rows);
+
+  const reviews = dedupedG4Rows
     .map((row) => {
+      const identity = buildG4ApprovedContentIdentity(row);
       const sourceLookupKey = getG4SourceLookupKey(row);
       const sourcePreview = sourceLookupKey ? sourcePreviewByLookupKey.get(sourceLookupKey) ?? null : null;
-      return normalizeG4ReviewRecord(row, sourcePreview);
-    })
-    .filter((row): row is G5ApprovedContentRecord => Boolean(row))
-    .filter((row) => isG4ReadyForG5(row))
-    .filter((row) => {
-      const candidateKeys = [row.g4_review_id, row.g4_review_uuid, row.content_review_id, row.review_id, row.id]
-        .map((value) => value?.trim() ?? "")
-        .filter(Boolean);
+      const review = normalizeG4ReviewRecord(row, sourcePreview);
 
-      return !candidateKeys.some((key) => registeredG4ReviewKeys.has(key));
+      return review ? { review, identity } : null;
     })
+    .filter((entry): entry is { review: G5ApprovedContentRecord; identity: ReturnType<typeof buildG4ApprovedContentIdentity> } => Boolean(entry))
+    .filter(({ review }) => isG4ReadyForG5(review))
+    .filter(({ identity }) => !identity.candidateKeys.some((key) => registeredG4ReviewKeys.has(key)) && !(identity.primaryKey && registeredG4ContentKeys.has(identity.primaryKey)))
+    .map(({ review }) => review)
     .sort((left, right) => {
       const rightTime = right.created_at ? Date.parse(right.created_at) : 0;
       const leftTime = left.created_at ? Date.parse(left.created_at) : 0;
@@ -1616,13 +1689,6 @@ export async function loadG5SelectedG4Content(reviewId: string): Promise<G5Selec
   const g4Rows = (Array.isArray(g4Data) ? g4Data : [])
     .map((row) => asRecord(row))
     .filter((row): row is JsonRecord => Boolean(row));
-  const sourcePreviewByLookupKey = await loadG4SourcePreviewMap(g4Rows);
-
-  console.info("[g5-asset-approval] selected G4 review query result", {
-    supabase: supabaseTarget,
-    review_id: normalizedReviewId,
-    row_count: g4Rows.length,
-  });
 
   if (!g4Rows.length) {
     return {
@@ -1634,6 +1700,14 @@ export async function loadG5SelectedG4Content(reviewId: string): Promise<G5Selec
   }
 
   const selectedG4Row = g4Rows[0];
+  const sourcePreviewByLookupKey = await loadG4SourcePreviewMap([selectedG4Row]);
+
+  console.info("[g5-asset-approval] selected G4 review query result", {
+    supabase: supabaseTarget,
+    review_id: normalizedReviewId,
+    row_count: g4Rows.length,
+  });
+
   const selectedSourceLookupKey = getG4SourceLookupKey(selectedG4Row);
   const selectedSourcePreview = selectedSourceLookupKey ? sourcePreviewByLookupKey.get(selectedSourceLookupKey) ?? null : null;
   console.info("[g5-asset-approval] selected G4 review row keys", {
@@ -1648,6 +1722,38 @@ export async function loadG5SelectedG4Content(reviewId: string): Promise<G5Selec
   });
 
   const selectedReviewKey = pickText(selectedG4Row, ["content_review_id", "review_id", "id"]) ?? normalizedReviewId;
+  const [contentAssetsResult, stateResult, publishResultsResult, dashboardViewResult, linkRowsResult] = await Promise.all([
+    queryPublicRows("content_assets", 250),
+    queryPublicRows("g5_asset_publish_state", 250),
+    queryPublicRows("g5_manual_publish_results", 250),
+    queryPublicRows("g5_manual_publish_dashboard_view", 250),
+    queryPublicRows(G5_G4_ASSET_LINKS_TABLE, 500),
+  ]);
+  const registeredG4ReviewKeys = new Set(
+    collectTextValuesFromCandidates(
+      [
+        ...contentAssetsResult.rows,
+        ...stateResult.rows,
+        ...publishResultsResult.rows,
+        ...dashboardViewResult.rows,
+        ...linkRowsResult.rows,
+      ],
+      ["g4_review_uuid", "g4ReviewUuid", "content_review_id", "contentReviewId", "review_id", "reviewId"],
+    )
+      .map((value) => normalizeG4ApprovedContentKeyText(value))
+      .filter(Boolean),
+  );
+  const selectedIdentity = buildG4ApprovedContentIdentity(selectedG4Row);
+
+  if (selectedIdentity.candidateKeys.some((key) => registeredG4ReviewKeys.has(key))) {
+    return {
+      status: "EMPTY",
+      source: "TABLE",
+      message: "This G4 content is already registered as a G5 asset.",
+      review: null,
+    };
+  }
+
   let landingRow: JsonRecord | null = null;
 
   const { data: landingData, error: landingError } = await client
@@ -1724,8 +1830,64 @@ export async function uploadG5Media(file: File) {
   };
 }
 
+const persistG5AssetLink = async (payload: G5AssetRegisterInput, response: G5WebhookResponse) => {
+  const client = getN8nSupabaseAdmin();
+  if (!client) {
+    return;
+  }
+
+  const assetId =
+    pickTextFromCandidates(response, ["asset_id", "assetId"]) ?? pickTextFromCandidates(response.raw, ["asset_id", "assetId"]);
+  const approvalId =
+    pickTextFromCandidates(response, ["approval_id", "approvalId"]) ?? pickTextFromCandidates(response.raw, ["approval_id", "approvalId"]);
+
+  if (!assetId || !approvalId) {
+    console.warn("[g5-asset-approval] skipping G4/G5 asset link insert because the webhook response was missing identifiers", {
+      asset_id: assetId,
+      approval_id: approvalId,
+      g4_review_uuid: payload.g4_review_uuid,
+    });
+    return;
+  }
+
+  const { error } = await client.schema("public").from(G5_G4_ASSET_LINKS_TABLE).insert({
+    g4_review_uuid: payload.g4_review_uuid,
+    content_review_id: payload.content_review_id,
+    review_id: payload.review_id,
+    asset_id: assetId,
+    approval_id: approvalId,
+  });
+
+  if (error) {
+    const logPayload = {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      g4_review_uuid: payload.g4_review_uuid,
+      content_review_id: payload.content_review_id,
+      review_id: payload.review_id,
+      asset_id: assetId,
+      approval_id: approvalId,
+    };
+
+    if (isMissingRelationError(error)) {
+      console.info("[g5-asset-approval] G4/G5 asset link table is not available yet", logPayload);
+      return;
+    }
+
+    console.warn("[g5-asset-approval] failed to insert G4/G5 asset link", logPayload);
+  }
+};
+
 export async function registerG5Asset(payload: G5AssetRegisterInput): Promise<G5WebhookResponse> {
-  return postG5Webhook(env.n8nG5AssetRegisterPath, payload);
+  const response = await postG5Webhook(env.n8nG5AssetRegisterPath, payload);
+
+  if (response.status !== "ERROR") {
+    await persistG5AssetLink(payload, response);
+  }
+
+  return response;
 }
 
 export async function submitG5ApprovalDecision(payload: G5ApprovalDecisionInput): Promise<G5WebhookResponse> {

@@ -1,58 +1,96 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
-import { AlertTriangle, ArrowLeft, ExternalLink, Play, RefreshCcw, Clock3 } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  CheckCircle2,
+  Clock3,
+  Loader2,
+  Play,
+  RefreshCcw,
+  ShieldCheck,
+} from "lucide-react";
 import Link from "next/link";
-import { toast } from "sonner";
 
 import WorkflowDashboardShell from "@/components/admin-dashboard/WorkflowDashboardShell";
 import { formatDateTime, formatRelativeTime } from "@/components/admin-dashboard/n8n-automations-common";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Field, FieldContent, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import {
-  getG7DiscountStatusToneClass,
-  getG7StockStatusToneClass,
-  type G7OfferProofRecord,
-  type G7WorkflowDetail,
-} from "@/lib/admin/g7-offer-safety";
-import {
-  getWorkflowStatusLabel,
-  getWorkflowStatusTone,
-  type WorkflowUiStatus,
-} from "@/lib/admin/workflows";
+  type G7DashboardSummary,
+  type G7ProofResultBadge,
+  type G7ProofView,
+  getG7ProofResultLabel,
+  getG7ProofResultToneClass,
+  getG7SubmissionDisplayResult,
+} from "@/lib/admin/g7-dashboard-summary";
 
-type G7WorkflowDetailResponse = G7WorkflowDetail;
+type G7DashboardResponse = G7DashboardSummary;
 
-type G7WorkflowRunResponse = {
-  status: WorkflowUiStatus;
+type G7RunResponse = {
+  status: "PASS" | "BLOCK" | "NEEDS_EVIDENCE" | "ERROR";
   message: string;
   handled_at: string;
-  detail: G7WorkflowDetail;
-};
-
-type G7ProofFormState = {
-  product_or_sku: string;
-  offer_code: string;
-  offer_url: string;
-  urgency_claim_text: string;
-  actor: string;
 };
 
 type RequestOptions = RequestInit & { silent?: boolean };
+
+type G7IntendedUse = "ORGANIC_POST" | "LANDING_PAGE" | "AD_COPY" | "SOCIAL_POST" | "OTHER";
+type G7RequestedByWorkflow = "G4" | "G5" | "G6" | "G7" | "G12";
+
+type G7ProofFormState = {
+  sku: string;
+  urgencyClaim: string;
+  discountCode: string;
+  intendedUse: G7IntendedUse;
+  requestedByWorkflow: G7RequestedByWorkflow;
+  actor: string;
+};
+
+type SubmissionFeedback = {
+  status: G7RunResponse["status"];
+  message: string;
+  handledAt: string | null;
+};
+
+const G7_DASHBOARD_ROUTE = "/api/admin/workflow-dashboard/g7";
+const G7_RUN_ROUTE = "/api/admin/workflow-dashboard/g7/run";
+
+const DEFAULT_FORM: G7ProofFormState = {
+  sku: "",
+  urgencyClaim: "",
+  discountCode: "",
+  intendedUse: "ORGANIC_POST",
+  requestedByWorkflow: "G4",
+  actor: "admin_ui",
+};
+
+const INTENDED_USE_OPTIONS: Array<{ label: string; value: G7IntendedUse }> = [
+  { label: "Organic post", value: "ORGANIC_POST" },
+  { label: "Landing page", value: "LANDING_PAGE" },
+  { label: "Ad copy", value: "AD_COPY" },
+  { label: "Social post", value: "SOCIAL_POST" },
+  { label: "Other", value: "OTHER" },
+];
+
+const REQUESTED_BY_WORKFLOW_OPTIONS: Array<{ label: string; value: G7RequestedByWorkflow }> = [
+  { label: "G4", value: "G4" },
+  { label: "G5", value: "G5" },
+  { label: "G6", value: "G6" },
+  { label: "G7", value: "G7" },
+  { label: "G12", value: "G12" },
+];
 
 const buildRouteUrl = (path: string) => new URL(path.startsWith("/") ? path : `/${path}`, window.location.origin).toString();
 
@@ -71,24 +109,15 @@ const parseJsonResponse = async <T,>(response: Response): Promise<T | null> => {
   }
 };
 
-const isValidHttpUrl = (value: string) => {
-  try {
-    const url = new URL(value);
-    return url.protocol === "http:" || url.protocol === "https:";
-  } catch {
-    return false;
+const formatLastCheckedLabel = (value?: string | null) => {
+  if (!value) {
+    return "Not run yet";
   }
+
+  return formatDateTime(value);
 };
 
-const buildEmptyForm = (actor: string): G7ProofFormState => ({
-  product_or_sku: "",
-  offer_code: "",
-  offer_url: "",
-  urgency_claim_text: "",
-  actor,
-});
-
-const formatCheckedTime = (value?: string | null) => {
+const formatRowTimeLabel = (value?: string | null) => {
   if (!value) {
     return "Not run yet";
   }
@@ -96,78 +125,44 @@ const formatCheckedTime = (value?: string | null) => {
   return `${formatDateTime(value)} · ${formatRelativeTime(value)}`;
 };
 
-const formatProductLabel = (proof: G7OfferProofRecord) => {
-  const pieces = [proof.productId, proof.sku].filter((value): value is string => Boolean(value && value.trim()));
-  const uniquePieces = [...new Set(pieces.map((value) => value.trim()))];
-  if (uniquePieces.length > 0) {
-    return uniquePieces.join(" · ");
+const formatDisplayValue = (value: string | number | null | undefined) => {
+  if (value === null || value === undefined) {
+    return "Not available";
   }
 
-  return proof.productOrSku || "Unknown product";
+  const text = String(value).trim();
+  return text || "Not available";
 };
 
-const formatOfferUrlLabel = (value: string | null) => {
-  if (!value) {
-    return "Not set";
-  }
+const isActionIssueListVisible = (issues: string[]) => issues.length > 0;
 
-  try {
-    const url = new URL(value);
-    const path = url.pathname.replace(/\/+$/, "");
-    return `${url.host}${path}` || value;
-  } catch {
-    return value;
-  }
-};
+const getSummaryResultTone = (result: G7ProofResultBadge) => getG7ProofResultToneClass(result);
 
-function LoadingState() {
+const getSummaryResultLabel = (result: G7ProofResultBadge) => getG7ProofResultLabel(result);
+
+function SummaryCard({
+  label,
+  value,
+  helper,
+  valueClassName,
+}: {
+  label: string;
+  value: ReactNode;
+  helper?: string | null;
+  valueClassName?: string;
+}) {
   return (
-    <>
-      <Card className="rounded-[28px] border-border/60 bg-white shadow-sm">
-        <CardContent className="space-y-4 p-6 md:p-8">
-          <div className="h-5 w-44 animate-pulse rounded-full bg-muted/70" />
-          <div className="h-10 w-3/4 animate-pulse rounded-2xl bg-muted/60" />
-          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {Array.from({ length: 9 }).map((_, index) => (
-              <div key={`g7-latest-skeleton-${index}`} className="h-24 animate-pulse rounded-2xl border border-border/50 bg-muted/40" />
-            ))}
-          </div>
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-        <Card className="rounded-[28px] border-border/60 bg-white shadow-sm">
-          <CardContent className="space-y-4 p-6 md:p-8">
-            <div className="h-5 w-36 animate-pulse rounded-full bg-muted/70" />
-            <div className="h-28 animate-pulse rounded-2xl border border-border/50 bg-muted/40" />
-            <div className="h-10 w-44 animate-pulse rounded-full bg-muted/60" />
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-[28px] border-border/60 bg-white shadow-sm">
-          <CardContent className="space-y-4 p-6 md:p-8">
-            <div className="h-5 w-40 animate-pulse rounded-full bg-muted/70" />
-            <div className="space-y-3">
-              {Array.from({ length: 3 }).map((_, index) => (
-                <div key={`g7-action-skeleton-${index}`} className="h-14 animate-pulse rounded-2xl border border-border/50 bg-muted/40" />
-              ))}
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card className="rounded-[28px] border-border/60 bg-white shadow-sm">
-        <CardContent className="space-y-3 p-4 md:p-6">
-          {Array.from({ length: 4 }).map((_, index) => (
-            <div key={`g7-table-skeleton-${index}`} className="h-14 animate-pulse rounded-2xl bg-muted/40" />
-          ))}
-        </CardContent>
-      </Card>
-    </>
+    <Card className="rounded-[24px] border-border/60 bg-white shadow-sm">
+      <CardContent className="space-y-2 p-4">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">{label}</p>
+        <div className={cn("text-xl font-semibold tracking-tight text-foreground", valueClassName)}>{value}</div>
+        {helper ? <p className="text-xs leading-5 text-muted-foreground">{helper}</p> : null}
+      </CardContent>
+    </Card>
   );
 }
 
-function DetailField({
+function ProofField({
   label,
   value,
   helper,
@@ -175,7 +170,7 @@ function DetailField({
 }: {
   label: string;
   value: ReactNode;
-  helper?: string;
+  helper?: string | null;
   className?: string;
 }) {
   return (
@@ -187,31 +182,128 @@ function DetailField({
   );
 }
 
-export default function G7OfferSafetyPage() {
-  const { authFetch, user } = useAuth();
-  const request = authFetch ?? defaultRequest;
-  const defaultActor = user?.email ?? user?.name ?? "admin";
+function LoadingState() {
+  return (
+    <>
+      <Card className="rounded-[28px] border-border/60 bg-white shadow-sm">
+        <CardContent className="space-y-4 p-6 md:p-8">
+          <Skeleton className="h-5 w-44 rounded-full" />
+          <Skeleton className="h-10 w-3/5 rounded-[20px]" />
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <Skeleton key={`g7-summary-skeleton-${index}`} className="h-24 rounded-[22px]" />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
 
-  const [detail, setDetail] = useState<G7WorkflowDetail | null>(null);
+      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+        <Card className="rounded-[28px] border-border/60 bg-white shadow-sm">
+          <CardContent className="space-y-4 p-6 md:p-8">
+            <Skeleton className="h-5 w-40 rounded-full" />
+            <Skeleton className="h-28 rounded-[22px]" />
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {Array.from({ length: 6 }).map((_, index) => (
+                <Skeleton key={`g7-proof-skeleton-${index}`} className="h-20 rounded-[22px]" />
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="rounded-[28px] border-border/60 bg-white shadow-sm">
+          <CardContent className="space-y-4 p-6 md:p-8">
+            <Skeleton className="h-5 w-36 rounded-full" />
+            <Skeleton className="h-24 rounded-[22px]" />
+            <Skeleton className="h-11 w-48 rounded-full" />
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="rounded-[28px] border-border/60 bg-white shadow-sm">
+        <CardContent className="space-y-3 p-4 md:p-6">
+          {Array.from({ length: 4 }).map((_, index) => (
+            <Skeleton key={`g7-table-skeleton-${index}`} className="h-14 rounded-[18px]" />
+          ))}
+        </CardContent>
+      </Card>
+    </>
+  );
+}
+
+function ResultCallout({
+  proof,
+  className,
+}: {
+  proof: G7ProofView;
+  className?: string;
+}) {
+  const toneClass =
+    proof.displayResult === "PASS"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+      : proof.displayResult === "NEEDS_EVIDENCE"
+        ? "border-amber-200 bg-amber-50 text-amber-950"
+        : "border-rose-200 bg-rose-50 text-rose-950";
+
+  const icon = proof.rawResult === "PASS" ? <ShieldCheck /> : <AlertTriangle />;
+
+  return (
+    <Alert variant="default" className={cn("rounded-[22px] border p-4 shadow-sm", toneClass, className)}>
+      {icon}
+      <AlertTitle className="text-sm font-semibold tracking-tight text-foreground">{proof.clientSummary}</AlertTitle>
+      <AlertDescription className="space-y-2 text-sm leading-6 text-muted-foreground">
+        <p className="text-foreground">{proof.actionNeeded}</p>
+        {isActionIssueListVisible(proof.otherProofIssues) ? (
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Other proof issues</p>
+            <ul className="ml-4 list-disc space-y-1">
+              {proof.otherProofIssues.map((issue) => (
+                <li key={issue}>{issue}</li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+function EmptyStateCard({ message }: { message: string }) {
+  return (
+    <Card className="rounded-[28px] border-border/60 bg-white shadow-sm">
+      <CardContent className="p-6 md:p-8">
+        <div className="rounded-[22px] border border-dashed border-border/70 bg-muted/10 px-4 py-5 text-sm leading-6 text-muted-foreground">
+          {message}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function getProofActionButtonLabel(submitting: boolean) {
+  return submitting ? "Checking..." : "Check Offer Proof";
+}
+
+function getSubmissionDisplayTone(status: SubmissionFeedback["status"], message: string) {
+  const displayResult = getG7SubmissionDisplayResult(status, message);
+  return displayResult === "PASS" ? "PASS" : displayResult === "NEEDS_EVIDENCE" ? "NEEDS_EVIDENCE" : "BLOCK";
+}
+
+export default function G7OfferSafetyPage() {
+  const { authFetch } = useAuth();
+  const request = authFetch ?? defaultRequest;
+
+  const [dashboard, setDashboard] = useState<G7DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [runOpen, setRunOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
-  const [form, setForm] = useState<G7ProofFormState>(() => buildEmptyForm(defaultActor));
+  const [submissionFeedback, setSubmissionFeedback] = useState<SubmissionFeedback | null>(null);
+  const [form, setForm] = useState<G7ProofFormState>(DEFAULT_FORM);
   const hasLoadedRef = useRef(false);
 
-  useEffect(() => {
-    if (!runOpen) {
-      return;
-    }
-
-    setForm(buildEmptyForm(defaultActor));
-    setFormError(null);
-  }, [defaultActor, runOpen]);
-
-  const loadDetail = useCallback(
+  const loadDashboard = useCallback(
     async ({ silent = false }: { silent?: boolean } = {}) => {
       if (hasLoadedRef.current) {
         setRefreshing(true);
@@ -220,30 +312,27 @@ export default function G7OfferSafetyPage() {
       }
 
       if (!silent) {
-        setLoadError(null);
+        setError(null);
       }
 
       try {
-        const response = await request(buildRouteUrl("/api/admin/workflow-dashboard/g7"), {
+        const response = await request(buildRouteUrl(G7_DASHBOARD_ROUTE), {
           cache: "no-store",
           silent: true,
         });
 
-        const body = await parseJsonResponse<G7WorkflowDetailResponse>(response);
+        const body = await parseJsonResponse<G7DashboardResponse>(response);
         if (!response.ok || !body) {
-          throw new Error("Unable to load offer checks right now.");
+          throw new Error("G7 data could not be loaded. Check the n8n connection.");
         }
 
-        setDetail(body);
+        setDashboard(body);
         hasLoadedRef.current = true;
-        setLoadError(null);
+        setError(null);
         return body;
       } catch {
-        const message = "Unable to load offer checks right now.";
-        setLoadError(message);
-        if (!silent) {
-          toast.error(message);
-        }
+        const message = "G7 data could not be loaded. Check the n8n connection.";
+        setError(message);
         return null;
       } finally {
         setLoading(false);
@@ -254,117 +343,108 @@ export default function G7OfferSafetyPage() {
   );
 
   useEffect(() => {
-    void loadDetail({ silent: true });
-  }, [loadDetail]);
+    void loadDashboard({ silent: true });
+  }, [loadDashboard]);
 
-  const latestProof = detail?.latestProof ?? null;
-  const workflowStatus: WorkflowUiStatus = latestProof?.result ?? (detail?.status === "EMPTY" ? "NOT_RUN_YET" : detail?.workflow.status ?? "NOT_RUN_YET");
-  const headerStatusLabel = detail ? (detail.status === "EMPTY" ? "Not run yet" : getWorkflowStatusLabel(workflowStatus)) : "Loading";
-  const headerStatusTone = detail ? getWorkflowStatusTone(workflowStatus) : "border-slate-200 bg-slate-100 text-slate-700";
-  const headerTimeLabel = detail ? formatCheckedTime(latestProof?.checkedAt ?? detail.lastRunAt) : "Loading offer checks";
-  const hasRecords = Boolean(detail?.recentChecks.length);
-
-  const openRunDialog = () => {
-    if (!detail || loading || submitting) {
+  useEffect(() => {
+    if (!runOpen) {
       return;
     }
 
-    setForm(buildEmptyForm(defaultActor));
+    setForm(DEFAULT_FORM);
     setFormError(null);
+    setSubmissionFeedback(null);
+  }, [runOpen]);
+
+  const hasRecentChecks = Boolean(dashboard?.recentOfferChecks.length);
+  const latestProof = hasRecentChecks ? dashboard?.latestOfferProof ?? dashboard?.recentOfferChecks[0] ?? null : null;
+  const latestResult = latestProof?.rawResult ?? "NOT_RUN";
+  const latestResultBadgeTone = getSummaryResultTone(latestResult);
+  const latestCheckedLabel = formatLastCheckedLabel(
+    hasRecentChecks ? latestProof?.checkedAt ?? dashboard?.counts.latestCheckedAt ?? dashboard?.checkedAt ?? null : null,
+  );
+
+  const openRunDialog = () => {
+    if (!dashboard || loading || refreshing || submitting) {
+      return;
+    }
+
     setRunOpen(true);
   };
 
   const handleRunSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
 
-    if (!detail) {
-      return;
-    }
-
-    const productOrSku = form.product_or_sku.trim();
-    const offerCode = form.offer_code.trim();
-    const offerUrl = form.offer_url.trim();
-    const urgencyClaimText = form.urgency_claim_text.trim();
-    const actor = form.actor.trim();
-
-    if (!productOrSku || !offerCode || !offerUrl || !urgencyClaimText || !actor) {
-      setFormError("Please fill in every required field before checking offer proof.");
-      return;
-    }
-
-    if (!isValidHttpUrl(offerUrl)) {
-      setFormError("Please enter a valid offer URL.");
+    const sku = form.sku.trim();
+    if (!sku) {
+      setFormError("Please add a SKU before checking offer proof.");
       return;
     }
 
     setSubmitting(true);
     setFormError(null);
+    setSubmissionFeedback(null);
 
     try {
-      const response = await request(buildRouteUrl("/api/admin/workflow-dashboard/g7/run"), {
+      const response = await request(buildRouteUrl(G7_RUN_ROUTE), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          product_or_sku: productOrSku,
-          offer_code: offerCode,
-          offer_url: offerUrl,
-          urgency_claim_text: urgencyClaimText,
-          actor,
+          sku,
+          urgency_claim: form.urgencyClaim.trim() || null,
+          discount_code: form.discountCode.trim() || null,
+          intended_use: form.intendedUse,
+          requested_by_workflow: form.requestedByWorkflow,
+          actor: form.actor.trim() || "admin_ui",
         }),
         cache: "no-store",
         silent: true,
       });
 
-      const body = await parseJsonResponse<G7WorkflowRunResponse>(response);
+      const body = await parseJsonResponse<G7RunResponse>(response);
       if (!response.ok || !body) {
-        throw new Error("Unable to check offer proof right now.");
+        throw new Error("Offer proof check failed. No claim was approved.");
       }
 
-      if (body.detail) {
-        setDetail(body.detail);
-        hasLoadedRef.current = true;
+      if (body.status === "ERROR") {
+        throw new Error(body.message || "Offer proof check failed. No claim was approved.");
       }
 
-      if (body.status === "PASS") {
-        toast.success(body.message || "Offer proof checked.");
-      } else if (body.status === "BLOCK") {
-        toast.error(body.message || "Offer proof was blocked.");
-      } else if (body.status === "NEEDS_EVIDENCE") {
-        toast.info(body.message || "More proof is required.");
-      } else {
-        toast.error(body.message || "Unable to check offer proof right now.");
-      }
+      setSubmissionFeedback({
+        status: body.status,
+        message: body.message,
+        handledAt: body.handled_at ?? null,
+      });
 
-      setRunOpen(false);
-      await loadDetail({ silent: true });
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to check offer proof right now.";
+      await loadDashboard({ silent: true });
+    } catch (submitError) {
+      const message = submitError instanceof Error ? submitError.message : "Offer proof check failed. No claim was approved.";
       setFormError(message);
-      toast.error(message);
+      setSubmissionFeedback(null);
     } finally {
       setSubmitting(false);
     }
   };
 
-  const headerBadges = loading && !detail ? (
+  const headerBadges = loading && !dashboard ? (
     <>
       <Badge variant="outline" className="rounded-full border-border/70 bg-secondary/20 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
         Loading
       </Badge>
       <Badge variant="outline" className="rounded-full border-border/70 bg-secondary/20 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
-        Fetching rows
+        Fetching dashboard
       </Badge>
     </>
   ) : (
     <>
-      <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", headerStatusTone)}>
-        {headerStatusLabel}
+      <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", latestResultBadgeTone)}>
+        Latest result: {latestResult}
       </Badge>
       <Badge variant="outline" className="rounded-full border-border/70 bg-secondary/20 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
-        <Clock3 data-icon="inline-start" className="size-3.5" />
-        {headerTimeLabel}
+        <Clock3 data-icon="inline-start" />
+        Last checked: {latestCheckedLabel}
       </Badge>
     </>
   );
@@ -382,7 +462,7 @@ export default function G7OfferSafetyPage() {
         type="button"
         className="h-10 min-w-[170px] justify-center rounded-full px-4"
         onClick={openRunDialog}
-        disabled={loading || refreshing || submitting || !detail}
+        disabled={loading || refreshing || submitting || !dashboard}
       >
         <Play data-icon="inline-start" />
         Check Offer Proof
@@ -390,356 +470,453 @@ export default function G7OfferSafetyPage() {
     </>
   );
 
-  const content = !detail ? null : (
-    <>
-      <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
-        <Card className="rounded-[28px] border-border/60 bg-white shadow-sm">
-          <CardHeader className="space-y-3 p-6 pb-0 md:p-8 md:pb-0">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div className="space-y-2">
-                <CardTitle className="font-serif text-3xl tracking-tight text-primary">Latest Offer Proof</CardTitle>
-                <CardDescription className="max-w-2xl text-sm leading-6 text-muted-foreground">
-                  {latestProof ? latestProof.whatHappened : "The most recent verified row, shown in plain language."}
-                </CardDescription>
-              </div>
-
-              {latestProof ? (
-                <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getWorkflowStatusTone(latestProof.result))}>
-                    {latestProof.result}
-                  </Badge>
-                  <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG7StockStatusToneClass(latestProof.stockStatus))}>
-                    {latestProof.stockStatus}
-                  </Badge>
-                  <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG7DiscountStatusToneClass(latestProof.discountStatus))}>
-                    {latestProof.discountStatus}
-                  </Badge>
-                </div>
-              ) : null}
-            </div>
-          </CardHeader>
-
-          <CardContent className="space-y-4 p-6 pt-6 md:p-8 md:pt-6">
-            {latestProof ? (
-              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                <DetailField label="Product / SKU" value={<span className="font-medium text-foreground">{formatProductLabel(latestProof)}</span>} />
-                <DetailField
-                  label="Stock status"
-                  value={
-                    <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG7StockStatusToneClass(latestProof.stockStatus))}>
-                      {latestProof.stockStatus}
-                    </Badge>
-                  }
-                />
-                <DetailField
-                  label="Discount code"
-                  value={<span className="font-medium text-foreground">{latestProof.discountCode ?? "Not set"}</span>}
-                />
-                <DetailField
-                  label="Discount status"
-                  value={
-                    <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG7DiscountStatusToneClass(latestProof.discountStatus))}>
-                      {latestProof.discountStatus}
-                    </Badge>
-                  }
-                />
-                <DetailField
-                  label="Expiry date"
-                  value={<span className="font-medium text-foreground">{latestProof.expiryDate ? formatDateTime(latestProof.expiryDate) : "Not set"}</span>}
-                />
-                <DetailField
-                  label="Checked time"
-                  value={<span className="font-medium text-foreground">{formatCheckedTime(latestProof.checkedAt ?? latestProof.time)}</span>}
-                />
-                <DetailField
-                  label="Result"
-                  value={
-                    <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getWorkflowStatusTone(latestProof.result))}>
-                      {latestProof.result}
-                    </Badge>
-                  }
-                />
-                <DetailField
-                  label="Action needed"
-                  value={<span className="font-medium text-foreground">{latestProof.actionNeeded}</span>}
-                  className="md:col-span-2 xl:col-span-2"
-                />
-                <DetailField
-                  label="Offer URL"
-                  value={
-                    latestProof.offerUrl ? (
-                      <a
-                        href={latestProof.offerUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="inline-flex items-center gap-1 break-all font-medium text-primary underline underline-offset-4"
-                      >
-                        {formatOfferUrlLabel(latestProof.offerUrl)}
-                        <ExternalLink className="size-3.5 shrink-0" />
-                      </a>
-                    ) : (
-                      <span className="font-medium text-foreground">Not set</span>
-                    )
-                  }
-                  className="md:col-span-2 xl:col-span-3"
-                />
-                <DetailField
-                  label="Urgency claim"
-                  value={<span className="font-medium text-foreground">{latestProof.urgencyClaimText ?? "Not set"}</span>}
-                  className="md:col-span-2 xl:col-span-3"
-                />
-              </div>
-            ) : (
-              <div className="rounded-2xl border border-dashed border-border/70 bg-muted/10 p-6 text-sm leading-6 text-muted-foreground">
-                {detail.emptyStateCopy}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        <Card className="rounded-[28px] border-border/60 bg-white shadow-sm">
-          <CardHeader className="space-y-2 p-6 pb-0 md:p-8 md:pb-0">
-            <CardTitle className="font-serif text-2xl tracking-tight text-primary">Actions Needed</CardTitle>
-            <CardDescription className="text-sm leading-6 text-muted-foreground">
-              The next safe step, written for the client.
-            </CardDescription>
-          </CardHeader>
-
-          <CardContent className="space-y-4 p-6 pt-6 md:p-8 md:pt-6">
-            <div className="rounded-2xl border border-border/60 bg-muted/15 p-4 text-sm leading-6 text-foreground text-pretty">
-              {detail.mainActionNeeded}
-            </div>
-            <Button
-              type="button"
-              className="h-11 justify-center rounded-full px-5"
-              onClick={openRunDialog}
-              disabled={loading || refreshing || submitting}
-            >
-              <Play data-icon="inline-start" />
-              Check Offer Proof
-            </Button>
-            <p className="text-sm leading-6 text-muted-foreground">
-              G7 blocks fake urgency, expired discounts, stock mismatch, missing proof, and offer URL mismatch.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card className="rounded-[28px] border-border/60 bg-white shadow-sm">
-        <CardHeader className="space-y-2 p-6 pb-0 md:p-8 md:pb-0">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div className="space-y-2">
-              <CardTitle className="font-serif text-2xl tracking-tight text-primary">Recent Offer Checks</CardTitle>
-              <CardDescription className="text-sm leading-6 text-muted-foreground">Latest checks, newest first.</CardDescription>
-            </div>
-
-            {refreshing ? (
-              <Badge variant="outline" className="rounded-full border-border/70 bg-secondary/20 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
-                Updating
-              </Badge>
-            ) : null}
-          </div>
-        </CardHeader>
-
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <Table className="min-w-[1080px] table-fixed">
-              <TableHeader>
-                <TableRow className="bg-muted/20 hover:bg-muted/20">
-                  <TableHead className="px-6 py-4 text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Time</TableHead>
-                  <TableHead className="px-6 py-4 text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Product / SKU</TableHead>
-                  <TableHead className="px-6 py-4 text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Stock</TableHead>
-                  <TableHead className="px-6 py-4 text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Discount</TableHead>
-                  <TableHead className="px-6 py-4 text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Result</TableHead>
-                  <TableHead className="px-6 py-4 text-xs font-semibold uppercase tracking-[0.22em] text-muted-foreground">Action needed</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {hasRecords
-                  ? detail.recentChecks.map((proof) => (
-                      <TableRow key={[proof.time, proof.productOrSku, proof.discountCode, proof.offerUrl, proof.result].join("|")} className="group hover:bg-primary/5">
-                        <TableCell className="align-top px-6 py-4 whitespace-nowrap text-sm font-medium text-foreground">
-                          <div className="space-y-1">
-                            <p>{formatDateTime(proof.checkedAt ?? proof.time)}</p>
-                            <p className="text-xs text-muted-foreground">{formatRelativeTime(proof.checkedAt ?? proof.time)}</p>
-                          </div>
-                        </TableCell>
-                        <TableCell className="align-top px-6 py-4">
-                          <div className="space-y-1">
-                            <p className="font-medium text-foreground">{formatProductLabel(proof)}</p>
-                            <p className="text-xs text-muted-foreground">{proof.discountCode ?? "No discount code"}</p>
-                          </div>
-                        </TableCell>
-                        <TableCell className="align-top px-6 py-4">
-                          <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG7StockStatusToneClass(proof.stockStatus))}>
-                            {proof.stockStatus}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="align-top px-6 py-4">
-                          <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG7DiscountStatusToneClass(proof.discountStatus))}>
-                            {proof.discountStatus}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="align-top px-6 py-4">
-                          <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getWorkflowStatusTone(proof.result))}>
-                            {proof.result}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="align-top px-6 py-4 text-sm leading-6 text-foreground text-pretty">{proof.actionNeeded}</TableCell>
-                      </TableRow>
-                    ))
-                  : (
-                    <TableRow>
-                      <TableCell colSpan={6} className="py-12 text-center text-sm leading-6 text-muted-foreground">
-                        {detail.emptyStateCopy}
-                      </TableCell>
-                    </TableRow>
-                  )}
-              </TableBody>
-            </Table>
-          </div>
-        </CardContent>
-      </Card>
-    </>
+  const proofResultBadge = (proof: G7ProofView) => (
+    <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getSummaryResultTone(proof.displayResult))}>
+      {getSummaryResultLabel(proof.displayResult)}
+    </Badge>
   );
+
+  const topActionNeeded = hasRecentChecks ? dashboard?.actionNeeded ?? "Offer proof needs attention." : dashboard?.emptyStateCopy ?? "Offer proof needs attention.";
 
   return (
     <WorkflowDashboardShell
       eyebrow="Workflow detail"
-      title="G7 - Inventory + Offer Safety"
-      description="This page verifies stock, discount, expiry, and offer proof before claims are used."
+      title="G7 — Inventory + Offer Safety"
+      description="Verifies stock, discount, expiry, and offer proof before claims are used."
       badges={headerBadges}
       actions={headerActions}
     >
-      {loading && !detail ? (
-        <LoadingState />
-      ) : detail ? (
-        content
-      ) : (
-        <Card className="rounded-[28px] border-border/60 bg-white shadow-sm">
+      {error && !dashboard ? (
+        <Card role="alert" className="rounded-[28px] border-rose-200 bg-rose-50 shadow-sm">
           <CardContent className="space-y-4 p-6 md:p-8">
-            <div className="flex items-start gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-950">
-              <AlertTriangle className="mt-0.5 size-5 shrink-0" />
-              <div className="space-y-2">
-                <p className="font-medium">Unable to load offer checks right now.</p>
-                <p className="text-sm leading-6 text-amber-900/80">
-                  {loadError ?? "Try again in a moment. The page will show the latest saved G7 rows once the data source is available."}
-                </p>
+            <div className="flex items-start gap-3 rounded-[22px] border border-rose-200 bg-white/80 p-4 text-rose-950">
+              <AlertTriangle className="mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-medium">{error}</p>
+                <p className="text-sm leading-6 text-rose-900/80">Try again once the n8n connection is available.</p>
               </div>
             </div>
-            <Button type="button" className="h-11 rounded-full px-5" onClick={() => void loadDetail({ silent: false })} disabled={refreshing || loading}>
-              <RefreshCcw data-icon="inline-start" />
+            <Button type="button" className="h-11 rounded-full px-5" onClick={() => void loadDashboard({ silent: false })} disabled={refreshing || loading}>
+              <RefreshCcw data-icon="inline-start" className={cn(refreshing || loading ? "animate-spin" : undefined)} />
               Retry
             </Button>
           </CardContent>
         </Card>
-      )}
+      ) : null}
 
-      <Dialog open={runOpen} onOpenChange={(open) => {
-        setRunOpen(open);
-        if (!open) {
-          setFormError(null);
-        }
-      }}>
-        <DialogContent showCloseButton className="flex max-h-[90vh] w-full flex-col overflow-hidden p-0 sm:max-w-2xl">
+      {loading && !dashboard ? (
+        <LoadingState />
+      ) : dashboard ? (
+        <>
+          {error ? (
+            <Card role="alert" className="rounded-[28px] border-amber-200 bg-amber-50 shadow-sm">
+              <CardContent className="p-4 text-sm leading-6 text-amber-950">{error}</CardContent>
+            </Card>
+          ) : null}
+
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <SummaryCard
+              label="Latest Result"
+              value={
+                <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getSummaryResultTone(latestResult))}>
+                  {latestResult}
+                </Badge>
+              }
+              helper="Value from the latest offer proof."
+            />
+            <SummaryCard
+              label="Valid Offer Proofs"
+              value={dashboard.counts.pass}
+              helper="Checks that were verified safely."
+            />
+            <SummaryCard
+              label="Blocked Checks"
+              value={dashboard.counts.block}
+              helper="Checks that were safely stopped."
+            />
+            <SummaryCard
+              label="Action Needed"
+              value={<span className="text-base font-medium leading-6 text-foreground">{topActionNeeded}</span>}
+              helper="Client-friendly next step."
+              valueClassName="text-base font-medium tracking-normal"
+            />
+          </div>
+
+          <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
+            <Card className="rounded-[28px] border-border/60 bg-white shadow-sm">
+              <CardHeader className="space-y-2 p-6 pb-0 md:p-8 md:pb-0">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-2">
+                    <CardTitle className="font-serif text-2xl tracking-tight text-primary">Latest Offer Proof</CardTitle>
+                    <CardDescription className="max-w-2xl text-sm leading-6 text-muted-foreground">
+                      The most recent proof, shown in plain language and without backend details.
+                    </CardDescription>
+                  </div>
+                  {latestProof ? (
+                    <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getSummaryResultTone(latestProof.rawResult))}>
+                      Latest result: {latestProof.rawResult}
+                    </Badge>
+                  ) : null}
+                </div>
+              </CardHeader>
+
+              <CardContent className="space-y-4 p-6 pt-6 md:p-8 md:pt-6">
+                {latestProof ? (
+                  <>
+                    <ResultCallout proof={latestProof} />
+
+                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                      <ProofField
+                        label="Product"
+                        value={<span className="font-medium text-foreground">{formatDisplayValue(latestProof.productName)}</span>}
+                      />
+                      <ProofField
+                        label="SKU"
+                        value={<span translate="no" className="font-medium text-foreground">{formatDisplayValue(latestProof.sku)}</span>}
+                      />
+                      <ProofField
+                        label="Stock available"
+                        value={<span className="font-medium text-foreground">{formatDisplayValue(latestProof.stockAvailable)}</span>}
+                      />
+                      <ProofField
+                        label="Urgency claim"
+                        value={<span className="font-medium text-foreground">{formatDisplayValue(latestProof.urgencyClaim)}</span>}
+                      />
+                      <ProofField
+                        label="Second stock proof"
+                        value={<span className="font-medium text-foreground">{formatDisplayValue(latestProof.secondStockProof)}</span>}
+                      />
+                      <ProofField
+                        label="Discount"
+                        value={<span className="font-medium text-foreground">{formatDisplayValue(latestProof.discountCode)}</span>}
+                      />
+                      <ProofField
+                        label="Discount status"
+                        value={<span className="font-medium text-foreground">{formatDisplayValue(latestProof.discountStatus)}</span>}
+                      />
+                      <ProofField
+                        label="Result"
+                        value={proofResultBadge(latestProof)}
+                      />
+                      <ProofField
+                        label="Action needed"
+                        value={
+                          <div className="space-y-2">
+                            <p className="font-medium text-foreground">{latestProof.actionNeeded}</p>
+                            {isActionIssueListVisible(latestProof.otherProofIssues) ? (
+                              <div className="space-y-1">
+                                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Other proof issues</p>
+                                <ul className="ml-4 list-disc space-y-1 text-sm leading-6 text-muted-foreground">
+                                  {latestProof.otherProofIssues.map((issue) => (
+                                    <li key={issue}>{issue}</li>
+                                  ))}
+                                </ul>
+                              </div>
+                            ) : null}
+                          </div>
+                        }
+                        className="md:col-span-2 xl:col-span-3"
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <div className="rounded-[22px] border border-dashed border-border/70 bg-muted/10 px-4 py-5 text-sm leading-6 text-muted-foreground">
+                    {dashboard.emptyStateCopy}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card className="rounded-[28px] border-border/60 bg-white shadow-sm">
+              <CardHeader className="space-y-2 p-6 pb-0 md:p-8 md:pb-0">
+                <CardTitle className="font-serif text-2xl tracking-tight text-primary">Actions Needed</CardTitle>
+                <CardDescription className="text-sm leading-6 text-muted-foreground">
+                  The next safe step, written for the client.
+                </CardDescription>
+              </CardHeader>
+
+              <CardContent className="space-y-4 p-6 pt-6 md:p-8 md:pt-6">
+                {latestProof ? (
+                  <ResultCallout proof={latestProof} className="shadow-none" />
+                ) : (
+                  <div className="rounded-[22px] border border-border/60 bg-muted/15 p-4">
+                    <p className="text-sm leading-6 text-foreground text-pretty">{dashboard.emptyStateCopy}</p>
+                  </div>
+                )}
+
+                <Button
+                  type="button"
+                  className="h-11 justify-center rounded-full px-5"
+                  onClick={openRunDialog}
+                  disabled={loading || refreshing || submitting}
+                >
+                  <Play data-icon="inline-start" />
+                  Check Offer Proof
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card className="rounded-[28px] border-border/60 bg-white shadow-sm">
+            <CardHeader className="space-y-2 p-6 pb-0 md:p-8 md:pb-0">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="space-y-2">
+                  <CardTitle className="font-serif text-2xl tracking-tight text-primary">Recent Offer Checks</CardTitle>
+                  <CardDescription className="text-sm leading-6 text-muted-foreground">Latest checks, newest first.</CardDescription>
+                </div>
+                {refreshing ? (
+                  <Badge variant="outline" className="rounded-full border-border/70 bg-secondary/20 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
+                    Updating
+                  </Badge>
+                ) : null}
+              </div>
+            </CardHeader>
+
+            <CardContent className="p-0">
+              {hasRecentChecks ? (
+                <div className="overflow-x-auto">
+                  <Table className="min-w-[1080px] table-fixed">
+                    <TableHeader>
+                      <TableRow className="bg-muted/20 hover:bg-muted/20">
+                        <TableHead className="px-6 py-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Time</TableHead>
+                        <TableHead className="px-6 py-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Product / SKU</TableHead>
+                        <TableHead className="px-6 py-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Claim</TableHead>
+                        <TableHead className="px-6 py-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Stock</TableHead>
+                        <TableHead className="px-6 py-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Discount</TableHead>
+                        <TableHead className="px-6 py-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Result</TableHead>
+                        <TableHead className="px-6 py-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Action Needed</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {dashboard.recentOfferChecks.slice(0, 10).map((proof, index) => (
+                        <TableRow
+                          key={`${proof.checkedAt ?? "g7"}-${proof.sku ?? "sku"}-${proof.displayResult}-${index}`}
+                          className={cn("group hover:bg-primary/5", proof.displayResult === "NEEDS_EVIDENCE" && "bg-amber-50/30")}
+                        >
+                          <TableCell className="align-top px-6 py-4 whitespace-nowrap text-sm font-medium text-foreground">
+                            <div className="space-y-1">
+                              <p>{formatRowTimeLabel(proof.checkedAt)}</p>
+                              <p className="text-xs text-muted-foreground">{proof.checkedAt ? formatRelativeTime(proof.checkedAt) : "Not run yet"}</p>
+                            </div>
+                          </TableCell>
+                          <TableCell className="align-top px-6 py-4">
+                            <div className="space-y-1">
+                              <p className="font-medium text-foreground">{formatDisplayValue(proof.productName)}</p>
+                              <p className="text-xs text-muted-foreground" translate="no">
+                                {formatDisplayValue(proof.sku)}
+                              </p>
+                            </div>
+                          </TableCell>
+                          <TableCell className="align-top px-6 py-4 text-sm leading-6 text-foreground">{formatDisplayValue(proof.urgencyClaim)}</TableCell>
+                          <TableCell className="align-top px-6 py-4 text-sm leading-6 text-foreground">{formatDisplayValue(proof.stockAvailable)}</TableCell>
+                          <TableCell className="align-top px-6 py-4 text-sm leading-6 text-foreground">{formatDisplayValue(proof.discountCode)}</TableCell>
+                          <TableCell className="align-top px-6 py-4">{proofResultBadge(proof)}</TableCell>
+                          <TableCell className="align-top px-6 py-4 text-sm leading-6 text-foreground text-pretty">
+                            <div className="space-y-2">
+                              <p>{proof.actionNeeded}</p>
+                              {isActionIssueListVisible(proof.otherProofIssues) ? (
+                                <p className="text-xs leading-5 text-muted-foreground">
+                                  Other proof issues: {proof.otherProofIssues.join(" · ")}
+                                </p>
+                              ) : null}
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              ) : (
+                <div className="p-4 md:p-6">
+                  <div className="rounded-[22px] border border-dashed border-border/70 bg-muted/10 px-4 py-5 text-sm leading-6 text-muted-foreground">
+                    {dashboard.emptyStateCopy}
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </>
+      ) : null}
+
+      <Dialog
+        open={runOpen}
+        onOpenChange={(open) => {
+          setRunOpen(open);
+          if (!open) {
+            setFormError(null);
+          }
+        }}
+      >
+        <DialogContent className="flex max-h-[90vh] w-[min(96vw,58rem)] flex-col overflow-hidden rounded-[28px] border-border/60 bg-white p-0 shadow-2xl">
           <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleRunSubmit}>
             <div className="border-b border-border/60 bg-muted/20 px-6 py-5">
               <DialogHeader className="items-start text-left">
                 <DialogTitle className="font-serif text-2xl tracking-tight text-primary">Check Offer Proof</DialogTitle>
                 <DialogDescription className="max-w-prose text-sm leading-6 text-muted-foreground">
-                  Use only the essential fields. G7 will verify stock, discount expiry, offer URL, and urgency proof before anything is used.
+                  Use the smallest safe set of fields. The result will stay client-friendly and the dashboard will refresh after the check.
                 </DialogDescription>
               </DialogHeader>
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
-              <div className="space-y-4">
+              <FieldGroup className="gap-4">
                 {formError ? (
-                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm leading-6 text-amber-950">
-                    {formError}
-                  </div>
+                  <Alert variant="destructive" className="rounded-[22px] border-rose-200 bg-rose-50">
+                    <AlertTriangle />
+                    <AlertTitle className="text-foreground">Offer proof check failed</AlertTitle>
+                    <AlertDescription className="text-rose-900">{formError}</AlertDescription>
+                  </Alert>
                 ) : null}
 
-                <div className="space-y-2">
-                  <label htmlFor="g7-product" className="text-sm font-medium text-foreground">
-                    Product ID or SKU
-                  </label>
-                  <Input
-                    id="g7-product"
-                    value={form.product_or_sku}
-                    onChange={(event) => setForm((current) => ({ ...current, product_or_sku: event.target.value }))}
-                    placeholder="Product ID or SKU"
-                    autoComplete="off"
-                    required
-                  />
+                {submissionFeedback ? (
+                  <Alert
+                    variant="default"
+                    className={cn(
+                      "rounded-[22px] border",
+                      getSubmissionDisplayTone(submissionFeedback.status, submissionFeedback.message) === "PASS"
+                        ? "border-emerald-200 bg-emerald-50"
+                        : getSubmissionDisplayTone(submissionFeedback.status, submissionFeedback.message) === "NEEDS_EVIDENCE"
+                          ? "border-amber-200 bg-amber-50"
+                          : "border-rose-200 bg-rose-50",
+                    )}
+                  >
+                    {getSubmissionDisplayTone(submissionFeedback.status, submissionFeedback.message) === "PASS" ? (
+                      <CheckCircle2 />
+                    ) : (
+                      <AlertTriangle />
+                    )}
+                    <AlertTitle className="text-foreground">Result</AlertTitle>
+                    <AlertDescription className="space-y-1 text-foreground">
+                      <p>{submissionFeedback.message}</p>
+                      {submissionFeedback.handledAt ? (
+                        <p className="text-xs text-muted-foreground">Processed {formatDateTime(submissionFeedback.handledAt)}</p>
+                      ) : null}
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
+
+                <Field>
+                  <FieldLabel htmlFor="g7-sku">SKU</FieldLabel>
+                  <FieldContent>
+                    <Input
+                      id="g7-sku"
+                      value={form.sku}
+                      onChange={(event) => setForm((current) => ({ ...current, sku: event.target.value }))}
+                      placeholder="SKU-9002"
+                      autoComplete="off"
+                      required
+                      className="h-11 rounded-[20px] border-border/70 bg-white"
+                    />
+                    <FieldDescription>The SKU the client can recognize. Required.</FieldDescription>
+                  </FieldContent>
+                </Field>
+
+                <Field>
+                  <FieldLabel htmlFor="g7-urgency-claim">Urgency claim</FieldLabel>
+                  <FieldContent>
+                    <Input
+                      id="g7-urgency-claim"
+                      value={form.urgencyClaim}
+                      onChange={(event) => setForm((current) => ({ ...current, urgencyClaim: event.target.value }))}
+                      placeholder="Low stock"
+                      autoComplete="off"
+                      className="h-11 rounded-[20px] border-border/70 bg-white"
+                    />
+                    <FieldDescription>Leave blank if no urgency wording is being used.</FieldDescription>
+                  </FieldContent>
+                </Field>
+
+                <Field>
+                  <FieldLabel htmlFor="g7-discount-code">Discount code</FieldLabel>
+                  <FieldContent>
+                    <Input
+                      id="g7-discount-code"
+                      value={form.discountCode}
+                      onChange={(event) => setForm((current) => ({ ...current, discountCode: event.target.value }))}
+                      placeholder="Optional"
+                      autoComplete="off"
+                      className="h-11 rounded-[20px] border-border/70 bg-white"
+                    />
+                    <FieldDescription>If you do not have a code, leave this empty. Nothing placeholder-like is sent.</FieldDescription>
+                  </FieldContent>
+                </Field>
+
+                <div className="grid gap-4 md:grid-cols-2">
+                  <Field>
+                    <FieldLabel htmlFor="g7-intended-use">Intended use</FieldLabel>
+                    <FieldContent>
+                      <Select
+                        value={form.intendedUse}
+                        onValueChange={(value) => setForm((current) => ({ ...current, intendedUse: value as G7IntendedUse }))}
+                      >
+                        <SelectTrigger id="g7-intended-use" className="h-11 w-full rounded-[20px] border-border/70 bg-white">
+                          <SelectValue placeholder="Select intended use" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {INTENDED_USE_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FieldDescription>Defaults to ORGANIC_POST.</FieldDescription>
+                    </FieldContent>
+                  </Field>
+
+                  <Field>
+                    <FieldLabel htmlFor="g7-requested-by-workflow">Requested by workflow</FieldLabel>
+                    <FieldContent>
+                      <Select
+                        value={form.requestedByWorkflow}
+                        onValueChange={(value) => setForm((current) => ({ ...current, requestedByWorkflow: value as G7RequestedByWorkflow }))}
+                      >
+                        <SelectTrigger id="g7-requested-by-workflow" className="h-11 w-full rounded-[20px] border-border/70 bg-white">
+                          <SelectValue placeholder="Select workflow" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {REQUESTED_BY_WORKFLOW_OPTIONS.map((option) => (
+                            <SelectItem key={option.value} value={option.value}>
+                              {option.label}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FieldDescription>Defaults to G4.</FieldDescription>
+                    </FieldContent>
+                  </Field>
                 </div>
 
-                <div className="space-y-2">
-                  <label htmlFor="g7-code" className="text-sm font-medium text-foreground">
-                    Offer / discount code
-                  </label>
-                  <Input
-                    id="g7-code"
-                    value={form.offer_code}
-                    onChange={(event) => setForm((current) => ({ ...current, offer_code: event.target.value }))}
-                    placeholder="SUMMER15"
-                    autoComplete="off"
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label htmlFor="g7-url" className="text-sm font-medium text-foreground">
-                    Offer URL
-                  </label>
-                  <Input
-                    id="g7-url"
-                    type="url"
-                    value={form.offer_url}
-                    onChange={(event) => setForm((current) => ({ ...current, offer_url: event.target.value }))}
-                    placeholder="https://..."
-                    autoComplete="off"
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label htmlFor="g7-urgency" className="text-sm font-medium text-foreground">
-                    Urgency claim text
-                  </label>
-                  <Textarea
-                    id="g7-urgency"
-                    value={form.urgency_claim_text}
-                    onChange={(event) => setForm((current) => ({ ...current, urgency_claim_text: event.target.value }))}
-                    placeholder="today only, only 3 left, ends tonight, or similar claim"
-                    rows={4}
-                    required
-                  />
-                </div>
-
-                <div className="space-y-2">
-                  <label htmlFor="g7-actor" className="text-sm font-medium text-foreground">
-                    Actor
-                  </label>
-                  <Input
-                    id="g7-actor"
-                    value={form.actor}
-                    onChange={(event) => setForm((current) => ({ ...current, actor: event.target.value }))}
-                    placeholder={defaultActor}
-                    autoComplete="off"
-                    required
-                  />
-                </div>
-              </div>
+                <Field>
+                  <FieldLabel htmlFor="g7-actor">Actor</FieldLabel>
+                  <FieldContent>
+                    <Input
+                      id="g7-actor"
+                      value={form.actor}
+                      onChange={(event) => setForm((current) => ({ ...current, actor: event.target.value }))}
+                      placeholder="admin_ui"
+                      autoComplete="off"
+                      className="h-11 rounded-[20px] border-border/70 bg-white"
+                    />
+                    <FieldDescription>Defaults to admin_ui.</FieldDescription>
+                  </FieldContent>
+                </Field>
+              </FieldGroup>
             </div>
 
             <DialogFooter className="border-t border-border/60 px-6 py-4">
-              <Button type="button" variant="outline" className="rounded-full border-border/70 bg-white px-5" onClick={() => setRunOpen(false)} disabled={submitting}>
+              <Button
+                type="button"
+                variant="outline"
+                className="h-11 rounded-full border-border/70 bg-white px-5"
+                onClick={() => setRunOpen(false)}
+                disabled={submitting}
+              >
                 Cancel
               </Button>
-              <Button type="submit" className="rounded-full px-5" disabled={submitting}>
-                <Play data-icon="inline-start" />
-                {submitting ? "Checking..." : "Check Offer Proof"}
+              <Button type="submit" className="h-11 rounded-full px-5" disabled={submitting}>
+                <Loader2 data-icon="inline-start" className={cn(submitting ? "animate-spin" : undefined)} />
+                {getProofActionButtonLabel(submitting)}
               </Button>
             </DialogFooter>
           </form>

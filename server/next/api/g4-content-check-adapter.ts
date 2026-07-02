@@ -3,6 +3,8 @@ import "server-only";
 import { supabaseAdmin } from "@/lib/supabase-admin";
 import {
   extractG4ContentPreview,
+  getG4ReviewSourceId,
+  getG4ReviewSourceIds,
   getG4ActionNeeded,
   mapG4Status,
   normalizeG4StringArray,
@@ -15,9 +17,10 @@ import {
   type G4WorkflowDetail,
 } from "@/lib/admin/g4-content-review";
 import {
-  getCevonneAdminApprovalBySource,
+  getCevonneAdminApprovals,
   queueCevonneAdminApprovalRequest,
 } from "@/server/next/api/cevonne-admin-store";
+import { env } from "@/server/config";
 import { G12_SUPABASE_TABLES } from "@/server/next/api/g12-trend-fetcher-supabase";
 
 const G4_SELECT_COLUMNS = `
@@ -321,13 +324,25 @@ const loadG4SourcePreviewMap = async (rows: G4Row[]) => {
   return previewByTrendId;
 };
 
-const getG4ApprovalSourceId = (row: Pick<G4ContentReviewRecord, "review_id" | "content_review_id" | "asset_id">) =>
-  normalizeG4Text(row.review_id) ?? normalizeG4Text(row.content_review_id) ?? normalizeG4Text(row.asset_id);
+const findG4ApprovalBySourceIds = (sourceIds: string[]) => {
+  const normalizedSourceIds = new Set(sourceIds.map((value) => normalizeG4Text(value)).filter((value): value is string => Boolean(value)));
+  if (!normalizedSourceIds.size) {
+    return null;
+  }
+
+  return getCevonneAdminApprovals("G4").find((approval) => {
+    const sourceId = approval.sourceId?.trim() ?? "";
+    return Boolean(sourceId && normalizedSourceIds.has(sourceId));
+  }) ?? null;
+};
 
 const buildG4LatestOutcome = (row: G4Row): G4WorkflowDetail["latestOutcome"] => ({
   result: mapG4Status(row),
   reviewId: normalizeG4Text(row.review_id) ?? normalizeG4Text(row.content_review_id),
   assetId: normalizeG4Text(row.asset_id),
+  sourceId: getG4ReviewSourceId(row),
+  sourcePlatform: normalizeG4Text(row.source_platform),
+  sourceEvent: normalizeG4Text(row.source_event),
   platform: normalizeG4Text(row.platform),
   approvalState: normalizeG4Text(row.approval_state),
   summary: summarizeG4Outcome(row),
@@ -352,6 +367,9 @@ const buildG4RecentOutcome = (row: G4Row, sourcePreview?: Partial<G4SourcePrevie
     result,
     reviewId: normalizeG4Text(row.review_id) ?? normalizeG4Text(row.content_review_id),
     assetId: normalizeG4Text(row.asset_id),
+    sourceId: getG4ReviewSourceId(row),
+    sourcePlatform: normalizeG4Text(row.source_platform),
+    sourceEvent: normalizeG4Text(row.source_event),
     platform: normalizeG4Text(row.platform),
     approvalState: normalizeG4Text(row.approval_state),
     contentPreview,
@@ -459,11 +477,7 @@ const buildG4CleanAiOutput = (row: G4Row): G4WorkflowDetail["cleanAiOutput"] => 
 };
 
 const buildG4ApprovalRequest = (row: G4Row): G4ApprovalRequest | null => {
-  const sourceId = getG4ApprovalSourceId(row);
-  const approval = getCevonneAdminApprovalBySource({
-    workflowGroup: "G4",
-    sourceId,
-  });
+  const approval = findG4ApprovalBySourceIds(getG4ReviewSourceIds(row));
 
   if (!approval) {
     return null;
@@ -481,7 +495,9 @@ const buildG4ApprovalRequest = (row: G4Row): G4ApprovalRequest | null => {
 const findG4ApprovalTarget = (detail: G4WorkflowDetail, sourceId?: string | null) => {
   const normalizedSourceId = sourceId?.trim() || null;
   if (normalizedSourceId) {
-    const matchedRow = detail.recentOutcomes.find((row) => row.reviewId === normalizedSourceId || row.assetId === normalizedSourceId);
+    const matchedRow = detail.recentOutcomes.find(
+      (row) => row.sourceId === normalizedSourceId || row.reviewId === normalizedSourceId || row.assetId === normalizedSourceId,
+    );
     return matchedRow ? { row: matchedRow, sourceId: normalizedSourceId } : null;
   }
 
@@ -492,7 +508,7 @@ const findG4ApprovalTarget = (detail: G4WorkflowDetail, sourceId?: string | null
 
   return {
     row: latestRow,
-    sourceId: latestRow.reviewId ?? latestRow.assetId ?? null,
+    sourceId: latestRow.sourceId ?? latestRow.reviewId ?? latestRow.assetId ?? null,
   };
 };
 
@@ -568,16 +584,34 @@ export async function queueG4ApprovalRequest(input: {
     };
   }
 
-  if (target.row.approvalRequest) {
+  const candidateSourceIds = [target.row.sourceId, target.row.reviewId, target.row.assetId].filter(
+    (value): value is string => Boolean(value && value.trim()),
+  );
+  const existingApproval = findG4ApprovalBySourceIds(candidateSourceIds);
+  const approvalRequest = target.row.approvalRequest ?? (existingApproval ? {
+    approvalId: existingApproval.approvalId,
+    status: existingApproval.status,
+    createdAt: existingApproval.createdAt,
+    requestedBy: existingApproval.requestedBy,
+    reviewerAction: existingApproval.reviewerAction ?? null,
+  } : null);
+
+  if (approvalRequest) {
+    if (process.env.NODE_ENV === "development") {
+      console.debug("[g4-content-check-adapter] approval request already exists", {
+        sourceId: target.sourceId,
+        candidateSourceIds,
+        approvalId: approvalRequest.approvalId,
+        approvalStatus: approvalRequest.status,
+      });
+    }
+
     return {
       status: "PASS" as const,
-      message:
-        target.row.approvalRequest.status === "PENDING"
-          ? "This content is already queued for approval."
-          : "This content already has an approval record.",
-      approvalId: target.row.approvalRequest.approvalId,
+      message: approvalRequest.status === "PENDING" ? "Content is already in G5 queue." : "Content is already sent to G5.",
+      approvalId: approvalRequest.approvalId,
       alreadyQueued: true,
-      approvalRequest: target.row.approvalRequest,
+      approvalRequest,
     };
   }
 
@@ -591,7 +625,7 @@ export async function queueG4ApprovalRequest(input: {
     };
   }
 
-  const sourceId = target.sourceId;
+  const sourceId = candidateSourceIds[0] ?? null;
   if (!sourceId) {
     return {
       status: "ERROR" as const,
@@ -607,6 +641,17 @@ export async function queueG4ApprovalRequest(input: {
     target.row.assetId ? `Asset ${target.row.assetId}` : null,
     target.row.platform ? `Platform ${target.row.platform}` : null,
   ].filter((value): value is string => Boolean(value));
+
+  if (process.env.NODE_ENV === "development") {
+    console.debug("[g4-content-check-adapter] queueing approval request", {
+      sourceId,
+      candidateSourceIds,
+      reviewId: target.row.reviewId,
+      assetId: target.row.assetId,
+      status: target.row.result,
+      actionNeeded: target.row.actionNeeded,
+    });
+  }
 
   const queued = queueCevonneAdminApprovalRequest({
     workflowGroup: "G4",
@@ -637,7 +682,7 @@ export async function queueG4ApprovalRequest(input: {
 
   return {
     status: "PASS" as const,
-    message: queued.created ? "Approval request queued." : "This content already has an approval record.",
+    message: queued.created ? "Content sent to G5 queue." : "Content is already in G5 queue.",
     approvalId: queued.approval.approvalId,
     alreadyQueued: !queued.created,
     approvalRequest: {

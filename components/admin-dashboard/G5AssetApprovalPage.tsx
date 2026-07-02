@@ -342,6 +342,117 @@ const STEP_DEFINITIONS = [
 
 const EMPTY_G4_REVIEWS: G5ApprovedContentRecord[] = [];
 const EMPTY_G5_ASSETS: G5DashboardAssetRecord[] = [];
+const EMPTY_G5_CAPTION_OPTIONS: G5G4CaptionOption[] = [];
+const EMPTY_G5_HOOK_OPTIONS: G5G4HookOption[] = [];
+
+const createComposerDraftPlaceholder = (review: G5SelectedContentRecord): G5SelectedG4ContentRecord => ({
+  id: review.id,
+  g4_review_uuid: review.g4_review_uuid,
+  g4_review_id: review.g4_review_id,
+  content_review_id: review.content_review_id,
+  review_id: review.review_id,
+  status: review.status,
+  approval_state: review.approval_state,
+  display_status: review.display_status,
+  created_at: review.created_at,
+  display_title: review.display_title,
+  display_summary: review.display_summary,
+  platform_label: review.platform_label,
+  caption_preview: review.caption_preview,
+  views: review.views,
+  likes: review.likes,
+  comments: review.comments,
+  shares: review.shares,
+  profile_username: null,
+  audio_sound: null,
+  trend_strength: null,
+  brand_fit_score: null,
+  risk_score: null,
+  source_url: null,
+  ai_safe_rewrite: null,
+  hook_angle: null,
+  ai_risk_summary: null,
+  ai_compliance_note: null,
+  content_summary: review.display_summary,
+  ai_insight: review.display_summary,
+  original_post_data: null,
+  engagement_rate: null,
+  content: {
+    title: review.display_title,
+    summary: review.display_summary,
+    platform: review.platform,
+    created_at: review.created_at,
+  },
+  original_post: {
+    platform: review.platform,
+    handle: null,
+    caption: review.caption_preview ?? review.content_text,
+    post_url: null,
+    views: review.views,
+    likes: review.likes,
+    comments: review.comments,
+    shares: review.shares,
+    audio: null,
+    engagement_rate: null,
+  },
+  ai_direction: {
+    content_angle: null,
+    safe_rewrite: null,
+    hook_angle: null,
+    risk_summary: null,
+    compliance_note: null,
+  },
+  caption_options: [],
+  hook_options: [],
+  recommended_caption: null,
+  recommended_hook: null,
+});
+
+const buildOptimisticG5AssetRecord = (
+  content: G5SelectedG4ContentRecord,
+  media: G5UploadedMedia,
+  assetId: string,
+  approvalId: string,
+  createdAt: string,
+  caption: string,
+  hook: string | null,
+): G5DashboardAssetRecord => ({
+  asset_id: assetId,
+  asset_title: content.display_title?.trim() || content.display_summary?.trim() || "G5 asset",
+  asset_type: media.kind || "IMAGE",
+  intended_platform: "INSTAGRAM",
+  platform: "INSTAGRAM",
+  content_text: caption,
+  hook_angle: hook,
+  media_url: media.media_url,
+  storage_url: media.storage_url,
+  compliance_status: null,
+  approval_status: "PENDING_APPROVAL",
+  approved_by: null,
+  asset_created_at: createdAt,
+  asset_status: "PENDING_APPROVAL",
+  readiness_status: null,
+  manual_publish_status: null,
+  approval_id: approvalId,
+  last_manual_publish_result_id: null,
+  post_url: null,
+  published_by: null,
+  published_at: null,
+  state_updated_at: createdAt,
+  g4_review_id: content.g4_review_id,
+  g4_review_uuid: content.g4_review_uuid,
+  content_review_id: content.content_review_id,
+  review_id: content.review_id,
+  source_platform: "WEBSITE",
+  source_event: "CLIENT_UPLOAD",
+  rights_status: "OWNED_OR_INTERNAL",
+  last_readiness_check_at: null,
+  last_readiness_check_response: null,
+  readiness_response: null,
+  failure_reasons: [],
+  client_status: "Pending approval",
+  client_tab: "pending_approval",
+});
 
 const buildRouteUrl = (path: string) => new URL(path.startsWith("/") ? path : `/${path}`, window.location.origin).toString();
 
@@ -525,6 +636,56 @@ const toSelectableG4Review = (review: G5ApprovedContentRecord): G5SelectedConten
 };
 
 const normalizeSelectionText = (value?: string | null) => value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
+
+type ApprovedContentIdentitySource = {
+  id: string;
+  g4_review_id?: string | null;
+  g4_review_uuid?: string | null;
+  content_review_id?: string | null;
+  review_id?: string | null;
+  display_title?: string | null;
+  display_summary?: string | null;
+  caption_preview?: string | null;
+  content_text?: string | null;
+  platform_label?: string | null;
+  created_at?: string | null;
+};
+
+const buildApprovedContentFingerprint = (
+  review: Pick<ApprovedContentIdentitySource, "display_title" | "display_summary" | "caption_preview" | "content_text" | "platform_label" | "created_at">,
+) => {
+  const title = normalizeSelectionText(review.display_title || review.display_summary || review.caption_preview || review.content_text);
+  const summary = normalizeSelectionText(review.display_summary || review.content_text || review.caption_preview);
+  const platform = normalizeSelectionText(review.platform_label);
+  const createdAt = normalizeSelectionText(review.created_at);
+
+  if (title && createdAt) {
+    return `title_created:${title}|${createdAt}`;
+  }
+
+  if (summary && platform) {
+    return `caption_platform:${summary}|${platform}`;
+  }
+
+  return null;
+};
+
+const buildApprovedContentCandidateKeys = (
+  review: ApprovedContentIdentitySource,
+) => {
+  const keys = [
+    review.content_review_id,
+    review.review_id,
+    review.g4_review_uuid,
+    review.g4_review_id,
+    review.id,
+    buildApprovedContentFingerprint(review),
+  ]
+    .map(normalizeSelectionText)
+    .filter(Boolean);
+
+  return [...new Set(keys)];
+};
 
 const getMatchingOption = <T extends { id: string; text: string }>(options: T[], text?: string | null) => {
   const normalized = normalizeSelectionText(text);
@@ -979,6 +1140,7 @@ const LoadingShell = () => (
 export default function G5AssetApprovalPage() {
   const { authFetch, user } = useAuth();
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const composerOpenStartedAtRef = useRef<number | null>(null);
 
   const [dashboard, setDashboard] = useState<G5DashboardResponse | null>(null);
   const [g4ReadyContent, setG4ReadyContent] = useState<G5ApprovedContentResponse | null>(null);
@@ -991,6 +1153,7 @@ export default function G5AssetApprovalPage() {
   const [draftCaption, setDraftCaption] = useState("");
   const [selectedCaptionId, setSelectedCaptionId] = useState<string | null>(null);
   const [selectedHookId, setSelectedHookId] = useState<string | null>(null);
+  const [captionDraftManuallyEdited, setCaptionDraftManuallyEdited] = useState(false);
   const [g4SelectionBusy, setG4SelectionBusy] = useState(false);
   const [draftMediaItems, setDraftMediaItems] = useState<G5UploadedMedia[]>([]);
   const [selectedDraftMediaKey, setSelectedDraftMediaKey] = useState<string | null>(null);
@@ -1001,6 +1164,7 @@ export default function G5AssetApprovalPage() {
   const [postEditOpen, setPostEditOpen] = useState(false);
   const [postEditDraft, setPostEditDraft] = useState<AssetEditDraft | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
+  const [composerLoading, setComposerLoading] = useState(false);
   const [originalPostModalOpen, setOriginalPostModalOpen] = useState(false);
   const [g4DialogOpen, setG4DialogOpen] = useState(false);
   const [isDesktop, setIsDesktop] = useState(false);
@@ -1009,18 +1173,26 @@ export default function G5AssetApprovalPage() {
   const deferredSearch = useDeferredValue(search);
 
   const g4ReadyReviews = g4ReadyContent?.reviews ?? EMPTY_G4_REVIEWS;
-  const registeredG4ReviewKeySet = useMemo(() => new Set(registeredG4ReviewKeys.map((value) => value.trim()).filter(Boolean)), [registeredG4ReviewKeys]);
+  const registeredG4ReviewKeySet = useMemo(
+    () => new Set(registeredG4ReviewKeys.map((value) => normalizeSelectionText(value)).filter(Boolean)),
+    [registeredG4ReviewKeys],
+  );
   const selectableG4Reviews = useMemo(
-    () =>
-      g4ReadyReviews
+    () => {
+      const seenKeys = new Set<string>();
+
+      return g4ReadyReviews
         .map(toSelectableG4Review)
         .filter((review) => {
-          const candidateKeys = [review.id, review.g4_review_id, review.g4_review_uuid, review.content_review_id, review.review_id]
-            .map((value) => value?.trim() ?? "")
-            .filter(Boolean);
+          const candidateKeys = buildApprovedContentCandidateKeys(review);
+          if (candidateKeys.some((key) => seenKeys.has(key))) {
+            return false;
+          }
 
+          candidateKeys.forEach((key) => seenKeys.add(key));
           return !candidateKeys.some((key) => registeredG4ReviewKeySet.has(key));
-        }),
+        });
+    },
     [g4ReadyReviews, registeredG4ReviewKeySet],
   );
   const allAssets = dashboard?.assets ?? EMPTY_G5_ASSETS;
@@ -1132,20 +1304,22 @@ export default function G5AssetApprovalPage() {
         .some((value) => value.toLowerCase().includes(searchQuery));
     });
   }, [allAssets, searchQuery]);
+  const captionOptions = draftContent?.caption_options ?? EMPTY_G5_CAPTION_OPTIONS;
+  const hookOptions = draftContent?.hook_options ?? EMPTY_G5_HOOK_OPTIONS;
   const selectedCaptionOption = useMemo(() => {
     if (!draftContent) {
       return null;
     }
 
-    return draftContent.caption_options.find((option) => option.id === selectedCaptionId) ?? null;
-  }, [draftContent, selectedCaptionId]);
+    return captionOptions.find((option) => option.id === selectedCaptionId) ?? null;
+  }, [captionOptions, draftContent, selectedCaptionId]);
   const selectedHookOption = useMemo(() => {
     if (!draftContent) {
       return null;
     }
 
-    return draftContent.hook_options.find((option) => option.id === selectedHookId) ?? null;
-  }, [draftContent, selectedHookId]);
+    return hookOptions.find((option) => option.id === selectedHookId) ?? null;
+  }, [draftContent, hookOptions, selectedHookId]);
   const draftHookText = selectedHookOption?.text?.trim() || null;
   const draftMedia = useMemo(() => {
     if (!draftMediaItems.length) {
@@ -1158,6 +1332,7 @@ export default function G5AssetApprovalPage() {
 
     return draftMediaItems[draftMediaItems.length - 1] ?? null;
   }, [draftMediaItems, selectedDraftMediaKey]);
+  const isDevelopment = process.env.NODE_ENV === "development";
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1176,6 +1351,35 @@ export default function G5AssetApprovalPage() {
     media.addListener(update);
     return () => media.removeListener(update);
   }, []);
+
+  useEffect(() => {
+    if (!isDevelopment || !composerOpen) {
+      return;
+    }
+
+    const startedAt = composerOpenStartedAtRef.current;
+    if (startedAt == null) {
+      return;
+    }
+
+    console.debug("[G5 composer] modal shell opened", {
+      elapsedMs: Math.round(performance.now() - startedAt),
+    });
+    composerOpenStartedAtRef.current = null;
+  }, [composerOpen, isDevelopment]);
+
+  useEffect(() => {
+    if (!isDevelopment || !composerOpen || !draftContent) {
+      return;
+    }
+
+    console.debug("[G5 composer] caption options loaded", {
+      reviewId: draftContent.id,
+      captionCount: captionOptions.length,
+      hookCount: hookOptions.length,
+      loading: composerLoading,
+    });
+  }, [captionOptions.length, composerLoading, composerOpen, draftContent, hookOptions.length, isDevelopment]);
 
   const loadData = useCallback(async (mode: "initial" | "refresh" = "initial") => {
     if (mode === "initial") {
@@ -1421,8 +1625,20 @@ export default function G5AssetApprovalPage() {
 
   const handleSelectG4Review = useCallback(
     async (review: G5SelectedContentRecord) => {
+      composerOpenStartedAtRef.current = typeof performance !== "undefined" ? performance.now() : null;
       setG4SelectionBusy(true);
       setInlineError(null);
+      setComposerLoading(true);
+      setCaptionDraftManuallyEdited(false);
+      setSelectedCaptionId(null);
+      setSelectedHookId(null);
+      setDraftCaption("");
+      setDraftMediaItems([]);
+      setSelectedDraftMediaKey(null);
+      setDraftContent(createComposerDraftPlaceholder(review));
+      setOriginalPostModalOpen(false);
+      setG4DialogOpen(false);
+      setComposerOpen(true);
 
       try {
         const response = await authFetch(buildRouteUrl(`/api/admin/g5/g4-content-options?reviewId=${encodeURIComponent(review.id)}`), {
@@ -1437,33 +1653,45 @@ export default function G5AssetApprovalPage() {
         }
 
         const selected = body.review;
+        if (isDevelopment) {
+          console.debug("[G5 composer] caption options received", {
+            reviewId: selected.id,
+            captionCount: selected.caption_options?.length ?? 0,
+            hookCount: selected.hook_options?.length ?? 0,
+          });
+        }
         setDraftContent(selected);
         setSelectedCaptionId(null);
         setSelectedHookId(null);
         setDraftCaption("");
         setDraftMediaItems([]);
         setSelectedDraftMediaKey(null);
-        setOriginalPostModalOpen(false);
-        setG4DialogOpen(false);
-        setComposerOpen(true);
+        setCaptionDraftManuallyEdited(false);
         toast.success(body.message || "G4 content selected.");
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unable to load selected G4 content.";
         setInlineError(message);
         toast.error(message);
+        setDraftContent(null);
+        setComposerOpen(false);
       } finally {
         setG4SelectionBusy(false);
+        setComposerLoading(false);
       }
     },
-    [authFetch]
+    [authFetch, isDevelopment]
   );
 
   const handleSelectCaptionOption = useCallback(
     (option: G5G4CaptionOption) => {
       setSelectedCaptionId(option.id);
-      setDraftCaption(option.text);
+      const shouldKeepManualCaption = captionDraftManuallyEdited && draftCaption.trim().length > 0;
+      if (!shouldKeepManualCaption) {
+        setDraftCaption(option.text);
+        setCaptionDraftManuallyEdited(false);
+      }
     },
-    []
+    [captionDraftManuallyEdited, draftCaption]
   );
 
   const handleSelectHookOption = useCallback(
@@ -1482,6 +1710,13 @@ export default function G5AssetApprovalPage() {
       return;
     }
 
+    if (composerLoading) {
+      const message = "Wait for the caption options to finish loading.";
+      setInlineError(message);
+      toast.error(message);
+      return;
+    }
+
     if (!draftMedia) {
       const message = "Upload media before registering this asset.";
       setInlineError(message);
@@ -1491,7 +1726,7 @@ export default function G5AssetApprovalPage() {
 
     const caption = draftCaption.trim();
     if (!caption) {
-      const message = draftContent.caption_options.length > 0 ? "Select a caption and edit it before registering this asset." : "Enter a caption before registering this asset.";
+      const message = captionOptions.length > 0 ? "Select a caption and edit it before registering this asset." : "Enter a caption before registering this asset.";
       setInlineError(message);
       toast.error(message);
       return;
@@ -1536,30 +1771,79 @@ export default function G5AssetApprovalPage() {
         throw new Error(message);
       }
 
-      toast.success(body.message || "Asset registered.");
-      setRegisteredG4ReviewKeys((current) => {
-        const nextKeys = new Set(current);
-        for (const value of [draftContent.id, draftContent.g4_review_id, draftContent.g4_review_uuid, draftContent.content_review_id, draftContent.review_id]) {
-          const key = value?.trim();
-          if (key) {
-            nextKeys.add(key);
-          }
+      const responseRecord = body as unknown as Record<string, unknown>;
+      const responseRawRecord = (body.raw as Record<string, unknown> | null) ?? null;
+      const registeredAssetId =
+        [responseRecord.asset_id, responseRecord.assetId, responseRawRecord?.asset_id, responseRawRecord?.assetId]
+          .find((value): value is string => typeof value === "string" && value.trim().length > 0)
+          ?.trim() ?? "";
+      const registeredApprovalId =
+        [responseRecord.approval_id, responseRecord.approvalId, responseRawRecord?.approval_id, responseRawRecord?.approvalId]
+          .find((value): value is string => typeof value === "string" && value.trim().length > 0)
+          ?.trim() ?? "";
+      const registeredAt = new Date().toISOString();
+      const registeredContentKeys = buildApprovedContentCandidateKeys(draftContent);
+      const optimisticAssetId = registeredAssetId || registeredApprovalId || draftContent.id;
+      const optimisticApprovalId = registeredApprovalId || registeredAssetId || draftContent.id;
+      const optimisticAsset = buildOptimisticG5AssetRecord(
+        draftContent,
+        draftMedia,
+        optimisticAssetId,
+        optimisticApprovalId,
+        registeredAt,
+        caption,
+        draftHookText,
+      );
+
+      toast.success("Asset registered and moved to Pending Approval.");
+      setRegisteredG4ReviewKeys((current) => [...new Set([...current, ...registeredContentKeys])]);
+      setDashboard((current) => {
+        if (!current) {
+          return {
+            status: "PASS",
+            source: "FALLBACK",
+            message: "G5 dashboard updated optimistically.",
+            summary: {
+              total: 1,
+              pending_approval: 1,
+              ready_to_publish: 0,
+              published_manually: 0,
+              blocked: 0,
+            },
+            assets: [optimisticAsset],
+          };
         }
-        return [...nextKeys];
+
+        const existingIndex = current.assets.findIndex((asset) => asset.asset_id === optimisticAsset.asset_id);
+        const nextAssets =
+          existingIndex >= 0
+            ? current.assets.map((asset) => (asset.asset_id === optimisticAsset.asset_id ? { ...asset, ...optimisticAsset } : asset))
+            : [optimisticAsset, ...current.assets];
+
+        return {
+          ...current,
+          summary:
+            existingIndex >= 0
+              ? current.summary
+              : {
+                  ...current.summary,
+                  total: current.summary.total + 1,
+                  pending_approval: current.summary.pending_approval + 1,
+                },
+          assets: nextAssets,
+        };
       });
       setDraftContent(null);
       setDraftCaption("");
       setSelectedCaptionId(null);
       setSelectedHookId(null);
+      setCaptionDraftManuallyEdited(false);
       setDraftMediaItems([]);
       setSelectedDraftMediaKey(null);
       setComposerOpen(false);
+      composerOpenStartedAtRef.current = null;
       setActiveTab("pending-approval");
-
-      const rawAssetId = body.raw?.asset_id;
-      if (typeof rawAssetId === "string" && rawAssetId.trim()) {
-        setSelectedAssetId(rawAssetId.trim());
-      }
+      setSelectedAssetId(optimisticAsset.asset_id);
 
       await refreshData();
     } catch (error) {
@@ -1569,7 +1853,7 @@ export default function G5AssetApprovalPage() {
     } finally {
       setBusyAction(null);
     }
-  }, [authFetch, draftCaption, draftContent, draftHookText, draftMedia, g4ReadyReviews.length, refreshData, user?.email, user?.id, user?.name]);
+  }, [authFetch, captionOptions.length, composerLoading, draftCaption, draftContent, draftHookText, draftMedia, g4ReadyReviews.length, refreshData, user?.email, user?.id, user?.name]);
 
   const handleApprovalDecision = useCallback(
     async (decision: "APPROVED" | "REJECTED") => {
@@ -1711,10 +1995,13 @@ export default function G5AssetApprovalPage() {
     setDraftCaption("");
     setSelectedCaptionId(null);
     setSelectedHookId(null);
+    setCaptionDraftManuallyEdited(false);
+    setComposerLoading(false);
     setDraftMediaItems([]);
     setSelectedDraftMediaKey(null);
     setOriginalPostModalOpen(false);
     setComposerOpen(false);
+    composerOpenStartedAtRef.current = null;
   }, []);
 
   const originalPost = draftContent?.original_post ?? {
@@ -1752,6 +2039,7 @@ export default function G5AssetApprovalPage() {
           size="sm"
           className="mr-8 h-8 rounded-full px-3.5 text-[11px] sm:mr-10"
           onClick={() => setOriginalPostModalOpen(true)}
+          disabled={composerLoading}
         >
           <ExternalLink className="size-4" />
           Original post data
@@ -1763,9 +2051,18 @@ export default function G5AssetApprovalPage() {
           <div className="space-y-2">
             <Label className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Choose Caption</Label>
 
-            {draftContent.caption_options.length > 0 ? (
+            {composerLoading && !captionOptions.length ? (
+              <div className="space-y-2">
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <div key={`caption-skeleton-${index}`} className="rounded-[14px] border border-border/70 bg-[#fbf8f6] px-3 py-2.5 shadow-none">
+                    <Skeleton className="h-4 w-4/5 rounded-full" />
+                    <Skeleton className="mt-2 h-3 w-11/12 rounded-full" />
+                  </div>
+                ))}
+              </div>
+            ) : captionOptions.length > 0 ? (
               <>
-                {draftContent.caption_options.map((option) => (
+                {captionOptions.map((option) => (
                   <button
                     key={option.id}
                     type="button"
@@ -1794,9 +2091,17 @@ export default function G5AssetApprovalPage() {
           <div className="space-y-2">
             <Label className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Choose Hook</Label>
 
-            {draftContent.hook_options.length > 0 ? (
+            {composerLoading && !hookOptions.length ? (
+              <div className="space-y-2">
+                {Array.from({ length: 3 }).map((_, index) => (
+                  <div key={`hook-skeleton-${index}`} className="rounded-[14px] border border-border/70 bg-[#fbf8f6] px-3 py-2.5 shadow-none">
+                    <Skeleton className="h-4 w-3/5 rounded-full" />
+                  </div>
+                ))}
+              </div>
+            ) : hookOptions.length > 0 ? (
               <>
-                {draftContent.hook_options.map((option) => (
+                {hookOptions.map((option) => (
                   <button
                     key={option.id}
                     type="button"
@@ -1830,8 +2135,11 @@ export default function G5AssetApprovalPage() {
               <Textarea
                 id="g5-caption"
                 value={draftCaption}
-                onChange={(event) => setDraftCaption(event.target.value)}
-                placeholder={draftContent.caption_options.length ? "Edit the final caption before saving the queue item." : "Enter the final caption for this post."}
+                onChange={(event) => {
+                  setDraftCaption(event.target.value);
+                  setCaptionDraftManuallyEdited(true);
+                }}
+                placeholder={captionOptions.length ? "Edit the final caption before saving the queue item." : "Enter the final caption for this post."}
                 className="min-h-14 rounded-[20px] border-border/70 bg-white px-3.5 py-2.5 text-[13px] leading-5 shadow-sm"
               />
             </div>
@@ -1920,7 +2228,7 @@ export default function G5AssetApprovalPage() {
                 {busyAction === "upload" ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
                 Add media
               </Button>
-              <Button type="button" onClick={handleRegisterAsset} disabled={busyAction === "register"} className="h-9 rounded-full bg-primary px-4 text-sm">
+              <Button type="button" onClick={handleRegisterAsset} disabled={busyAction === "register" || composerLoading} className="h-9 rounded-full bg-primary px-4 text-sm">
                 {busyAction === "register" ? <Loader2 className="size-4 animate-spin" /> : <BadgeCheck className="size-4" />}
                 Register asset
               </Button>
@@ -2279,6 +2587,7 @@ export default function G5AssetApprovalPage() {
                         <div className="flex flex-col gap-3">
                           {filteredApprovedContent.map((review) => {
                             const selected = draftContent?.id === review.id;
+                            const isAlreadyRegistered = buildApprovedContentCandidateKeys(review).some((key) => registeredG4ReviewKeySet.has(key));
                             const reviewMetrics = [
                               {
                                 label: "Views",
@@ -2369,14 +2678,21 @@ export default function G5AssetApprovalPage() {
                                     </div>
 
                                     <div className="flex flex-wrap items-center gap-2 pt-1">
-                                      <Button
-                                        type="button"
-                                        className="inline-flex h-9 items-center rounded-full px-4 text-sm leading-none shadow-none"
-                                        onClick={() => void handleSelectG4Review(review)}
-                                      >
-                                        <Sparkles className="size-3.5" aria-hidden="true" />
-                                        Use this content
-                                      </Button>
+                                      {isAlreadyRegistered ? (
+                                        <div className="inline-flex h-9 items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 text-sm font-semibold leading-none text-slate-600 shadow-none">
+                                          <BadgeCheck className="size-3.5" aria-hidden="true" />
+                                          Already registered
+                                        </div>
+                                      ) : (
+                                        <Button
+                                          type="button"
+                                          className="inline-flex h-9 items-center rounded-full px-4 text-sm leading-none shadow-none"
+                                          onClick={() => void handleSelectG4Review(review)}
+                                        >
+                                          <Sparkles className="size-3.5" aria-hidden="true" />
+                                          Use this content
+                                        </Button>
+                                      )}
                                       <div className="inline-flex h-9 items-center gap-2 rounded-full border border-emerald-200 bg-white px-4 text-sm font-semibold leading-none text-emerald-700 shadow-none">
                                         <BadgeCheck className="size-3.5" aria-hidden="true" />
                                         Ready for G5

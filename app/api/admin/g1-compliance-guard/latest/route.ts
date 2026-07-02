@@ -12,8 +12,9 @@ import { recordCevonneAdminRouteView } from "@/server/next/api/cevonne-admin-sto
 const unauthorizedResponse = () => jsonResponse({ message: "Unauthorized" }, 401);
 const forbiddenResponse = () => jsonResponse({ message: "Forbidden" }, 403);
 
-const G1_COMPLIANCE_RUNS_TABLE = "g1_compliance_runs";
-const G1_RUN_ORDER_COLUMNS = ["handled_at", "completed_at", "created_at", "updated_at", "checked_at", "time", "timestamp"] as const;
+const G1_COMPLIANCE_RUNS_TABLE = "compliance_runs";
+const G1_LEGACY_COMPLIANCE_RUNS_TABLE = "g1_compliance_runs";
+const G1_RUN_ORDER_COLUMNS = ["created_at", "handled_at", "completed_at", "checked_at", "time", "timestamp", "updated_at"] as const;
 
 type SupabaseRow = Record<string, unknown>;
 
@@ -22,25 +23,28 @@ const isMissingColumnError = (error: { message?: string; code?: string } | null)
     return false;
   }
 
-  return error.code === "42703" || /column .* does not exist/i.test(error.message ?? "");
+  return error.code === "42703" || error.code === "42P01" || /column .* does not exist/i.test(error.message ?? "") || /relation .* does not exist/i.test(error.message ?? "");
 };
 
-const loadG1ComplianceRows = async () => {
+const queryG1ComplianceRows = async (tableName: string) => {
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    return [];
+    return { rows: [] as SupabaseRow[], missingTable: false };
   }
 
   const { supabaseAdmin } = await import("@/lib/supabase-admin");
 
   for (const orderColumn of G1_RUN_ORDER_COLUMNS) {
     const { data, error } = await supabaseAdmin
-      .from(G1_COMPLIANCE_RUNS_TABLE)
-      .select("*")
+      .from(tableName)
+      .select("id, created_at, workflow_group, action_type, platform, status, fail_reason, failure_reasons, policy_ids_checked, action_packet")
       .order(orderColumn, { ascending: false, nullsFirst: false })
       .limit(50);
 
     if (!error) {
-      return Array.isArray(data) ? (data as SupabaseRow[]) : [];
+      return {
+        rows: Array.isArray(data) ? (data as SupabaseRow[]) : [],
+        missingTable: false,
+      };
     }
 
     if (!isMissingColumnError(error)) {
@@ -48,12 +52,43 @@ const loadG1ComplianceRows = async () => {
     }
   }
 
-  const { data, error } = await supabaseAdmin.from(G1_COMPLIANCE_RUNS_TABLE).select("*").limit(50);
+  const { data, error } = await supabaseAdmin
+    .from(tableName)
+    .select("id, created_at, workflow_group, action_type, platform, status, fail_reason, failure_reasons, policy_ids_checked, action_packet")
+    .limit(50);
+
   if (error) {
+    if (isMissingColumnError(error)) {
+      return { rows: [], missingTable: true };
+    }
+
     throw error;
   }
 
-  return Array.isArray(data) ? (data as SupabaseRow[]) : [];
+  return {
+    rows: Array.isArray(data) ? (data as SupabaseRow[]) : [],
+    missingTable: false,
+  };
+};
+
+const loadG1ComplianceRows = async () => {
+  const primary = await queryG1ComplianceRows(G1_COMPLIANCE_RUNS_TABLE);
+  if (primary.rows.length > 0 || primary.missingTable === false) {
+    if (primary.rows.length > 0) {
+      return { rows: primary.rows, sourceTable: G1_COMPLIANCE_RUNS_TABLE };
+    }
+  }
+
+  const legacy = await queryG1ComplianceRows(G1_LEGACY_COMPLIANCE_RUNS_TABLE);
+  if (legacy.rows.length > 0) {
+    return { rows: legacy.rows, sourceTable: G1_LEGACY_COMPLIANCE_RUNS_TABLE };
+  }
+
+  if (primary.missingTable) {
+    return { rows: legacy.rows, sourceTable: G1_LEGACY_COMPLIANCE_RUNS_TABLE };
+  }
+
+  return { rows: primary.rows, sourceTable: G1_COMPLIANCE_RUNS_TABLE };
 };
 
 const buildSnapshot = (rows: SupabaseRow[]) => {
@@ -61,7 +96,12 @@ const buildSnapshot = (rows: SupabaseRow[]) => {
   return buildG1ComplianceGuardSnapshotFromDecisionSources(decisions);
 };
 
-const recordRouteView = (auth: { id: string; email: string | null }, snapshot: G1ComplianceGuardSnapshot) => {
+const recordRouteView = (
+  auth: { id: string; email: string | null },
+  snapshot: G1ComplianceGuardSnapshot,
+  sourceTable: string,
+  rows: SupabaseRow[],
+) => {
   recordCevonneAdminRouteView({
     workflowGroup: "G1",
     actionType: "VIEW_WORKFLOW_DETAIL",
@@ -70,9 +110,11 @@ const recordRouteView = (auth: { id: string; email: string | null }, snapshot: G
     responseType: "G1_COMPLIANCE_GUARD_READY",
     payloadSummary: JSON.stringify({
       workflow_group: "G1",
+      source_table: sourceTable,
       status: snapshot.status,
       last_run_at: snapshot.lastRunAt,
       recent_checks: snapshot.recentOutcomes.length,
+      total_rows: rows.length,
     }),
     adminUserId: auth.id,
     adminEmail: auth.email,
@@ -90,11 +132,11 @@ export async function GET(request: Request) {
   }
 
   try {
-    const rows = await loadG1ComplianceRows();
+    const { rows, sourceTable } = await loadG1ComplianceRows();
     const snapshot = buildSnapshot(rows);
     const message = rows.length > 0 ? "G1 compliance guard data loaded from Supabase." : "No G1 compliance runs found yet.";
 
-    recordRouteView({ id: auth.id, email: auth.email }, snapshot);
+    recordRouteView({ id: auth.id, email: auth.email }, snapshot, sourceTable, rows);
 
     return jsonResponse(
       {
@@ -103,6 +145,7 @@ export async function GET(request: Request) {
         message,
         snapshot,
         runs: rows,
+        source_table: sourceTable,
       },
       200,
     );

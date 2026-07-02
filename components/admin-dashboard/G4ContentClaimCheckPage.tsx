@@ -1,23 +1,22 @@
 "use client";
 
-import { useEffect, useState, type ReactNode, Fragment } from "react";
+import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
 import { format, parseISO } from "date-fns";
 import {
   AlertTriangle,
   ArrowRight,
-  ChevronRight,
+  ChevronDown,
   CircleHelp,
   Copy,
   Database,
   ExternalLink,
-  FileCheck2,
   Instagram,
+  Loader2,
+  MoreHorizontal,
   Music2,
+  PencilLine,
   RefreshCcw,
   Sparkles,
-  Eye,
-  PlayCircle,
-  CheckCircle2,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -25,95 +24,242 @@ import { toast } from "sonner";
 import WorkflowDashboardShell from "@/components/admin-dashboard/WorkflowDashboardShell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/context/AuthContext";
-import {
-  formatG4ResultLabel,
-  formatG4StatusTone,
-  type G4RecentOutcome,
-  type G4WorkflowDetail,
-} from "@/lib/admin/g4-content-review";
+import { type G4RecentOutcome, type G4WorkflowDetail } from "@/lib/admin/g4-content-review";
 import { cn } from "@/lib/utils";
 
 type G4ContentClaimCheckPageProps = {
   detail: G4WorkflowDetail;
 };
 
-type G4Status = G4WorkflowDetail["status"];
+type G4DisplayStatus = "PASS" | "PENDING_G5_APPROVAL" | "REQUESTED_CHANGES" | "REJECTED" | "NEEDS_EVIDENCE" | "BLOCK" | "ERROR";
 
-type G4RecheckResponse = {
-  status: G4Status | "ERROR";
+type G4WebhookResponse = {
+  status: string;
   message: string;
+  review_id?: string | null;
+  asset_id?: string | null;
+  approval_state?: string | null;
+  already_pending?: boolean | null;
+  request_id?: string | null;
 };
 
-type G4ApprovalRequestResponse = {
-  status: "PASS" | "BLOCK" | "ERROR";
-  message: string;
-  approvalId: string | null;
-  alreadyQueued: boolean;
-  approvalRequest: G4WorkflowDetail["approvalRequest"];
-};
-
-type ActionConfig = {
-  label: string;
-  disabled: boolean;
-  helper: string | null;
-  action: "fix" | "view" | "approval" | "evidence" | "manual";
-};
+type G4UserActionType = "SEND_TO_G5_APPROVAL" | "REQUEST_CHANGES" | "REJECT_CONTENT";
+type G4ActionTask = G4UserActionType | "RECREATE_CONTENT" | "MANUAL_EDIT_CHECK";
 
 const REQUIRED_COPY_WARNING_TERMS = /(clearer skin|fix acne|guaranteed|permanent|overnight|heal|cure|transform)/i;
 
-const getStatusAccentClass = (status: G4Status) => {
-  switch (status) {
-    case "PASS":
-      return "bg-emerald-400";
-    case "BLOCK":
-      return "bg-rose-400";
-    case "PENDING_APPROVAL":
-      return "bg-sky-400";
-    case "MANUAL_ONLY":
-      return "bg-violet-400";
-    case "NEEDS_EVIDENCE":
-      return "bg-amber-400";
-    case "ERROR":
-    default:
-      return "bg-slate-400";
-  }
-};
-
-const getActionToneClass = (status: G4Status) => {
-  switch (status) {
-    case "PASS":
-      return "border-emerald-200 bg-emerald-50 text-emerald-950";
-    case "BLOCK":
-      return "border-rose-200 bg-rose-50 text-rose-950";
-    case "PENDING_APPROVAL":
-      return "border-sky-200 bg-sky-50 text-sky-950";
-    case "MANUAL_ONLY":
-      return "border-violet-200 bg-violet-50 text-violet-950";
-    case "NEEDS_EVIDENCE":
-      return "border-amber-200 bg-amber-50 text-amber-950";
-    case "ERROR":
-    default:
-      return "border-slate-200 bg-slate-100 text-slate-950";
-  }
-};
-
-const buildInitialDraft = (detail: G4WorkflowDetail) =>
-  detail.cleanAiOutput?.safeRewrite ??
-  detail.contentPreview.contentText ??
-  detail.contentPreview.pageText ??
-  detail.latestOutcome?.summary ??
-  "";
-
-const getApprovalSourceId = (outcome: Pick<G4RecentOutcome, "reviewId" | "assetId"> | null) => outcome?.reviewId ?? outcome?.assetId ?? null;
-
 const normalizeRecentOutcomeKeyPart = (value: string | null | undefined) => value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
+
+const getRecentOutcomeKey = (outcome: Pick<G4RecentOutcome, "reviewId" | "assetId" | "sourceId"> | null | undefined) => {
+  if (!outcome) {
+    return null;
+  }
+
+  return [
+    normalizeRecentOutcomeKeyPart(outcome.reviewId),
+    normalizeRecentOutcomeKeyPart(outcome.assetId),
+    normalizeRecentOutcomeKeyPart(outcome.sourceId),
+  ]
+    .filter(Boolean)
+    .join("::") || null;
+};
+
+const getReviewAssetKey = (reviewId: string | null | undefined, assetId: string | null | undefined) => {
+  const reviewKey = normalizeRecentOutcomeKeyPart(reviewId);
+  const assetKey = normalizeRecentOutcomeKeyPart(assetId);
+  if (!reviewKey || !assetKey) {
+    return null;
+  }
+
+  return `${reviewKey}::${assetKey}`;
+};
+
+const getRowDisplayStatus = (row: G4RecentOutcome, overrideStatus?: G4DisplayStatus | null): G4DisplayStatus => {
+  if (overrideStatus) {
+    return overrideStatus;
+  }
+
+  const approvalRequestStatus = row.approvalRequest?.status?.trim().toUpperCase() ?? "";
+  if (approvalRequestStatus) {
+    if (approvalRequestStatus === "CHANGES_REQUESTED") {
+      return "REQUESTED_CHANGES";
+    }
+
+    if (approvalRequestStatus === "REJECTED" || approvalRequestStatus === "DECLINED" || approvalRequestStatus === "DENIED") {
+      return "REJECTED";
+    }
+
+    return "PENDING_G5_APPROVAL";
+  }
+
+  const approvalState = row.approvalState?.trim().toUpperCase() ?? "";
+  if (approvalState === "CHANGES_REQUESTED") {
+    return "REQUESTED_CHANGES";
+  }
+
+  if (approvalState === "REJECTED" || approvalState === "NOT_APPROVED" || approvalState === "DECLINED" || approvalState === "DENIED") {
+    return "REJECTED";
+  }
+
+  switch (row.result) {
+    case "PASS":
+    case "PENDING_APPROVAL":
+      return "PASS";
+    case "BLOCK":
+      return "BLOCK";
+    case "NEEDS_EVIDENCE":
+      return "NEEDS_EVIDENCE";
+    case "MANUAL_ONLY":
+      return "BLOCK";
+    case "ERROR":
+    default:
+      return "ERROR";
+  }
+};
+
+const getG4DisplayStatusLabel = (status: G4DisplayStatus) => {
+  switch (status) {
+    case "PASS":
+      return "Ready for G5";
+    case "PENDING_G5_APPROVAL":
+      return "Sent to G5";
+    case "REQUESTED_CHANGES":
+      return "Changes requested";
+    case "REJECTED":
+      return "Rejected";
+    case "NEEDS_EVIDENCE":
+      return "Needs evidence";
+    case "BLOCK":
+      return "Blocked";
+    case "ERROR":
+    default:
+      return "Error";
+  }
+};
+
+const getG4DisplayStatusToneClass = (status: G4DisplayStatus) => {
+  switch (status) {
+    case "PASS":
+      return "border-emerald-200 bg-emerald-50 text-emerald-700";
+    case "PENDING_G5_APPROVAL":
+      return "border-sky-200 bg-sky-50 text-sky-700";
+    case "REQUESTED_CHANGES":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    case "REJECTED":
+      return "border-rose-200 bg-rose-50 text-rose-700";
+    case "NEEDS_EVIDENCE":
+      return "border-amber-200 bg-amber-50 text-amber-700";
+    case "BLOCK":
+      return "border-rose-200 bg-rose-50 text-rose-700";
+    case "ERROR":
+    default:
+      return "border-slate-200 bg-slate-100 text-slate-700";
+  }
+};
+
+const normalizeWebhookDisplayStatus = (status: string | null | undefined): G4DisplayStatus => {
+  const normalized = status?.trim().toUpperCase() ?? "";
+
+  switch (normalized) {
+    case "PASS":
+      return "PASS";
+    case "PENDING_APPROVAL":
+    case "PENDING_G5_APPROVAL":
+    case "PENDING_HUMAN_APPROVAL":
+    case "READY_FOR_APPROVAL":
+    case "REVIEW_REQUESTED":
+    case "IN_REVIEW":
+      return "PENDING_G5_APPROVAL";
+    case "CHANGES_REQUESTED":
+    case "REQUEST_CHANGES":
+    case "REQUESTED_CHANGES":
+      return "REQUESTED_CHANGES";
+    case "REJECTED":
+    case "NOT_APPROVED":
+    case "DECLINED":
+    case "DENIED":
+      return "REJECTED";
+    case "NEEDS_EVIDENCE":
+      return "NEEDS_EVIDENCE";
+    case "BLOCK":
+      return "BLOCK";
+    case "MANUAL_ONLY":
+      return "BLOCK";
+    case "ERROR":
+    default:
+      return "ERROR";
+  }
+};
+
+const getG4CardHelperCopy = (status: G4DisplayStatus) => {
+  switch (status) {
+    case "PASS":
+      return "Content check passed. Send to G5 for human approval.";
+    case "PENDING_G5_APPROVAL":
+      return "Content is already waiting on G5 approval.";
+    case "REQUESTED_CHANGES":
+      return "New version can be generated from this feedback.";
+    case "REJECTED":
+      return "This content will not move to G5.";
+    case "NEEDS_EVIDENCE":
+      return "Add proof before this can continue.";
+    case "BLOCK":
+      return "Fix the issue before this can move forward.";
+    case "ERROR":
+    default:
+      return "Unable to load content checks right now.";
+  }
+};
+
+const getG4CardMainButtonLabel = (status: G4DisplayStatus) => {
+  switch (status) {
+    case "PASS":
+      return "Send to G5 Approval";
+    case "PENDING_G5_APPROVAL":
+      return "Sent to G5 Approval";
+    default:
+      return "View Details";
+  }
+};
+
+const getG4RecentRowActionLabel = (status: G4DisplayStatus) => {
+  switch (status) {
+    case "PASS":
+      return "Send to G5 Approval";
+    case "PENDING_G5_APPROVAL":
+      return "Sent to G5";
+    case "REQUESTED_CHANGES":
+    case "REJECTED":
+      return "View";
+    case "NEEDS_EVIDENCE":
+      return "Fix required";
+    case "BLOCK":
+    case "ERROR":
+    default:
+      return "View issue";
+  }
+};
+
+const buildManualEditDraft = (row: G4RecentOutcome | null) =>
+  row?.cleanAiOutput?.safeRewrite ??
+  row?.contentPreview.captionPreview ??
+  row?.contentPreview.contentText ??
+  row?.contentPreview.pageText ??
+  row?.whatHappened ??
+  "";
 
 type SourceContentSection = {
   label: string;
@@ -211,7 +357,7 @@ function TrendMetricChip({ label, value }: { label: string; value: ReactNode }) 
 }
 
 const parseMetrics = (preview: Pick<G4RecentOutcome["contentPreview"], "views" | "likes" | "shares" | "trendStrength" | "brandFitScore" | "contentText" | "profileUsername" | "audioSound" | "comments">) => {
-  const t = preview.contentText || "";
+  const t = [preview.contentText, preview.comments, preview.profileUsername, preview.audioSound].filter(Boolean).join(" ");
   const extract = (regex: RegExp) => {
     const match = t.match(regex);
     return match ? match[1] : null;
@@ -242,123 +388,6 @@ function PlatformPill({ platform, className }: { platform: string | null; classN
     </div>
   );
 }
-
-const getActionPanelCopy = (status: G4Status) => {
-  switch (status) {
-    case "BLOCK":
-      return {
-        title: "Fix this content before it can move forward",
-        body: "This content cannot move forward or be published until the risky claim is removed or rewritten.",
-        buttonLabel: "Fix content",
-        buttonAction: "fix" as const,
-        disabled: false,
-        helper: null,
-      };
-    case "PENDING_APPROVAL":
-      return {
-        title: "Ready for G5",
-        body: "The content check passed and is ready to move into G5.",
-        buttonLabel: "Use this content",
-        buttonAction: "approval" as const,
-        disabled: false,
-        helper: null,
-      };
-    case "PASS":
-      return {
-        title: "Ready for G5",
-        body: "Content check passed and is ready for G5.",
-        buttonLabel: "Use this content",
-        buttonAction: "approval" as const,
-        disabled: false,
-        helper: null,
-      };
-    case "NEEDS_EVIDENCE":
-      return {
-        title: "Add missing proof before this can continue",
-        body: "This content needs proof before it can move forward.",
-        buttonLabel: "Add evidence",
-        buttonAction: "evidence" as const,
-        disabled: true,
-        helper: "Evidence action is not connected yet.",
-      };
-    case "MANUAL_ONLY":
-      return {
-        title: "Manual review required",
-        body: "This content needs manual review before it can continue.",
-        buttonLabel: "Manual review",
-        buttonAction: "manual" as const,
-        disabled: true,
-        helper: "Manual review action is not connected yet.",
-      };
-    case "ERROR":
-    default:
-      return {
-        title: "Check the data source",
-        body: "Unable to load content checks right now.",
-        buttonLabel: "View details",
-        buttonAction: "view" as const,
-        disabled: false,
-        helper: null,
-      };
-  }
-};
-
-const getRecentRowAction = (status: G4Status): ActionConfig => {
-  switch (status) {
-    case "BLOCK":
-      return {
-        label: "Fix",
-        disabled: false,
-        helper: null,
-        action: "fix",
-      };
-    case "PENDING_APPROVAL":
-      return {
-        label: "Queue",
-        disabled: false,
-        helper: null,
-        action: "approval",
-      };
-    case "PASS":
-      return {
-        label: "View",
-        disabled: false,
-        helper: null,
-        action: "view",
-      };
-    case "NEEDS_EVIDENCE":
-      return {
-        label: "Add evidence",
-        disabled: true,
-        helper: "Evidence action is not connected yet.",
-        action: "evidence",
-      };
-    case "MANUAL_ONLY":
-      return {
-        label: "Manual review",
-        disabled: true,
-        helper: "Manual review action is not connected yet.",
-        action: "manual",
-      };
-    case "ERROR":
-    default:
-      return {
-        label: "View",
-        disabled: false,
-        helper: null,
-        action: "view",
-      };
-  }
-};
-
-const buildRecheckPayload = (detail: G4WorkflowDetail, draft: string) => ({
-  content_text: draft,
-  intended_use: "other",
-  platform: detail.latestOutcome?.platform ?? "WEBSITE",
-  requested_by: "admin",
-  dry_run: true,
-  notes: "G4 re-check from the content fix panel",
-});
 
 const isRiskyRewriteLanguage = (value: string | null) => Boolean(value && REQUIRED_COPY_WARNING_TERMS.test(value));
 
@@ -454,6 +483,7 @@ const getUniqueSourceContentSections = (
   const candidates: Array<SourceContentSection & { order: number }> = [
     { label: "Headline", value: preview.headline ?? "", order: 0 },
     { label: "Caption", value: preview.captionPreview ?? "", order: 1 },
+    { label: "Content text", value: preview.contentText ?? "", order: 2 },
     { label: "Content recommendation", value: preview.contentRecommendation ?? "", order: 3 },
     { label: "Clean summary", value: preview.cleanSummary ?? "", order: 4 },
     { label: "Hook angle", value: preview.hookAngle ?? "", order: 5 },
@@ -491,59 +521,78 @@ const getSourceCaptionText = (
     return captionPreview;
   }
 
+  const contentText = preview.contentText?.trim();
+  if (contentText) {
+    return contentText;
+  }
+
+  const pageText = preview.pageText?.trim();
+  if (pageText) {
+    return pageText;
+  }
+
+  const cleanSummary = preview.cleanSummary?.trim();
+  if (cleanSummary) {
+    return cleanSummary;
+  }
+
   return null;
 };
 
 function PendingApprovalCard({
   row,
-  onSendApproval,
+  displayStatus,
+  onSendToG5Approval,
   onViewDetails,
-  submittingSourceId,
+  onRequestChanges,
+  onRecreateContent,
+  onRejectContent,
+  isBusy,
 }: {
   row: G4RecentOutcome;
-  onSendApproval: (sourceId: string | null) => void;
+  displayStatus: G4DisplayStatus;
+  onSendToG5Approval: (row: G4RecentOutcome) => void;
   onViewDetails: () => void;
-  submittingSourceId: string | null;
+  onRequestChanges: (row: G4RecentOutcome) => void;
+  onRecreateContent: (row: G4RecentOutcome) => void;
+  onRejectContent: (row: G4RecentOutcome) => void;
+  isBusy: boolean;
 }) {
-  const sourceId = getApprovalSourceId(row);
-  const approvalRequest = row.approvalRequest;
-  const isSubmitting = submittingSourceId === sourceId;
-  const approvalButtonDisabled = submittingSourceId !== null || Boolean(approvalRequest) || !sourceId;
-  const approvalButtonLabel = isSubmitting
-    ? "Queueing..."
-    : approvalRequest
-      ? approvalRequest.status === "PENDING"
-        ? "Queued"
-        : "Approval recorded"
-      : "Use this content";
+  const selectedCaption = row.cleanAiOutput?.captionSuggestions?.[0] ?? row.contentPreview.captionPreview ?? row.contentPreview.contentText ?? null;
+  const selectedHook = row.cleanAiOutput?.hookSuggestions?.[0] ?? row.contentPreview.hookAngle ?? row.contentPreview.contentRecommendation ?? null;
+  const reviewAssetKey = getReviewAssetKey(row.reviewId, row.assetId);
+  const canSendToG5 = displayStatus === "PASS" && Boolean(reviewAssetKey && selectedCaption && selectedHook);
+  const mainButtonLabel = getG4CardMainButtonLabel(displayStatus);
+  const helperCopy = getG4CardHelperCopy(displayStatus);
 
   return (
     <div className="flex h-full flex-col rounded-[22px] border border-border/60 bg-white shadow-sm">
       <div className="flex flex-1 flex-col md:flex-row">
-        {/* Left side: status, summary, and actions */}
         <div className="flex flex-col p-4 md:max-w-[220px] md:shrink-0">
           <div className="flex items-center justify-between gap-2">
-            <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", formatG4StatusTone(row.result))}>
-              {formatG4ResultLabel(row.result)}
+            <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG4DisplayStatusToneClass(displayStatus))}>
+              {getG4DisplayStatusLabel(displayStatus)}
             </Badge>
             <div className="flex size-7 items-center justify-center rounded-lg border border-border/60 bg-muted/20">
               <PlatformIcon platform={row.platform} className="text-foreground" />
             </div>
           </div>
 
-          <p className="mt-2 text-[13px] leading-5 text-muted-foreground">{row.whatHappened}</p>
+          <p className="mt-2 text-[13px] leading-5 text-muted-foreground">{helperCopy}</p>
 
           <div className="mt-auto flex flex-col gap-2 pt-4">
-            <Button
-              type="button"
-              size="sm"
-              className="h-8 w-full rounded-full text-[11px] font-medium"
-              variant={approvalRequest ? "outline" : "default"}
-              disabled={approvalButtonDisabled}
-              onClick={() => void onSendApproval(sourceId)}
-            >
-              {approvalButtonLabel}
-            </Button>
+            {displayStatus === "PASS" || displayStatus === "PENDING_G5_APPROVAL" ? (
+              <Button
+                type="button"
+                size="sm"
+                className={cn("h-8 w-full rounded-full text-[11px] font-medium", displayStatus !== "PASS" && "border-sky-200 bg-sky-50 text-sky-700 hover:bg-sky-100")}
+                variant={displayStatus === "PASS" ? "default" : "outline"}
+                disabled={!canSendToG5 || isBusy || displayStatus !== "PASS"}
+                onClick={() => onSendToG5Approval(row)}
+              >
+                {isBusy ? "Sending to G5..." : mainButtonLabel}
+              </Button>
+            ) : null}
 
             <Button
               type="button"
@@ -555,10 +604,61 @@ function PendingApprovalCard({
               View Details
               <ArrowRight className="size-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
             </Button>
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  className="h-8 w-full rounded-full border-border/70 bg-white text-[11px] font-medium"
+                  disabled={isBusy}
+                >
+                  More actions
+                  <ChevronDown />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="min-w-[14rem] rounded-[18px] border-border/60 bg-white p-1 shadow-lg">
+                <DropdownMenuItem
+                  className="rounded-[14px] px-3 py-2 text-sm"
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    onRequestChanges(row);
+                  }}
+                >
+                  Request changes
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  className="rounded-[14px] px-3 py-2 text-sm"
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    onRecreateContent(row);
+                  }}
+                >
+                  Recreate content
+                </DropdownMenuItem>
+                <DropdownMenuSeparator className="my-1" />
+                <DropdownMenuItem
+                  variant="destructive"
+                  className="rounded-[14px] px-3 py-2 text-sm"
+                  onSelect={(event) => {
+                    event.preventDefault();
+                    onRejectContent(row);
+                  }}
+                >
+                  Reject
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {displayStatus === "PENDING_G5_APPROVAL" ? (
+              <div className="inline-flex items-center gap-2 self-start rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-sky-700">
+                Pending G5 Approval
+              </div>
+            ) : null}
           </div>
         </div>
 
-        {/* Right side: caption & hook suggestions */}
         {(row.cleanAiOutput?.captionSuggestions?.length || row.cleanAiOutput?.hookSuggestions?.length) ? (
           <div className="flex flex-1 flex-col gap-2.5 border-t border-border/50 p-4 md:border-t-0 md:border-l">
             <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Suggestions</p>
@@ -570,7 +670,13 @@ function PendingApprovalCard({
                 </div>
                 <ul className="space-y-1">
                   {row.cleanAiOutput.captionSuggestions.map((item, index) => (
-                    <li key={`cap-${index}`} className="rounded-xl border border-border/50 bg-muted/10 px-2.5 py-1.5 text-xs leading-5 text-foreground">
+                    <li
+                      key={`cap-${index}`}
+                      className={cn(
+                        "rounded-xl border px-2.5 py-1.5 text-xs leading-5 text-foreground",
+                        index === 0 ? "border-primary/25 bg-primary/5" : "border-border/50 bg-muted/10",
+                      )}
+                    >
                       {item}
                     </li>
                   ))}
@@ -585,7 +691,13 @@ function PendingApprovalCard({
                 </div>
                 <ul className="space-y-1">
                   {row.cleanAiOutput.hookSuggestions.map((item, index) => (
-                    <li key={`hook-${index}`} className="rounded-xl border border-border/50 bg-muted/10 px-2.5 py-1.5 text-xs leading-5 text-foreground">
+                    <li
+                      key={`hook-${index}`}
+                      className={cn(
+                        "rounded-xl border px-2.5 py-1.5 text-xs leading-5 text-foreground",
+                        index === 0 ? "border-primary/25 bg-primary/5" : "border-border/50 bg-muted/10",
+                      )}
+                    >
                       {item}
                     </li>
                   ))}
@@ -605,17 +717,91 @@ function PendingApprovalDetailsDialog({
   row,
   open,
   onOpenChange,
+  displayStatus,
+  isBusy,
+  onSendToG5Approval,
+  onRequestChanges,
+  onRejectContent,
+  onManualEditCheck,
 }: {
   row: G4RecentOutcome | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  displayStatus: G4DisplayStatus;
+  isBusy: boolean;
+  onSendToG5Approval: (row: G4RecentOutcome) => Promise<G4WebhookResponse | null>;
+  onRequestChanges: (row: G4RecentOutcome) => void;
+  onRejectContent: (row: G4RecentOutcome) => void;
+  onManualEditCheck: (row: G4RecentOutcome, contentText: string) => Promise<G4WebhookResponse | null>;
 }) {
+  const [manualEditOpen, setManualEditOpen] = useState(false);
+  const [manualEditDraft, setManualEditDraft] = useState(buildManualEditDraft(row));
+  const [manualEditSubmitting, setManualEditSubmitting] = useState(false);
+  const [manualEditValidated, setManualEditValidated] = useState(false);
+  const sourceUrl = row?.contentPreview.sourceUrl ?? row?.contentPreview.landingPageUrl;
+  const sourceCaption = row ? getSourceCaptionText(row.contentPreview) : null;
+
+  useEffect(() => {
+    if (!row) {
+      setManualEditOpen(false);
+      setManualEditDraft("");
+      setManualEditSubmitting(false);
+      setManualEditValidated(false);
+      return;
+    }
+
+    setManualEditOpen(false);
+    setManualEditDraft(buildManualEditDraft(row));
+    setManualEditSubmitting(false);
+    setManualEditValidated(displayStatus === "PASS");
+  }, [displayStatus, row]);
+
+  const handleManualEditToggle = () => {
+    setManualEditOpen((current) => {
+      const next = !current;
+      if (next) {
+        setManualEditValidated(false);
+      }
+      return next;
+    });
+  };
+
   if (!row) {
     return null;
   }
 
-  const sourceUrl = row.contentPreview.sourceUrl ?? row.contentPreview.landingPageUrl;
-  const sourceCaption = getSourceCaptionText(row.contentPreview);
+  const hasManualRiskWarning = isRiskyRewriteLanguage(manualEditDraft);
+  const selectedCaption = row.cleanAiOutput?.captionSuggestions?.[0] ?? row.contentPreview.captionPreview ?? row.contentPreview.contentText ?? null;
+  const selectedHook = row.cleanAiOutput?.hookSuggestions?.[0] ?? row.contentPreview.hookAngle ?? row.contentPreview.contentRecommendation ?? null;
+  const reviewAssetKey = getReviewAssetKey(row.reviewId, row.assetId);
+  const canSendToG5 = displayStatus === "PASS" && Boolean(reviewAssetKey && selectedCaption && selectedHook);
+  const sendToG5Disabled = isBusy || !canSendToG5 || displayStatus !== "PASS";
+
+  const handleManualEditCheck = async () => {
+    const draft = manualEditDraft.trim();
+    if (!draft) {
+      toast.error("Add content before checking.");
+      return;
+    }
+
+    setManualEditSubmitting(true);
+    try {
+      const response = await onManualEditCheck(row, draft);
+      if (!response || response.status === "ERROR") {
+        setManualEditValidated(false);
+        throw new Error(response?.message || "Unable to check edited content.");
+      }
+
+      setManualEditValidated(response.status === "PASS");
+      toast.success("Edited content checked");
+    } catch (error) {
+      setManualEditValidated(false);
+      const message = error instanceof Error ? error.message : "Action failed. Please try again.";
+      toast.error(message);
+    } finally {
+      setManualEditSubmitting(false);
+    }
+  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -697,7 +883,13 @@ function PendingApprovalDetailsDialog({
                       Review the generated guidance before sending this item forward.
                     </CardDescription>
                   </div>
-                  <CopyButton label="Copy safe rewrite" text={row.cleanAiOutput?.safeRewrite ?? null} />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <CopyButton label="Copy safe rewrite" text={row.cleanAiOutput?.safeRewrite ?? null} />
+                    <Button type="button" variant="outline" size="sm" className="h-8 rounded-full border-border/70 bg-white px-3 text-[11px] font-medium shadow-none" onClick={handleManualEditToggle}>
+                      <PencilLine />
+                      Edit manually
+                    </Button>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
@@ -713,6 +905,48 @@ function PendingApprovalDetailsDialog({
                       value={row.cleanAiOutput.safeRewrite ?? "No safe rewrite provided."}
                       className="bg-muted/10 shadow-none"
                     />
+                    {manualEditOpen ? (
+                      <div className="space-y-3 rounded-[22px] border border-border/60 bg-white p-4 shadow-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Edit manually</p>
+                          <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", manualEditValidated ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-sky-200 bg-sky-50 text-sky-700")}>
+                            {manualEditValidated ? "Edited PASS" : "Needs check"}
+                          </Badge>
+                        </div>
+                        <Textarea
+                          value={manualEditDraft}
+                          onChange={(event) => {
+                            setManualEditDraft(event.target.value);
+                            setManualEditValidated(false);
+                          }}
+                          rows={8}
+                          className="min-h-[220px] rounded-[20px] border-border/70 bg-muted/10 text-sm leading-6"
+                          placeholder="Edit the caption here"
+                        />
+                        {hasManualRiskWarning ? (
+                          <div className="flex gap-3 rounded-[20px] border border-amber-200 bg-amber-50 p-4">
+                            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-700" />
+                            <p className="text-sm leading-6 text-amber-950">
+                              This edited caption still looks risky. Review it carefully before checking again.
+                            </p>
+                          </div>
+                        ) : null}
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <p className="text-sm leading-6 text-muted-foreground">
+                            Re-run G4 on this edited caption. Send to G5 only after the edited version returns PASS.
+                          </p>
+                          <Button
+                            type="button"
+                            className="h-10 rounded-full px-5"
+                            onClick={() => void handleManualEditCheck()}
+                            disabled={manualEditSubmitting || !manualEditDraft.trim()}
+                          >
+                            <RefreshCcw className={cn(manualEditSubmitting && "animate-spin")} />
+                            {manualEditSubmitting ? "Checking content..." : "Check edited content"}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
                     <FieldBlock
                       label="Human review recommendation"
                       value={row.cleanAiOutput.humanReviewRecommendation ?? "No human review recommendation provided."}
@@ -737,6 +971,42 @@ function PendingApprovalDetailsDialog({
                   <p className="text-sm leading-6 text-muted-foreground">No AI notes are available for this check.</p>
                 )}
               </CardContent>
+              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border/60 px-6 py-4">
+                <Button
+                  type="button"
+                  className="h-9 rounded-full px-4"
+                  disabled={sendToG5Disabled}
+                  onClick={() => void onSendToG5Approval(row)}
+                >
+                  {displayStatus === "PENDING_G5_APPROVAL" ? "Sent to G5 Approval" : "Send to G5 Approval"}
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 rounded-full border-border/70 bg-white px-4 text-sm font-medium shadow-none"
+                  disabled={isBusy}
+                  onClick={() => void onRequestChanges(row)}
+                >
+                  Request Changes
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 rounded-full border-border/70 bg-white px-4 text-sm font-medium shadow-none"
+                  onClick={handleManualEditToggle}
+                >
+                  Edit Manually
+                </Button>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-9 rounded-full border-rose-200 bg-white px-4 text-sm font-medium text-rose-700 shadow-none hover:bg-rose-50 hover:text-rose-800"
+                  disabled={isBusy}
+                  onClick={() => void onRejectContent(row)}
+                >
+                  Reject
+                </Button>
+              </div>
             </Card>
 
 
@@ -784,210 +1054,346 @@ function CopyButton({
   );
 }
 
-function SuggestionsList({
-  title,
-  items,
-  emptyText,
-  copyLabel,
-  showCopyButton,
-}: {
-  title: string;
-  items: string[];
-  emptyText: string;
-  copyLabel: string;
-  showCopyButton: boolean;
-}) {
-  return (
-    <div className="space-y-3 rounded-[22px] border border-border/60 bg-white p-4 shadow-sm">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{title}</p>
-        {showCopyButton ? <CopyButton label={copyLabel} text={items[0] ?? null} /> : null}
-      </div>
-      {items.length ? (
-        <ul className="space-y-2">
-          {items.map((item, index) => (
-            <li key={`${title}-${index}`} className="rounded-2xl border border-border/60 bg-muted/15 px-3 py-2 text-sm leading-6 text-foreground">
-              {item}
-            </li>
-          ))}
-        </ul>
-      ) : (
-        <p className="text-sm leading-6 text-muted-foreground">{emptyText}</p>
-      )}
-    </div>
-  );
-}
-
 export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckPageProps) {
   const router = useRouter();
-  const { authFetch } = useAuth();
-  const latestOutcome = detail.latestOutcome;
-  const status = latestOutcome?.result ?? detail.status;
-  const statusTone = formatG4StatusTone(status);
-  const statusAccentClass = getStatusAccentClass(status);
-  const actionPanelCopy = getActionPanelCopy(status);
-  const recentRowAction = getRecentRowAction(status);
+  const { authFetch, user } = useAuth();
   const request = authFetch ?? fetch;
-  const riskyRewriteWarning = isRiskyRewriteLanguage(detail.cleanAiOutput?.safeRewrite ?? null);
-  const initialDraft = buildInitialDraft(detail);
-  const latestApprovalSourceId = getApprovalSourceId(latestOutcome);
+  const latestOutcome = detail.latestOutcome;
+  const recentOutcomes = dedupeRecentOutcomes(detail.recentOutcomes);
 
-  const [fixPanelOpen, setFixPanelOpen] = useState(false);
-  const [recheckDraft, setRecheckDraft] = useState(initialDraft);
-  const [rechecking, setRechecking] = useState(false);
-  const [approvalRequest, setApprovalRequest] = useState(detail.approvalRequest);
-  const [approvalSubmittingSourceId, setApprovalSubmittingSourceId] = useState<string | null>(null);
-  const [sentApprovalSourceIds, setSentApprovalSourceIds] = useState<Set<string>>(new Set());
-  const [selectedPendingRow, setSelectedPendingRow] = useState<G4RecentOutcome | null>(null);
+  const [selectedDetailRow, setSelectedDetailRow] = useState<G4RecentOutcome | null>(null);
   const [selectedRecentRow, setSelectedRecentRow] = useState<G4RecentOutcome | null>(null);
   const [selectedCaptionHookRow, setSelectedCaptionHookRow] = useState<G4RecentOutcome | null>(null);
+  const [rowStatusOverrides, setRowStatusOverrides] = useState<Record<string, G4DisplayStatus>>({});
+  const [rowFeedbackNotes, setRowFeedbackNotes] = useState<Record<string, string>>({});
+  const [actioningRowKey, setActioningRowKey] = useState<string | null>(null);
+  const [actioningTask, setActioningTask] = useState<G4ActionTask | null>(null);
+  const [requestChangesRow, setRequestChangesRow] = useState<G4RecentOutcome | null>(null);
+  const [requestChangesDraft, setRequestChangesDraft] = useState("");
+  const [requestChangesSubmitting, setRequestChangesSubmitting] = useState(false);
+  const [rejectingRow, setRejectingRow] = useState<G4RecentOutcome | null>(null);
 
-  useEffect(() => {
-    setRecheckDraft(initialDraft);
-  }, [initialDraft]);
+  const getActorLabel = useCallback(() => user?.email?.trim() || user?.id?.trim() || "admin", [user?.email, user?.id]);
 
-  useEffect(() => {
-    setApprovalRequest(detail.approvalRequest);
-  }, [detail.approvalRequest]);
+  const getRowKey = useCallback((row: G4RecentOutcome) => getReviewAssetKey(row.reviewId, row.assetId) ?? getRecentOutcomeKey(row) ?? row.time, []);
 
-  const approvalRecorded = Boolean(approvalRequest);
-  const approvalQueued = approvalRequest?.status === "PENDING";
-  const approvalActionDisabled = approvalSubmittingSourceId !== null || approvalRecorded;
-  const approvalButtonLabel =
-    latestApprovalSourceId && approvalSubmittingSourceId === latestApprovalSourceId
-      ? "Queueing G5..."
-      : approvalQueued
-        ? "Queued for G5"
-        : approvalRecorded
-          ? "Recorded"
-          : "Use this content";
-  const approvalHelperText = approvalRequest
-    ? approvalRequest.status === "PENDING"
-      ? `Queued for G5 as ${approvalRequest.approvalId}.`
-      : `Request ${approvalRequest.status.toLowerCase().replace(/_/g, " ")} as ${approvalRequest.approvalId}.`
-    : "Use this content in G5.";
-  const recentOutcomes = dedupeRecentOutcomes(detail.recentOutcomes);
-  const visiblePendingApprovalRows = recentOutcomes
-    .filter((row) => {
-      const sourceId = getApprovalSourceId(row);
-      const isSent = row.approvalRequest || (sourceId && sentApprovalSourceIds.has(sourceId));
-      return row.result === "PENDING_APPROVAL" && !isSent;
+  const resolveRowDisplayStatus = useCallback(
+    (row: G4RecentOutcome) => {
+      const rowKey = getRowKey(row);
+      return getRowDisplayStatus(row, rowKey ? rowStatusOverrides[rowKey] ?? null : null);
+    },
+    [getRowKey, rowStatusOverrides],
+  );
+
+  const getSelectedCaption = useCallback(
+    (row: G4RecentOutcome) =>
+      row.cleanAiOutput?.safeRewrite ??
+      row.cleanAiOutput?.captionSuggestions?.[0] ??
+      row.contentPreview.captionPreview ??
+      row.contentPreview.contentText ??
+      row.contentPreview.pageText ??
+      row.contentPreview.cleanSummary ??
+      null,
+    [],
+  );
+
+  const getSelectedHook = useCallback(
+    (row: G4RecentOutcome) =>
+      row.cleanAiOutput?.hookSuggestions?.[0] ??
+      row.contentPreview.hookAngle ??
+      row.contentPreview.contentRecommendation ??
+      row.contentPreview.headline ??
+      row.contentPreview.cleanSummary ??
+      null,
+    [],
+  );
+
+  const getOriginalCaption = useCallback(
+    (row: G4RecentOutcome) => row.contentPreview.captionPreview ?? row.contentPreview.contentText ?? row.contentPreview.cleanSummary ?? null,
+    [],
+  );
+
+  const getCurrentContentText = useCallback(
+    (row: G4RecentOutcome) => row.cleanAiOutput?.safeRewrite ?? row.contentPreview.contentText ?? row.contentPreview.captionPreview ?? row.contentPreview.pageText ?? row.whatHappened ?? null,
+    [],
+  );
+
+  const getSourcePlatform = useCallback((row: G4RecentOutcome) => row.sourcePlatform ?? row.platform ?? "WEBSITE", []);
+
+  const getSourceEvent = useCallback((row: G4RecentOutcome) => row.sourceEvent ?? "G4_CONTENT_RECHECK", []);
+
+  const markRowStatus = useCallback(
+    (row: G4RecentOutcome, status: G4DisplayStatus, feedbackNote?: string | null) => {
+      const rowKey = getRowKey(row);
+      setRowStatusOverrides((current) => ({ ...current, [rowKey]: status }));
+      if (feedbackNote !== undefined) {
+        setRowFeedbackNotes((current) => ({ ...current, [rowKey]: feedbackNote ?? "" }));
+      }
+    },
+    [getRowKey],
+  );
+
+  const clearRequestChangesDialog = useCallback(() => {
+    setRequestChangesRow(null);
+    setRequestChangesDraft("");
+    setRequestChangesSubmitting(false);
+  }, []);
+
+  const callG4Webhook = useCallback(
+    async (path: string, payload: Record<string, unknown>) => {
+      const response = await request(path, {
+        method: "POST",
+        cache: "no-store",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(payload),
+      });
+
+      const body = await parseJsonResponse<G4WebhookResponse>(response);
+      if (!response.ok || !body || body.status === "ERROR") {
+        throw new Error(body?.message || `Request failed (${response.status}).`);
+      }
+
+      return body;
+    },
+    [request],
+  );
+
+  const handleSendToG5Approval = useCallback(
+    async (row: G4RecentOutcome) => {
+      const rowKey = getRowKey(row);
+      const selectedCaption = getSelectedCaption(row);
+      const selectedHook = getSelectedHook(row);
+      if (!row.reviewId || !row.assetId || !selectedCaption || !selectedHook) {
+        toast.error("Action failed. Please try again.");
+        return null;
+      }
+
+      if (actioningRowKey === rowKey) {
+        return null;
+      }
+
+      setActioningRowKey(rowKey);
+      setActioningTask("SEND_TO_G5_APPROVAL");
+      try {
+        const body = await callG4Webhook("/api/admin/workflow-dashboard/g4/user-action", {
+          action_type: "SEND_TO_G5_APPROVAL",
+          review_id: row.reviewId,
+          asset_id: row.assetId,
+          actor: getActorLabel(),
+          selected_caption: selectedCaption,
+          selected_hook: selectedHook,
+          platform: row.platform,
+        });
+
+        markRowStatus(row, "PENDING_G5_APPROVAL");
+        toast.success(body.message || "Sent to G5 Approval");
+        router.refresh();
+        return body;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Action failed. Please try again.";
+        toast.error(message);
+        return null;
+      } finally {
+        setActioningRowKey((current) => (current === rowKey ? null : current));
+        setActioningTask((current) => (current === "SEND_TO_G5_APPROVAL" ? null : current));
+      }
+    },
+    [actioningRowKey, callG4Webhook, getActorLabel, getRowKey, getSelectedCaption, getSelectedHook, markRowStatus, router],
+  );
+
+  const openRequestChangesDialog = useCallback(
+    (row: G4RecentOutcome) => {
+      const rowKey = getRowKey(row);
+      setSelectedDetailRow(null);
+      setSelectedRecentRow(null);
+      setSelectedCaptionHookRow(null);
+      setRequestChangesRow(row);
+      setRequestChangesDraft(rowFeedbackNotes[rowKey] ?? "");
+      setRequestChangesSubmitting(false);
+    },
+    [getRowKey, rowFeedbackNotes],
+  );
+
+  const handleRequestChangesSubmit = useCallback(async () => {
+    if (!requestChangesRow) {
+      return null;
+    }
+
+    const feedbackNote = requestChangesDraft.trim();
+    if (!feedbackNote) {
+      toast.error("Add feedback before requesting changes.");
+      return null;
+    }
+
+    const row = requestChangesRow;
+    const rowKey = getRowKey(row);
+    if (actioningRowKey === rowKey) {
+      return null;
+    }
+
+    setRequestChangesSubmitting(true);
+    setActioningRowKey(rowKey);
+    setActioningTask("REQUEST_CHANGES");
+    try {
+      const body = await callG4Webhook("/api/admin/workflow-dashboard/g4/user-action", {
+        action_type: "REQUEST_CHANGES",
+        review_id: row.reviewId,
+        asset_id: row.assetId,
+        actor: getActorLabel(),
+        feedback_note: feedbackNote,
+        original_post_caption: getOriginalCaption(row) ?? "",
+        platform: row.platform,
+      });
+
+      markRowStatus(row, "REQUESTED_CHANGES", feedbackNote);
+      toast.success("Changes requested. New version can be generated from this feedback.");
+      clearRequestChangesDialog();
+      router.refresh();
+      return body;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Action failed. Please try again.";
+      toast.error(message);
+      return null;
+    } finally {
+      setRequestChangesSubmitting(false);
+      setActioningRowKey((current) => (current === rowKey ? null : current));
+      setActioningTask((current) => (current === "REQUEST_CHANGES" ? null : current));
+    }
+  }, [
+    actioningRowKey,
+    callG4Webhook,
+    clearRequestChangesDialog,
+    getActorLabel,
+    getOriginalCaption,
+    getRowKey,
+    markRowStatus,
+    requestChangesDraft,
+    requestChangesRow,
+    router,
+  ]);
+
+  const openRejectConfirm = useCallback(
+    (row: G4RecentOutcome) => {
+      setSelectedDetailRow(null);
+      setSelectedRecentRow(null);
+      setSelectedCaptionHookRow(null);
+      setRejectingRow(row);
+    },
+    [],
+  );
+
+  const handleRejectConfirm = useCallback(async () => {
+    if (!rejectingRow) {
+      return null;
+    }
+
+    const row = rejectingRow;
+    const rowKey = getRowKey(row);
+    if (actioningRowKey === rowKey) {
+      return null;
+    }
+
+    setActioningRowKey(rowKey);
+    setActioningTask("REJECT_CONTENT");
+    try {
+      const body = await callG4Webhook("/api/admin/workflow-dashboard/g4/user-action", {
+        action_type: "REJECT_CONTENT",
+        review_id: row.reviewId,
+        asset_id: row.assetId,
+        actor: getActorLabel(),
+        rejection_reason: null,
+        platform: row.platform,
+      });
+
+      markRowStatus(row, "REJECTED");
+      toast.success("Content rejected");
+      setRejectingRow(null);
+      router.refresh();
+      return body;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Action failed. Please try again.";
+      toast.error(message);
+      return null;
+    } finally {
+      setActioningRowKey((current) => (current === rowKey ? null : current));
+      setActioningTask((current) => (current === "REJECT_CONTENT" ? null : current));
+    }
+  }, [actioningRowKey, callG4Webhook, getActorLabel, getRowKey, markRowStatus, rejectingRow, router]);
+
+  const handleRecreateContent = useCallback(
+    async (row: G4RecentOutcome) => {
+      const rowKey = getRowKey(row);
+      if (!row.assetId) {
+        toast.error("Action failed. Please try again.");
+        return null;
+      }
+
+      if (actioningRowKey === rowKey) {
+        return null;
+      }
+
+      setActioningRowKey(rowKey);
+      setActioningTask("RECREATE_CONTENT");
+      try {
+        const feedbackNote = rowFeedbackNotes[rowKey] ?? undefined;
+        const body = await callG4Webhook("/api/admin/workflow-dashboard/g4/recheck", {
+          asset_id: row.assetId,
+          source_platform: getSourcePlatform(row),
+          source_event: getSourceEvent(row),
+          platform: row.platform,
+          original_post_caption: getOriginalCaption(row) ?? "",
+          content_text: getCurrentContentText(row) ?? "",
+          feedback_note: feedbackNote,
+          actor: getActorLabel(),
+        });
+
+        const nextStatus = normalizeWebhookDisplayStatus(body.status);
+        if (nextStatus !== "ERROR") {
+          markRowStatus(row, nextStatus);
+        }
+        toast.success("Content checked");
+        router.refresh();
+        return body;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Action failed. Please try again.";
+        toast.error(message);
+        return null;
+      } finally {
+        setActioningRowKey((current) => (current === rowKey ? null : current));
+        setActioningTask((current) => (current === "RECREATE_CONTENT" ? null : current));
+      }
+    },
+    [
+      actioningRowKey,
+      callG4Webhook,
+      getActorLabel,
+      getCurrentContentText,
+      getOriginalCaption,
+      getRowKey,
+      getSourceEvent,
+      getSourcePlatform,
+      markRowStatus,
+      rowFeedbackNotes,
+      router,
+    ],
+  );
+
+  const readyRows = recentOutcomes
+    .map((row) => {
+      const displayStatus = resolveRowDisplayStatus(row);
+      const canSendToG5 = Boolean(displayStatus === "PASS" && getReviewAssetKey(row.reviewId, row.assetId) && getSelectedCaption(row) && getSelectedHook(row));
+
+      return { row, displayStatus, canSendToG5 };
     })
-    .filter((row, index, arr) => {
-      const sourceId = getApprovalSourceId(row);
-      if (!sourceId) return index === arr.findIndex((r) => !getApprovalSourceId(r));
-      return index === arr.findIndex((r) => getApprovalSourceId(r) === sourceId);
-    })
+    .filter(({ displayStatus }) => displayStatus === "PENDING_G5_APPROVAL" || displayStatus === "PASS")
     .slice(0, 3);
 
-  const handleApprovalRequest = async (sourceId: string | null = latestApprovalSourceId) => {
-    if (!sourceId || approvalSubmittingSourceId !== null) {
-      return;
-    }
-
-    setApprovalSubmittingSourceId(sourceId);
-    try {
-      const response = await request("/api/admin/workflow-dashboard/g4/send-approval", {
-        method: "POST",
-        cache: "no-store",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ sourceId }),
-      });
-
-      const body = await parseJsonResponse<G4ApprovalRequestResponse>(response);
-      if (!response.ok || !body) {
-        throw new Error(body?.message ?? `Unable to queue G5 request (${response.status}).`);
-      }
-
-      if (body.approvalRequest && sourceId === latestApprovalSourceId) {
-        setApprovalRequest(body.approvalRequest);
-      }
-
-      if (sourceId) {
-        setSentApprovalSourceIds((prev) => new Set(prev).add(sourceId));
-      }
-
-      toast.success(body.message || "Approval request queued.");
-      router.refresh();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to queue G5 request.";
-      toast.error(message);
-    } finally {
-      setApprovalSubmittingSourceId((current) => (current === sourceId ? null : current));
-    }
-  };
-
-  const handlePanelAction = () => {
-    if (actionPanelCopy.disabled) {
-      return;
-    }
-
-    if (actionPanelCopy.buttonAction === "fix") {
-      setFixPanelOpen(true);
-      return;
-    }
-
-    if (actionPanelCopy.buttonAction === "approval") {
-      void handleApprovalRequest();
-      return;
-    }
-
-    if (actionPanelCopy.buttonAction === "view") {
-      document.getElementById("recent-checks")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  };
-
-  const handleRowAction = (action: ActionConfig["action"]) => {
-    if (action === "fix") {
-      setFixPanelOpen(true);
-      return;
-    }
-
-    if (action === "approval") {
-      void handleApprovalRequest();
-      return;
-    }
-
-    if (action === "view") {
-      document.getElementById("content-being-reviewed")?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-  };
-
-  const handleRecheck = async () => {
-    const draft = recheckDraft.trim();
-    if (!draft) {
-      toast.error("Add content before re-checking.");
-      return;
-    }
-
-    setRechecking(true);
-    try {
-      const response = await request("/api/admin/workflow-dashboard/g4/recheck", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(buildRecheckPayload(detail, draft)),
-        cache: "no-store",
-      });
-
-      const body = await parseJsonResponse<G4RecheckResponse>(response);
-      if (!response.ok || !body) {
-        throw new Error(body?.message ?? `Unable to re-check content (${response.status}).`);
-      }
-
-      toast.success(body.message || "Content sent for re-check.");
-      setFixPanelOpen(false);
-      router.refresh();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to re-check content.";
-      toast.error(message);
-    } finally {
-      setRechecking(false);
-    }
-  };
+  const selectedDetailDisplayStatus = selectedDetailRow ? resolveRowDisplayStatus(selectedDetailRow) : "ERROR";
+  const selectedDetailBusy = selectedDetailRow ? actioningRowKey === getRowKey(selectedDetailRow) : false;
+  const requestChangesBusy = requestChangesRow ? actioningRowKey === getRowKey(requestChangesRow) : false;
+  const rejectingBusy = rejectingRow ? actioningRowKey === getRowKey(rejectingRow) : false;
 
   return (
     <>
@@ -1005,23 +1411,27 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
           </Card>
         ) : null}
 
-        {visiblePendingApprovalRows.length ? (
+        {readyRows.length ? (
           <Card className="overflow-hidden rounded-[28px] border-border/60 bg-white/95 shadow-sm">
             <CardHeader className="space-y-2">
               <CardTitle className="font-serif text-2xl tracking-tight text-primary">Ready for G5</CardTitle>
               <CardDescription className="text-sm leading-6 text-muted-foreground">
-                {visiblePendingApprovalRows.length} check{visiblePendingApprovalRows.length === 1 ? "" : "s"} are ready for G5. Use each card to hand off the content or review AI notes.
+                {readyRows.length} check{readyRows.length === 1 ? "" : "s"} are ready for G5. Use each card to hand off the content or review AI notes.
               </CardDescription>
             </CardHeader>
             <CardContent>
               <div className="grid gap-3 md:grid-cols-2">
-                {visiblePendingApprovalRows.map((row) => (
+                {readyRows.map(({ row, displayStatus }) => (
                   <PendingApprovalCard
                     key={`${row.time}-${row.reviewId ?? row.assetId ?? row.platform ?? "pending"}`}
                     row={row}
-                    onSendApproval={(sourceId) => void handleApprovalRequest(sourceId)}
-                    onViewDetails={() => setSelectedPendingRow(row)}
-                    submittingSourceId={approvalSubmittingSourceId}
+                    displayStatus={displayStatus}
+                    onSendToG5Approval={(targetRow) => void handleSendToG5Approval(targetRow)}
+                    onViewDetails={() => setSelectedDetailRow(row)}
+                    onRequestChanges={(targetRow) => openRequestChangesDialog(targetRow)}
+                    onRecreateContent={(targetRow) => void handleRecreateContent(targetRow)}
+                    onRejectContent={(targetRow) => openRejectConfirm(targetRow)}
+                    isBusy={actioningRowKey === getRowKey(row)}
                   />
                 ))}
               </div>
@@ -1029,13 +1439,10 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
           </Card>
         ) : null}
 
-
         <Card id="recent-checks" className="rounded-[28px] border-border/60 bg-white shadow-sm">
           <CardHeader className="space-y-2">
             <CardTitle className="font-serif text-2xl tracking-tight text-primary">Recent Checks</CardTitle>
-            <CardDescription className="text-sm leading-6 text-muted-foreground">
-              Compact history of the latest G4 checks.
-            </CardDescription>
+            <CardDescription className="text-sm leading-6 text-muted-foreground">Compact history of the latest G4 checks.</CardDescription>
           </CardHeader>
           <CardContent>
             {recentOutcomes.length ? (
@@ -1064,13 +1471,15 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
                     </TableHeader>
                     <TableBody>
                       {recentOutcomes.map((row) => {
-                        const isLatestRow = row.reviewId === latestOutcome?.reviewId || (!row.reviewId && row.assetId === latestOutcome?.assetId);
-                        const rowSourceId = getApprovalSourceId(row);
-                        const rowAction =
-                          row.result === "PENDING_APPROVAL" && !isLatestRow
-                            ? { label: "View", disabled: false, helper: null, action: "view" as const }
-                            : getRecentRowAction(row.result);
-                        const rowApprovalQueued = Boolean(row.approvalRequest) || Boolean(rowSourceId && sentApprovalSourceIds.has(rowSourceId));
+                        const rowDisplayStatus = resolveRowDisplayStatus(row);
+                        const rowKey = getRowKey(row);
+                        const rowBusy = actioningRowKey === rowKey;
+                        const rowCanSendToG5 = Boolean(
+                          rowDisplayStatus === "PASS" &&
+                            getReviewAssetKey(row.reviewId, row.assetId) &&
+                            getSelectedCaption(row) &&
+                            getSelectedHook(row),
+                        );
                         const formattedDate = row.time
                           ? new Date(row.time).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
                           : "—";
@@ -1085,193 +1494,214 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
                         return (
                           <Fragment key={`${row.time}-${row.reviewId ?? row.assetId ?? row.platform ?? "g4"}`}>
                             <TableRow className={cn((isSourcePostOpen || isAiInsightOpen) && "border-b-0 hover:bg-transparent")}>
-                            <TableCell className="px-4 py-3 align-middle">
-                              <div className="text-sm text-foreground">{formattedDate}</div>
-                              {formattedTime ? <div className="text-xs text-muted-foreground">{formattedTime}</div> : null}
-                            </TableCell>
-                            <TableCell className="px-4 py-3 align-middle">
-                              <div className="mx-auto flex size-8 items-center justify-center rounded-md border border-border/60 bg-muted/20">
-                                <PlatformIcon platform={row.platform} className="text-foreground" />
-                              </div>
-                            </TableCell>
-                            <TableCell className="px-4 py-3 align-middle">
-                              <p className="line-clamp-2 text-sm leading-5 text-foreground">{row.whatHappened}</p>
-                            </TableCell>
-                            <TableCell className="px-4 py-3 align-middle text-center">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className={cn(
-                                  "h-9 w-max mx-auto justify-center rounded-full border-border/70 bg-white px-3 text-left text-xs font-semibold text-foreground shadow-none hover:bg-muted/50 whitespace-nowrap",
-                                  isSourcePostOpen && "bg-muted/50"
-                                )}
-                                onClick={() => {
-                                  setSelectedRecentRow(isSourcePostOpen ? null : row);
-                                  if (!isSourcePostOpen) setSelectedCaptionHookRow(null);
-                                }}
-                              >
-                                <Database className="mr-2 size-3.5 text-muted-foreground" />
-                                {isSourcePostOpen ? "Hide Original Post Data" : "Original Post Data"}
-                              </Button>
-                            </TableCell>
-                            <TableCell className="px-4 py-3 align-middle text-center">
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                disabled={!hasSuggestions}
-                                className={cn(
-                                  "h-9 w-max mx-auto justify-center rounded-full border-sky-200 bg-sky-50 px-3 text-left text-xs font-semibold text-sky-700 shadow-none hover:bg-sky-100 whitespace-nowrap",
-                                  isAiInsightOpen && "bg-sky-100"
-                                )}
-                                onClick={() => {
-                                  setSelectedCaptionHookRow(isAiInsightOpen ? null : row);
-                                  if (!isAiInsightOpen) setSelectedRecentRow(null);
-                                }}
-                              >
-                                <Sparkles className="mr-2 size-3.5 text-sky-500" />
-                                {isAiInsightOpen ? "Hide AI Insight" : "AI Insight"}
-                              </Button>
-                            </TableCell>
-                            <TableCell className="px-4 py-3 align-middle">
-                              <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", formatG4StatusTone(row.result))}>
-                                {formatG4ResultLabel(row.result)}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="px-4 py-3 align-middle">
-                              {rowAction.action === "approval" ? (
+                              <TableCell className="px-4 py-3 align-middle">
+                                <div className="text-sm text-foreground">{formattedDate}</div>
+                                {formattedTime ? <div className="text-xs text-muted-foreground">{formattedTime}</div> : null}
+                              </TableCell>
+                              <TableCell className="px-4 py-3 align-middle">
+                                <div className="mx-auto flex size-8 items-center justify-center rounded-md border border-border/60 bg-muted/20">
+                                  <PlatformIcon platform={row.platform} className="text-foreground" />
+                                </div>
+                              </TableCell>
+                              <TableCell className="px-4 py-3 align-middle">
+                                <p className="line-clamp-2 text-sm leading-5 text-foreground">{row.whatHappened}</p>
+                              </TableCell>
+                              <TableCell className="px-4 py-3 align-middle text-center">
                                 <Button
-                                  type="button"
-                                  size="sm"
-                                  className="h-8 w-full rounded-full text-[11px] font-medium"
-                                  variant={rowApprovalQueued ? "outline" : "default"}
-                                  disabled={rowApprovalQueued || approvalSubmittingSourceId !== null || !rowSourceId}
-                                  onClick={() => void handleApprovalRequest(rowSourceId)}
-                                >
-                                  {approvalSubmittingSourceId === rowSourceId ? "Queueing..." : rowApprovalQueued ? "Queued" : "Use this content"}
-                                </Button>
-                              ) : rowAction.action === "fix" ? (
-                                <Button type="button" size="sm" className="h-8 w-full rounded-full text-[11px] font-medium" onClick={() => setFixPanelOpen(true)}>
-                                  {rowAction.label}
-                                </Button>
-                              ) : (
-                                <Button
-                                  type="button"
-                                  size="sm"
                                   variant="outline"
-                                  className="h-8 w-full rounded-full border-border/70 text-[11px] font-medium"
-                                  disabled={rowAction.disabled}
-                                  onClick={() => handleRowAction(rowAction.action)}
+                                  size="sm"
+                                  className={cn(
+                                    "mx-auto h-9 w-max justify-center whitespace-nowrap rounded-full border-border/70 bg-white px-3 text-left text-xs font-semibold text-foreground shadow-none hover:bg-muted/50",
+                                    isSourcePostOpen && "bg-muted/50",
+                                  )}
+                                  onClick={() => {
+                                    setSelectedRecentRow(isSourcePostOpen ? null : row);
+                                    if (!isSourcePostOpen) {
+                                      setSelectedCaptionHookRow(null);
+                                    }
+                                  }}
                                 >
-                                  {rowAction.label}
+                                  <Database className="mr-2 size-3.5 text-muted-foreground" />
+                                  {isSourcePostOpen ? "Hide Original Post Data" : "Original Post Data"}
                                 </Button>
-                              )}
-                            </TableCell>
-                          </TableRow>
-                          {isSourcePostOpen && (
-                            <TableRow className="border-b-0 hover:bg-transparent">
-                              <TableCell colSpan={7} className="p-4 pt-0">
-                                <div className="rounded-2xl border border-border/60 bg-white p-4 shadow-sm">
-                                  <div className="mb-4 flex flex-wrap items-center gap-2">
-                                    <Database className="size-4 text-muted-foreground" />
-                                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Original Post Data</p>
-                                  </div>
-                                  <div className="space-y-4">
-                                    <div className="flex flex-col gap-3">
-                                      {getUniqueSourceContentSections(row.contentPreview).map((section) => (
-                                        <div key={`${section.label}-${section.value}`} className="rounded-2xl border border-border/60 bg-muted/10 p-4">
-                                          <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">{section.label}</p>
-                                          <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">{section.value}</p>
-                                        </div>
-                                      ))}
+                              </TableCell>
+                              <TableCell className="px-4 py-3 align-middle text-center">
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  disabled={!hasSuggestions}
+                                  className={cn(
+                                    "mx-auto h-9 w-max justify-center whitespace-nowrap rounded-full border-sky-200 bg-sky-50 px-3 text-left text-xs font-semibold text-sky-700 shadow-none hover:bg-sky-100",
+                                    isAiInsightOpen && "bg-sky-100",
+                                  )}
+                                  onClick={() => {
+                                    setSelectedCaptionHookRow(isAiInsightOpen ? null : row);
+                                    if (!isAiInsightOpen) {
+                                      setSelectedRecentRow(null);
+                                    }
+                                  }}
+                                >
+                                  <Sparkles className="mr-2 size-3.5 text-sky-500" />
+                                  {isAiInsightOpen ? "Hide AI Insight" : "AI Insight"}
+                                </Button>
+                              </TableCell>
+                              <TableCell className="px-4 py-3 align-middle">
+                                <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG4DisplayStatusToneClass(rowDisplayStatus))}>
+                                  {getG4DisplayStatusLabel(rowDisplayStatus)}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="px-4 py-3 align-middle">
+                                {rowDisplayStatus === "PASS" ? (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    className="h-8 w-full rounded-full text-[11px] font-medium"
+                                    disabled={rowBusy || !rowCanSendToG5}
+                                    onClick={() => void handleSendToG5Approval(row)}
+                                  >
+                                    {rowBusy && actioningTask === "SEND_TO_G5_APPROVAL" ? "Sending to G5..." : "Send to G5 Approval"}
+                                  </Button>
+                                ) : rowDisplayStatus === "PENDING_G5_APPROVAL" ? (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 w-full rounded-full border-sky-200 bg-sky-50 text-[11px] font-medium text-sky-700 shadow-none"
+                                    disabled
+                                  >
+                                    Sent to G5
+                                  </Button>
+                                ) : (
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-8 w-full rounded-full border-border/70 text-[11px] font-medium"
+                                    disabled={rowBusy}
+                                    onClick={() => setSelectedDetailRow(row)}
+                                  >
+                                    {getG4RecentRowActionLabel(rowDisplayStatus)}
+                                  </Button>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                            {isSourcePostOpen ? (
+                              <TableRow className="border-b-0 hover:bg-transparent">
+                                <TableCell colSpan={7} className="p-4 pt-0">
+                                  <div className="rounded-2xl border border-border/60 bg-white p-4 shadow-sm">
+                                    <div className="mb-4 flex flex-wrap items-center gap-2">
+                                      <Database className="size-4 text-muted-foreground" />
+                                      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Original Post Data</p>
                                     </div>
-                                    {(() => {
-                                      const metrics = parseMetrics(row.contentPreview);
-                                      const hasAnyMetric = metrics.views || metrics.likes || metrics.shares || metrics.trendStrength || metrics.brandFit || row.contentPreview.sourceUrl;
-                                      
-                                      return (
-                                        <>
-                                          <div className="grid gap-2 sm:grid-cols-2">
-                                            <TrendMetricChip label="Handle" value={metrics.handle} />
-                                            <TrendMetricChip label="Audio" value={metrics.audio} />
+                                    <div className="space-y-4">
+                                      <div className="flex flex-col gap-3">
+                                        {getUniqueSourceContentSections(row.contentPreview).map((section) => (
+                                          <div key={`${section.label}-${section.value}`} className="rounded-2xl border border-border/60 bg-muted/10 p-4">
+                                            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">{section.label}</p>
+                                            <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">{section.value}</p>
                                           </div>
-                                          {hasAnyMetric && (
-                                            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
-                                              <TrendMetricChip label="Views" value={metrics.views || "—"} />
-                                              <TrendMetricChip label="Likes" value={metrics.likes || "—"} />
-                                              <TrendMetricChip label="Shares" value={metrics.shares || "—"} />
-                                              <TrendMetricChip label="Trend Strength" value={metrics.trendStrength || "—"} />
-                                              <TrendMetricChip label="Brand Fit" value={metrics.brandFit || "—"} />
-                                              <div className="flex min-w-0 items-stretch">
-                                                {row.contentPreview.sourceUrl ? (
-                                                  <Button asChild variant="outline" className="h-full w-full rounded-xl border-border/70 bg-white px-4 text-xs font-semibold shadow-none">
-                                                    <a href={row.contentPreview.sourceUrl} target="_blank" rel="noopener noreferrer">
-                                                      <ExternalLink className="mr-2 size-3.5" />
-                                                      Open Original Post
-                                                    </a>
-                                                  </Button>
-                                                ) : (
-                                                  <div className="flex h-full min-h-[56px] w-full items-center rounded-xl border border-border/60 bg-secondary/15 px-3 py-2">
-                                                    <p className="text-xs leading-5 text-muted-foreground">URL not available</p>
-                                                  </div>
-                                                )}
-                                              </div>
+                                        ))}
+                                      </div>
+                                      {(() => {
+                                        const metrics = parseMetrics(row.contentPreview);
+                                        const hasAnyMetric = metrics.views || metrics.likes || metrics.shares || metrics.trendStrength || metrics.brandFit || row.contentPreview.sourceUrl;
+
+                                        return (
+                                          <>
+                                            <div className="grid gap-2 sm:grid-cols-2">
+                                              <TrendMetricChip label="Handle" value={metrics.handle} />
+                                              <TrendMetricChip label="Audio" value={metrics.audio} />
                                             </div>
-                                          )}
-                                        </>
-                                      );
-                                    })()}
+                                            {hasAnyMetric ? (
+                                              <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-6">
+                                                <TrendMetricChip label="Views" value={metrics.views || "—"} />
+                                                <TrendMetricChip label="Likes" value={metrics.likes || "—"} />
+                                                <TrendMetricChip label="Shares" value={metrics.shares || "—"} />
+                                                <TrendMetricChip label="Trend Strength" value={metrics.trendStrength || "—"} />
+                                                <TrendMetricChip label="Brand Fit" value={metrics.brandFit || "—"} />
+                                                <div className="flex min-w-0 items-stretch">
+                                                  {row.contentPreview.sourceUrl ? (
+                                                    <Button asChild variant="outline" className="h-full w-full rounded-xl border-border/70 bg-white px-4 text-xs font-semibold shadow-none">
+                                                      <a href={row.contentPreview.sourceUrl} target="_blank" rel="noopener noreferrer">
+                                                        <ExternalLink className="mr-2 size-3.5" />
+                                                        Open Original Post
+                                                      </a>
+                                                    </Button>
+                                                  ) : (
+                                                    <div className="flex h-full min-h-[56px] w-full items-center rounded-xl border border-border/60 bg-secondary/15 px-3 py-2">
+                                                      <p className="text-xs leading-5 text-muted-foreground">URL not available</p>
+                                                    </div>
+                                                  )}
+                                                </div>
+                                              </div>
+                                            ) : null}
+                                          </>
+                                        );
+                                      })()}
+                                    </div>
                                   </div>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          )}
-                          {isAiInsightOpen && (
-                            <TableRow className="border-b-0 hover:bg-transparent">
-                              <TableCell colSpan={7} className="p-4 pt-0">
-                                <div className="rounded-2xl border border-sky-100 bg-sky-50/50 p-4 shadow-sm">
-                                  <div className="mb-4 flex flex-wrap items-center gap-2">
-                                    <Sparkles className="size-4 text-sky-600" />
-                                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-800">AI Insight</p>
-                                  </div>
-                                  <div className="space-y-4">
-                                    {row.cleanAiOutput?.captionSuggestions && row.cleanAiOutput.captionSuggestions.length > 0 && (
-                                      <div className="space-y-3">
-                                        <div className="flex items-center justify-between gap-2">
-                                          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Captions</span>
-                                          <CopyButton label="Copy" text={row.cleanAiOutput.captionSuggestions[0] ?? null} className="h-6 px-2 text-[10px]" />
+                                </TableCell>
+                              </TableRow>
+                            ) : null}
+                            {isAiInsightOpen ? (
+                              <TableRow className="border-b-0 hover:bg-transparent">
+                                <TableCell colSpan={7} className="p-4 pt-0">
+                                  <div className="rounded-2xl border border-sky-100 bg-sky-50/50 p-4 shadow-sm">
+                                    <div className="mb-4 flex flex-wrap items-center gap-2">
+                                      <Sparkles className="size-4 text-sky-600" />
+                                      <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-sky-800">AI Insight</p>
+                                    </div>
+                                    <div className="space-y-4">
+                                      {row.cleanAiOutput?.captionSuggestions?.length ? (
+                                        <div className="space-y-3">
+                                          <div className="flex items-center justify-between gap-2">
+                                            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Captions</span>
+                                            <CopyButton label="Copy" text={row.cleanAiOutput.captionSuggestions[0] ?? null} className="h-6 px-2 text-[10px]" />
+                                          </div>
+                                          <ul className="space-y-2">
+                                            {row.cleanAiOutput.captionSuggestions.map((suggestion, index) => (
+                                              <li
+                                                key={`${row.time}-caption-${index}`}
+                                                className={cn(
+                                                  "rounded-xl border px-3 py-2 text-xs leading-5 text-foreground shadow-sm",
+                                                  index === 0 ? "border-primary/25 bg-primary/5" : "border-border/50 bg-white",
+                                                )}
+                                              >
+                                                {suggestion}
+                                              </li>
+                                            ))}
+                                          </ul>
                                         </div>
-                                        <ul className="space-y-2">
-                                          {row.cleanAiOutput.captionSuggestions.map((s, i) => (
-                                            <li key={i} className="rounded-xl border border-border/50 bg-white px-3 py-2 text-xs leading-5 text-foreground shadow-sm">
-                                              {s}
-                                            </li>
-                                          ))}
-                                        </ul>
-                                      </div>
-                                    )}
-                                    {row.cleanAiOutput?.hookSuggestions && row.cleanAiOutput.hookSuggestions.length > 0 && (
-                                      <div className="space-y-3">
-                                        <div className="flex items-center justify-between gap-2">
-                                          <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Hooks</span>
-                                          <CopyButton label="Copy" text={row.cleanAiOutput.hookSuggestions[0] ?? null} className="h-6 px-2 text-[10px]" />
+                                      ) : null}
+                                      {row.cleanAiOutput?.hookSuggestions?.length ? (
+                                        <div className="space-y-3">
+                                          <div className="flex items-center justify-between gap-2">
+                                            <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground/80">Hooks</span>
+                                            <CopyButton label="Copy" text={row.cleanAiOutput.hookSuggestions[0] ?? null} className="h-6 px-2 text-[10px]" />
+                                          </div>
+                                          <ul className="space-y-2">
+                                            {row.cleanAiOutput.hookSuggestions.map((suggestion, index) => (
+                                              <li
+                                                key={`${row.time}-hook-${index}`}
+                                                className={cn(
+                                                  "rounded-xl border px-3 py-2 text-xs leading-5 text-foreground shadow-sm",
+                                                  index === 0 ? "border-primary/25 bg-primary/5" : "border-border/50 bg-white",
+                                                )}
+                                              >
+                                                {suggestion}
+                                              </li>
+                                            ))}
+                                          </ul>
                                         </div>
-                                        <ul className="space-y-2">
-                                          {row.cleanAiOutput.hookSuggestions.map((s, i) => (
-                                            <li key={i} className="rounded-xl border border-border/50 bg-white px-3 py-2 text-xs leading-5 text-foreground shadow-sm">
-                                              {s}
-                                            </li>
-                                          ))}
-                                        </ul>
-                                      </div>
-                                    )}
-                                    {(!row.cleanAiOutput?.captionSuggestions?.length && !row.cleanAiOutput?.hookSuggestions?.length) ? (
-                                      <div className="text-sm text-muted-foreground">No suggestions available for this check.</div>
-                                    ) : null}
+                                      ) : null}
+                                      {!row.cleanAiOutput?.captionSuggestions?.length && !row.cleanAiOutput?.hookSuggestions?.length ? (
+                                        <div className="text-sm text-muted-foreground">No suggestions available for this check.</div>
+                                      ) : null}
+                                    </div>
                                   </div>
-                                </div>
-                              </TableCell>
-                            </TableRow>
-                          )}
+                                </TableCell>
+                              </TableRow>
+                            ) : null}
                           </Fragment>
                         );
                       })}
@@ -1280,158 +1710,129 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
                 </div>
               </div>
             ) : (
-              <div className="rounded-[24px] border border-dashed border-border/70 bg-muted/10 p-6 text-sm leading-6 text-muted-foreground">
-                No recent checks yet.
-              </div>
+              <div className="rounded-[24px] border border-dashed border-border/70 bg-muted/10 p-6 text-sm leading-6 text-muted-foreground">No recent checks yet.</div>
             )}
           </CardContent>
         </Card>
       </WorkflowDashboardShell>
 
       <PendingApprovalDetailsDialog
-        row={selectedPendingRow}
-        open={Boolean(selectedPendingRow)}
+        row={selectedDetailRow}
+        open={Boolean(selectedDetailRow)}
         onOpenChange={(open) => {
           if (!open) {
-            setSelectedPendingRow(null);
+            setSelectedDetailRow(null);
+          }
+        }}
+        displayStatus={selectedDetailDisplayStatus}
+        isBusy={selectedDetailBusy}
+        onSendToG5Approval={handleSendToG5Approval}
+        onRequestChanges={openRequestChangesDialog}
+        onRejectContent={openRejectConfirm}
+        onManualEditCheck={async (row, contentText) => {
+          const rowKey = getRowKey(row);
+          if (actioningRowKey === rowKey) {
+            return null;
+          }
+
+          setActioningRowKey(rowKey);
+          setActioningTask("MANUAL_EDIT_CHECK");
+          try {
+            const body = await callG4Webhook("/api/admin/workflow-dashboard/g4/recheck", {
+              asset_id: row.assetId,
+              source_platform: getSourcePlatform(row),
+              source_event: "MANUAL_EDIT_CHECK",
+              platform: row.platform,
+              original_post_caption: getOriginalCaption(row) ?? "",
+              content_text: contentText,
+              manual_content_text: contentText,
+              feedback_note: rowFeedbackNotes[rowKey] ?? undefined,
+              actor: getActorLabel(),
+            });
+
+            const nextStatus = normalizeWebhookDisplayStatus(body.status);
+            if (nextStatus !== "ERROR") {
+              markRowStatus(row, nextStatus);
+            }
+            return body;
+          } catch (error) {
+            const message = error instanceof Error ? error.message : "Action failed. Please try again.";
+            toast.error(message);
+            return null;
+          } finally {
+            setActioningRowKey((current) => (current === rowKey ? null : current));
+            setActioningTask((current) => (current === "MANUAL_EDIT_CHECK" ? null : current));
           }
         }}
       />
 
-      <Sheet open={fixPanelOpen} onOpenChange={setFixPanelOpen}>
-        <SheetContent side="right" className="w-full max-w-none p-0 sm:max-w-[min(96vw,80rem)]">
-          <div className="flex h-full flex-col">
-            <SheetHeader className="border-b border-border/60 bg-muted/20 px-5 py-5">
-              <SheetTitle className="font-serif text-2xl tracking-tight text-primary">Fix content</SheetTitle>
-              <SheetDescription className="text-sm leading-6 text-muted-foreground">
-                Review the original content on the left, then edit the safer version and re-check it through G4 only.
-              </SheetDescription>
-            </SheetHeader>
-
-            <div className="flex-1 min-h-0 overflow-y-auto px-5 py-5">
-              <div className="grid gap-5 lg:grid-cols-2">
-                <Card className="rounded-[28px] border-border/60 bg-white shadow-sm">
-                  <CardHeader className="space-y-2">
-                    <CardTitle className="font-serif text-xl tracking-tight text-primary">Original content</CardTitle>
-                    <CardDescription className="text-sm leading-6 text-muted-foreground">
-                      This is the content that was checked by G4.
-                    </CardDescription>
-                  </CardHeader>
-                  <CardContent className="grid gap-3">
-                    <FieldBlock label="Headline" value={detail.contentPreview.headline ?? "Not available"} />
-                    <FieldBlock label="Caption / Content" value={detail.contentPreview.contentText ?? "Not available"} />
-                    <FieldBlock label="CTA" value={detail.contentPreview.ctaText ?? "Not available"} />
-                    <FieldBlock label="Landing page text" value={detail.contentPreview.pageText ?? "Not available"} />
-                    <FieldBlock label="Product" value={detail.contentPreview.productName ?? "Not available"} />
-                  </CardContent>
-                </Card>
-
-                <Card className="rounded-[28px] border-border/60 bg-white shadow-sm">
-                  <CardHeader className="space-y-2">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div className="space-y-1">
-                        <CardTitle className="font-serif text-xl tracking-tight text-primary">Suggested safer version</CardTitle>
-                        <CardDescription className="text-sm leading-6 text-muted-foreground">
-                          Use this as the starting point for a safer rewrite.
-                        </CardDescription>
-                      </div>
-                      <CopyButton label="Copy rewrite" text={detail.cleanAiOutput?.safeRewrite ?? null} />
-                    </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    <div className="rounded-[24px] border border-border/60 bg-muted/15 p-4">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Safe rewrite</p>
-                      <p className="mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-foreground">
-                        {detail.cleanAiOutput?.safeRewrite ?? "No safe rewrite provided."}
-                      </p>
-                    </div>
-
-                    {riskyRewriteWarning ? (
-                      <div className="flex gap-3 rounded-[24px] border border-amber-200 bg-amber-50 p-4">
-                        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-700" />
-                        <p className="text-sm leading-6 text-amber-950">
-                          This rewrite may still contain result-style language. Review carefully before using.
-                        </p>
-                      </div>
-                    ) : null}
-
-                    <div className="space-y-2 rounded-[24px] border border-border/60 bg-white p-4 shadow-sm">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Edit before re-check</p>
-                      <Textarea
-                        value={recheckDraft}
-                        onChange={(event) => setRecheckDraft(event.target.value)}
-                        rows={8}
-                        className="mt-2 min-h-[220px] rounded-[20px] border-border/70 bg-muted/10 text-sm leading-6"
-                        placeholder="Edit the safer content here"
-                      />
-                    </div>
-
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <SuggestionsList
-                        title="Caption suggestions"
-                        items={detail.cleanAiOutput?.captionSuggestions ?? []}
-                        emptyText="No caption suggestions provided."
-                        copyLabel="Copy caption suggestion"
-                        showCopyButton={Boolean(detail.cleanAiOutput?.captionSuggestions.length)}
-                      />
-                      <SuggestionsList
-                        title="Hook suggestions"
-                        items={detail.cleanAiOutput?.hookSuggestions ?? []}
-                        emptyText="No hook suggestions provided."
-                        copyLabel="Copy hook"
-                        showCopyButton={Boolean(detail.cleanAiOutput?.hookSuggestions.length)}
-                      />
-                    </div>
-
-                    <div className="space-y-3 rounded-[24px] border border-border/60 bg-white p-4 shadow-sm">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Claim notes</p>
-                        <CopyButton
-                          label="Copy claim note"
-                          text={detail.cleanAiOutput?.claimNotes.length ? detail.cleanAiOutput.claimNotes.join("\n") : null}
-                        />
-                      </div>
-                      {detail.cleanAiOutput?.claimNotes.length ? (
-                        <ul className="space-y-2">
-                          {detail.cleanAiOutput.claimNotes.map((note, index) => (
-                            <li key={`${note}-${index}`} className="rounded-2xl border border-border/60 bg-muted/15 px-3 py-2 text-sm leading-6 text-foreground">
-                              {note}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p className="text-sm leading-6 text-muted-foreground">No claim notes provided.</p>
-                      )}
-                    </div>
-
-                    <div className="rounded-[24px] border border-border/60 bg-white p-4 shadow-sm">
-                      <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Human review recommendation</p>
-                      <p className="mt-2 text-sm leading-6 text-foreground">
-                        {detail.cleanAiOutput?.humanReviewRecommendation ?? "No human review recommendation provided."}
-                      </p>
-                    </div>
-
-                    <div className="flex flex-col gap-3 border-t border-border/60 pt-4 sm:flex-row sm:items-center sm:justify-between">
-                      <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-                        AI suggestions are advisory only. Re-checked content still needs rules before it moves into G5.
-                      </p>
-                      <Button
-                        type="button"
-                        className="h-10 rounded-full px-5"
-                        onClick={() => void handleRecheck()}
-                        disabled={rechecking || !recheckDraft.trim()}
-                      >
-                        <RefreshCcw className={cn("size-4", rechecking && "animate-spin")} />
-                        Re-check content
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
+      <Dialog open={Boolean(requestChangesRow)} onOpenChange={(open) => (open ? null : clearRequestChangesDialog())}>
+        <DialogContent className="rounded-[28px] border-border/60 bg-white p-0 shadow-2xl sm:max-w-xl">
+          <div className="flex flex-col">
+            <DialogHeader className="border-b border-border/60 bg-muted/20 px-6 py-5 text-left">
+              <DialogTitle className="font-serif text-2xl tracking-tight text-primary">Request changes</DialogTitle>
+              <DialogDescription className="text-sm leading-6 text-muted-foreground">
+                Tell G4 exactly what should change before this content moves forward.
+              </DialogDescription>
+            </DialogHeader>
+            {requestChangesRow ? (
+              <div className="space-y-4 px-6 py-6">
+                <div className="rounded-[22px] border border-border/60 bg-muted/10 p-4">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Content summary</p>
+                  <p className="mt-2 text-sm leading-6 text-foreground">{requestChangesRow.whatHappened}</p>
+                </div>
+                <Textarea
+                  value={requestChangesDraft}
+                  onChange={(event) => setRequestChangesDraft(event.target.value)}
+                  rows={5}
+                  className="min-h-[160px] rounded-[20px] border-border/70 bg-white text-sm leading-6"
+                  placeholder="Example: Make it shorter, more premium, less emoji"
+                />
+                <div className="flex flex-wrap items-center justify-end gap-2">
+                  <Button type="button" variant="outline" className="h-9 rounded-full border-border/70 bg-white px-4 text-sm font-medium shadow-none" onClick={clearRequestChangesDialog}>
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    className="h-9 rounded-full px-4"
+                    disabled={requestChangesSubmitting || !requestChangesDraft.trim()}
+                    onClick={() => void handleRequestChangesSubmit()}
+                  >
+                    {requestChangesBusy && actioningTask === "REQUEST_CHANGES" ? "Requesting changes..." : "Request changes"}
+                  </Button>
+                </div>
               </div>
-            </div>
+            ) : null}
           </div>
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={Boolean(rejectingRow)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setRejectingRow(null);
+          }
+        }}
+      >
+        <AlertDialogContent className="rounded-[28px] border-border/60 bg-white p-6 shadow-2xl">
+          <AlertDialogHeader className="text-left">
+            <AlertDialogTitle className="font-serif text-2xl tracking-tight text-primary">Reject this content?</AlertDialogTitle>
+            <AlertDialogDescription className="text-sm leading-6 text-muted-foreground">Reject this content? It will not move to G5.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter className="mt-6 flex flex-wrap items-center justify-end gap-2 sm:flex-row">
+            <AlertDialogCancel className="h-9 rounded-full border-border/70 bg-white px-4 text-sm font-medium shadow-none" onClick={() => setRejectingRow(null)}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              className="h-9 rounded-full bg-rose-600 px-4 text-sm font-medium text-white shadow-none hover:bg-rose-700"
+              onClick={() => void handleRejectConfirm()}
+            >
+              {rejectingBusy && actioningTask === "REJECT_CONTENT" ? "Saving rejection..." : "Reject"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
