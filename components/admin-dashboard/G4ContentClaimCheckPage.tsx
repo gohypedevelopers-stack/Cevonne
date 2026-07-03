@@ -56,7 +56,7 @@ type G4WebhookResponse = {
   request_id?: string | null;
 };
 
-type G4UserActionType = "SEND_TO_G5_APPROVAL" | "REQUEST_CHANGES" | "REJECT_CONTENT";
+type G4UserActionType = "SEND_TO_G5_APPROVAL" | "REJECT_CONTENT";
 type G4ActionTask = G4UserActionType | "RECREATE_CONTENT" | "MANUAL_EDIT_CHECK";
 
 const REQUIRED_COPY_WARNING_TERMS = /(clearer skin|fix acne|guaranteed|permanent|overnight|heal|cure|transform)/i;
@@ -544,7 +544,6 @@ function PendingApprovalCard({
   displayStatus,
   onSendToG5Approval,
   onViewDetails,
-  onRequestChanges,
   onRecreateContent,
   onRejectContent,
   isBusy,
@@ -553,7 +552,6 @@ function PendingApprovalCard({
   displayStatus: G4DisplayStatus;
   onSendToG5Approval: (row: G4RecentOutcome) => void;
   onViewDetails: () => void;
-  onRequestChanges: (row: G4RecentOutcome) => void;
   onRecreateContent: (row: G4RecentOutcome) => void;
   onRejectContent: (row: G4RecentOutcome) => void;
   isBusy: boolean;
@@ -619,15 +617,6 @@ function PendingApprovalCard({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="min-w-[14rem] rounded-[18px] border-border/60 bg-white p-1 shadow-lg">
-                <DropdownMenuItem
-                  className="rounded-[14px] px-3 py-2 text-sm"
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    onRequestChanges(row);
-                  }}
-                >
-                  Request changes
-                </DropdownMenuItem>
                 <DropdownMenuItem
                   className="rounded-[14px] px-3 py-2 text-sm"
                   onSelect={(event) => {
@@ -720,7 +709,6 @@ function PendingApprovalDetailsDialog({
   displayStatus,
   isBusy,
   onSendToG5Approval,
-  onRequestChanges,
   onRejectContent,
   onManualEditCheck,
 }: {
@@ -730,7 +718,6 @@ function PendingApprovalDetailsDialog({
   displayStatus: G4DisplayStatus;
   isBusy: boolean;
   onSendToG5Approval: (row: G4RecentOutcome) => Promise<G4WebhookResponse | null>;
-  onRequestChanges: (row: G4RecentOutcome) => void;
   onRejectContent: (row: G4RecentOutcome) => void;
   onManualEditCheck: (row: G4RecentOutcome, contentText: string) => Promise<G4WebhookResponse | null>;
 }) {
@@ -984,15 +971,6 @@ function PendingApprovalDetailsDialog({
                   type="button"
                   variant="outline"
                   className="h-9 rounded-full border-border/70 bg-white px-4 text-sm font-medium shadow-none"
-                  disabled={isBusy}
-                  onClick={() => void onRequestChanges(row)}
-                >
-                  Request Changes
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-9 rounded-full border-border/70 bg-white px-4 text-sm font-medium shadow-none"
                   onClick={handleManualEditToggle}
                 >
                   Edit Manually
@@ -1068,9 +1046,6 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
   const [rowFeedbackNotes, setRowFeedbackNotes] = useState<Record<string, string>>({});
   const [actioningRowKey, setActioningRowKey] = useState<string | null>(null);
   const [actioningTask, setActioningTask] = useState<G4ActionTask | null>(null);
-  const [requestChangesRow, setRequestChangesRow] = useState<G4RecentOutcome | null>(null);
-  const [requestChangesDraft, setRequestChangesDraft] = useState("");
-  const [requestChangesSubmitting, setRequestChangesSubmitting] = useState(false);
   const [rejectingRow, setRejectingRow] = useState<G4RecentOutcome | null>(null);
 
   const getActorLabel = useCallback(() => user?.email?.trim() || user?.id?.trim() || "admin", [user?.email, user?.id]);
@@ -1132,12 +1107,6 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
     },
     [getRowKey],
   );
-
-  const clearRequestChangesDialog = useCallback(() => {
-    setRequestChangesRow(null);
-    setRequestChangesDraft("");
-    setRequestChangesSubmitting(false);
-  }, []);
 
   const callG4Webhook = useCallback(
     async (path: string, payload: Record<string, unknown>) => {
@@ -1202,77 +1171,6 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
     },
     [actioningRowKey, callG4Webhook, getActorLabel, getRowKey, getSelectedCaption, getSelectedHook, markRowStatus, router],
   );
-
-  const openRequestChangesDialog = useCallback(
-    (row: G4RecentOutcome) => {
-      const rowKey = getRowKey(row);
-      setSelectedDetailRow(null);
-      setSelectedRecentRow(null);
-      setSelectedCaptionHookRow(null);
-      setRequestChangesRow(row);
-      setRequestChangesDraft(rowFeedbackNotes[rowKey] ?? "");
-      setRequestChangesSubmitting(false);
-    },
-    [getRowKey, rowFeedbackNotes],
-  );
-
-  const handleRequestChangesSubmit = useCallback(async () => {
-    if (!requestChangesRow) {
-      return null;
-    }
-
-    const feedbackNote = requestChangesDraft.trim();
-    if (!feedbackNote) {
-      toast.error("Add feedback before requesting changes.");
-      return null;
-    }
-
-    const row = requestChangesRow;
-    const rowKey = getRowKey(row);
-    if (actioningRowKey === rowKey) {
-      return null;
-    }
-
-    setRequestChangesSubmitting(true);
-    setActioningRowKey(rowKey);
-    setActioningTask("REQUEST_CHANGES");
-    try {
-      const body = await callG4Webhook("/api/admin/workflow-dashboard/g4/user-action", {
-        action_type: "REQUEST_CHANGES",
-        review_id: row.reviewId,
-        asset_id: row.assetId,
-        actor: getActorLabel(),
-        feedback_note: feedbackNote,
-        original_post_caption: getOriginalCaption(row) ?? "",
-        platform: row.platform,
-      });
-
-      markRowStatus(row, "REQUESTED_CHANGES", feedbackNote);
-      toast.success("Changes requested. New version can be generated from this feedback.");
-      clearRequestChangesDialog();
-      router.refresh();
-      return body;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Action failed. Please try again.";
-      toast.error(message);
-      return null;
-    } finally {
-      setRequestChangesSubmitting(false);
-      setActioningRowKey((current) => (current === rowKey ? null : current));
-      setActioningTask((current) => (current === "REQUEST_CHANGES" ? null : current));
-    }
-  }, [
-    actioningRowKey,
-    callG4Webhook,
-    clearRequestChangesDialog,
-    getActorLabel,
-    getOriginalCaption,
-    getRowKey,
-    markRowStatus,
-    requestChangesDraft,
-    requestChangesRow,
-    router,
-  ]);
 
   const openRejectConfirm = useCallback(
     (row: G4RecentOutcome) => {
@@ -1392,7 +1290,6 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
 
   const selectedDetailDisplayStatus = selectedDetailRow ? resolveRowDisplayStatus(selectedDetailRow) : "ERROR";
   const selectedDetailBusy = selectedDetailRow ? actioningRowKey === getRowKey(selectedDetailRow) : false;
-  const requestChangesBusy = requestChangesRow ? actioningRowKey === getRowKey(requestChangesRow) : false;
   const rejectingBusy = rejectingRow ? actioningRowKey === getRowKey(rejectingRow) : false;
 
   return (
@@ -1428,7 +1325,6 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
                     displayStatus={displayStatus}
                     onSendToG5Approval={(targetRow) => void handleSendToG5Approval(targetRow)}
                     onViewDetails={() => setSelectedDetailRow(row)}
-                    onRequestChanges={(targetRow) => openRequestChangesDialog(targetRow)}
                     onRecreateContent={(targetRow) => void handleRecreateContent(targetRow)}
                     onRejectContent={(targetRow) => openRejectConfirm(targetRow)}
                     isBusy={actioningRowKey === getRowKey(row)}
@@ -1727,7 +1623,6 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
         displayStatus={selectedDetailDisplayStatus}
         isBusy={selectedDetailBusy}
         onSendToG5Approval={handleSendToG5Approval}
-        onRequestChanges={openRequestChangesDialog}
         onRejectContent={openRejectConfirm}
         onManualEditCheck={async (row, contentText) => {
           const rowKey = getRowKey(row);
@@ -1765,47 +1660,6 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
           }
         }}
       />
-
-      <Dialog open={Boolean(requestChangesRow)} onOpenChange={(open) => (open ? null : clearRequestChangesDialog())}>
-        <DialogContent className="rounded-[28px] border-border/60 bg-white p-0 shadow-2xl sm:max-w-xl">
-          <div className="flex flex-col">
-            <DialogHeader className="border-b border-border/60 bg-muted/20 px-6 py-5 text-left">
-              <DialogTitle className="font-serif text-2xl tracking-tight text-primary">Request changes</DialogTitle>
-              <DialogDescription className="text-sm leading-6 text-muted-foreground">
-                Tell G4 exactly what should change before this content moves forward.
-              </DialogDescription>
-            </DialogHeader>
-            {requestChangesRow ? (
-              <div className="space-y-4 px-6 py-6">
-                <div className="rounded-[22px] border border-border/60 bg-muted/10 p-4">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Content summary</p>
-                  <p className="mt-2 text-sm leading-6 text-foreground">{requestChangesRow.whatHappened}</p>
-                </div>
-                <Textarea
-                  value={requestChangesDraft}
-                  onChange={(event) => setRequestChangesDraft(event.target.value)}
-                  rows={5}
-                  className="min-h-[160px] rounded-[20px] border-border/70 bg-white text-sm leading-6"
-                  placeholder="Example: Make it shorter, more premium, less emoji"
-                />
-                <div className="flex flex-wrap items-center justify-end gap-2">
-                  <Button type="button" variant="outline" className="h-9 rounded-full border-border/70 bg-white px-4 text-sm font-medium shadow-none" onClick={clearRequestChangesDialog}>
-                    Cancel
-                  </Button>
-                  <Button
-                    type="button"
-                    className="h-9 rounded-full px-4"
-                    disabled={requestChangesSubmitting || !requestChangesDraft.trim()}
-                    onClick={() => void handleRequestChangesSubmit()}
-                  >
-                    {requestChangesBusy && actioningTask === "REQUEST_CHANGES" ? "Requesting changes..." : "Request changes"}
-                  </Button>
-                </div>
-              </div>
-            ) : null}
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <AlertDialog
         open={Boolean(rejectingRow)}
