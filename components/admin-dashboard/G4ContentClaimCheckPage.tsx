@@ -4,6 +4,7 @@ import { Fragment, useCallback, useEffect, useState, type ReactNode } from "reac
 import { format, parseISO } from "date-fns";
 import {
   AlertTriangle,
+  ArrowLeft,
   ArrowRight,
   ChevronDown,
   CircleHelp,
@@ -24,6 +25,7 @@ import { toast } from "sonner";
 import WorkflowDashboardShell from "@/components/admin-dashboard/WorkflowDashboardShell";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Carousel, CarouselContent, CarouselItem, useCarousel } from "@/components/ui/carousel";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,7 +34,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
@@ -58,6 +60,37 @@ type G4WebhookResponse = {
 
 type G4UserActionType = "SEND_TO_G5_APPROVAL" | "REJECT_CONTENT";
 type G4ActionTask = G4UserActionType | "RECREATE_CONTENT" | "MANUAL_EDIT_CHECK";
+
+function ReadyRowsCarouselControls() {
+  const { scrollPrev, scrollNext, canScrollPrev, canScrollNext } = useCarousel();
+
+  return (
+    <div className="flex items-center gap-2">
+      <Button
+        type="button"
+        size="icon"
+        variant="outline"
+        className="size-8 rounded-full border-border/70 bg-white text-foreground shadow-sm hover:bg-muted/50"
+        onClick={scrollPrev}
+        disabled={!canScrollPrev}
+        aria-label="Previous G5 content"
+      >
+        <ArrowLeft className="size-4" />
+      </Button>
+      <Button
+        type="button"
+        size="icon"
+        variant="outline"
+        className="size-8 rounded-full border-border/70 bg-white text-foreground shadow-sm hover:bg-muted/50"
+        onClick={scrollNext}
+        disabled={!canScrollNext}
+        aria-label="Next G5 content"
+      >
+        <ArrowRight className="size-4" />
+      </Button>
+    </div>
+  );
+}
 
 const REQUIRED_COPY_WARNING_TERMS = /(clearer skin|fix acne|guaranteed|permanent|overnight|heal|cure|transform)/i;
 
@@ -568,12 +601,12 @@ function PendingApprovalCard({
       <div className="flex flex-1 flex-col md:flex-row">
         <div className="flex flex-col p-4 md:max-w-[220px] md:shrink-0">
           <div className="flex items-center justify-between gap-2">
-            <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG4DisplayStatusToneClass(displayStatus))}>
-              {getG4DisplayStatusLabel(displayStatus)}
-            </Badge>
             <div className="flex size-7 items-center justify-center rounded-lg border border-border/60 bg-muted/20">
               <PlatformIcon platform={row.platform} className="text-foreground" />
             </div>
+            <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG4DisplayStatusToneClass(displayStatus))}>
+              {getG4DisplayStatusLabel(displayStatus)}
+            </Badge>
           </div>
 
           <p className="mt-2 text-[13px] leading-5 text-muted-foreground">{helperCopy}</p>
@@ -650,13 +683,14 @@ function PendingApprovalCard({
 
         {(row.cleanAiOutput?.captionSuggestions?.length || row.cleanAiOutput?.hookSuggestions?.length) ? (
           <div className="flex flex-1 flex-col gap-2.5 border-t border-border/50 p-4 md:border-t-0 md:border-l">
-            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Suggestions</p>
+            <div className="flex items-center justify-between gap-2">
+              <p className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Caption Suggestions</p>
+              {row.cleanAiOutput.captionSuggestions.length ? (
+                <CopyButton label="Copy" text={row.cleanAiOutput.captionSuggestions[0] ?? null} className="h-6 px-2 text-[10px]" />
+              ) : null}
+            </div>
             {row.cleanAiOutput.captionSuggestions.length ? (
               <div className="space-y-1.5">
-                <div className="flex items-center justify-between gap-2">
-                  <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground/70">Captions</p>
-                  <CopyButton label="Copy" text={row.cleanAiOutput.captionSuggestions[0] ?? null} className="h-6 px-2 text-[10px]" />
-                </div>
                 <ul className="space-y-1">
                   {row.cleanAiOutput.captionSuggestions.map((item, index) => (
                     <li
@@ -1310,28 +1344,40 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
 
         {readyRows.length ? (
           <Card className="overflow-hidden rounded-[28px] border-border/60 bg-white/95 shadow-sm">
-            <CardHeader className="space-y-2">
-              <CardTitle className="font-serif text-2xl tracking-tight text-primary">Ready for G5</CardTitle>
-              <CardDescription className="text-sm leading-6 text-muted-foreground">
-                {readyRows.length} check{readyRows.length === 1 ? "" : "s"} are ready for G5. Use each card to hand off the content or review AI notes.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="grid gap-3 md:grid-cols-2">
-                {readyRows.map(({ row, displayStatus }) => (
-                  <PendingApprovalCard
-                    key={`${row.time}-${row.reviewId ?? row.assetId ?? row.platform ?? "pending"}`}
-                    row={row}
-                    displayStatus={displayStatus}
-                    onSendToG5Approval={(targetRow) => void handleSendToG5Approval(targetRow)}
-                    onViewDetails={() => setSelectedDetailRow(row)}
-                    onRecreateContent={(targetRow) => void handleRecreateContent(targetRow)}
-                    onRejectContent={(targetRow) => openRejectConfirm(targetRow)}
-                    isBusy={actioningRowKey === getRowKey(row)}
-                  />
-                ))}
-              </div>
-            </CardContent>
+            <Carousel
+              opts={{ align: "start", loop: readyRows.length > 1 }}
+              className="relative w-full"
+              aria-label="Content Ready For G5 carousel"
+            >
+              <CardHeader className="gap-2 pb-4">
+                <CardTitle className="font-serif text-2xl tracking-tight text-primary">Content Ready For G5</CardTitle>
+                <CardDescription className="max-w-3xl text-sm leading-6 text-muted-foreground">
+                  {readyRows.length} check{readyRows.length === 1 ? "" : "s"} are ready for G5. Swipe the carousel or use the arrows to hand off the content or review AI notes.
+                </CardDescription>
+                {readyRows.length > 1 ? (
+                  <CardAction className="self-start pt-1 sm:self-auto">
+                    <ReadyRowsCarouselControls />
+                  </CardAction>
+                ) : null}
+              </CardHeader>
+              <CardContent className="pt-0">
+                <CarouselContent className="h-full min-h-0">
+                  {readyRows.map(({ row, displayStatus }) => (
+                    <CarouselItem key={`${row.time}-${row.reviewId ?? row.assetId ?? row.platform ?? "pending"}`} className="basis-full lg:basis-1/2">
+                      <PendingApprovalCard
+                        row={row}
+                        displayStatus={displayStatus}
+                        onSendToG5Approval={(targetRow) => void handleSendToG5Approval(targetRow)}
+                        onViewDetails={() => setSelectedDetailRow(row)}
+                        onRecreateContent={(targetRow) => void handleRecreateContent(targetRow)}
+                        onRejectContent={(targetRow) => openRejectConfirm(targetRow)}
+                        isBusy={actioningRowKey === getRowKey(row)}
+                      />
+                    </CarouselItem>
+                  ))}
+                </CarouselContent>
+              </CardContent>
+            </Carousel>
           </Card>
         ) : null}
 
