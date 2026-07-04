@@ -58,8 +58,8 @@ type G4WebhookResponse = {
   request_id?: string | null;
 };
 
-type G4UserActionType = "SEND_TO_G5_APPROVAL" | "REJECT_CONTENT";
-type G4ActionTask = G4UserActionType | "RECREATE_CONTENT" | "MANUAL_EDIT_CHECK";
+type G4UserActionType = "SEND_TO_G5_APPROVAL" | "REJECT_CONTENT" | "RECREATE_CONTENT";
+type G4ActionTask = G4UserActionType | "MANUAL_EDIT_CHECK";
 
 function ReadyRowsCarouselControls() {
   const { scrollPrev, scrollNext, canScrollPrev, canScrollNext } = useCarousel();
@@ -139,6 +139,17 @@ const getRowDisplayStatus = (row: G4RecentOutcome, overrideStatus?: G4DisplaySta
   }
 
   const approvalState = row.approvalState?.trim().toUpperCase() ?? "";
+  if (
+    approvalState === "PENDING_HUMAN_APPROVAL" ||
+    approvalState === "APPROVED" ||
+    approvalState === "PENDING_APPROVAL" ||
+    approvalState === "READY_FOR_APPROVAL" ||
+    approvalState === "REVIEW_REQUESTED" ||
+    approvalState === "IN_REVIEW"
+  ) {
+    return "PENDING_G5_APPROVAL";
+  }
+
   if (approvalState === "CHANGES_REQUESTED") {
     return "REQUESTED_CHANGES";
   }
@@ -209,6 +220,7 @@ const normalizeWebhookDisplayStatus = (status: string | null | undefined): G4Dis
   switch (normalized) {
     case "PASS":
       return "PASS";
+    case "APPROVED":
     case "PENDING_APPROVAL":
     case "PENDING_G5_APPROVAL":
     case "PENDING_HUMAN_APPROVAL":
@@ -242,11 +254,11 @@ const getG4CardHelperCopy = (status: G4DisplayStatus) => {
     case "PASS":
       return "Content check passed. Send to G5 for human approval.";
     case "PENDING_G5_APPROVAL":
-      return "Content is already waiting on G5 approval.";
+      return "Content has already been sent to G5 and is awaiting review. Use More actions to recreate or reject it.";
     case "REQUESTED_CHANGES":
       return "New version can be generated from this feedback.";
     case "REJECTED":
-      return "This content will not move to G5.";
+      return "This content was rejected and will not move to G5.";
     case "NEEDS_EVIDENCE":
       return "Add proof before this can continue.";
     case "BLOCK":
@@ -262,7 +274,7 @@ const getG4CardMainButtonLabel = (status: G4DisplayStatus) => {
     case "PASS":
       return "Send to G5 Approval";
     case "PENDING_G5_APPROVAL":
-      return "Sent to G5 Approval";
+      return "Sent to G5";
     default:
       return "View Details";
   }
@@ -593,6 +605,8 @@ function PendingApprovalCard({
   const selectedHook = row.cleanAiOutput?.hookSuggestions?.[0] ?? row.contentPreview.hookAngle ?? row.contentPreview.contentRecommendation ?? null;
   const reviewAssetKey = getReviewAssetKey(row.reviewId, row.assetId);
   const canSendToG5 = displayStatus === "PASS" && Boolean(reviewAssetKey && selectedCaption && selectedHook);
+  const isSentToG5 = displayStatus === "PENDING_G5_APPROVAL";
+  const areContentActionsLocked = isBusy || isSentToG5;
   const mainButtonLabel = getG4CardMainButtonLabel(displayStatus);
   const helperCopy = getG4CardHelperCopy(displayStatus);
 
@@ -643,7 +657,7 @@ function PendingApprovalCard({
                   size="sm"
                   variant="outline"
                   className="h-8 w-full rounded-full border-border/70 bg-white text-[11px] font-medium"
-                  disabled={isBusy}
+                  disabled={areContentActionsLocked}
                 >
                   More actions
                   <ChevronDown />
@@ -652,6 +666,7 @@ function PendingApprovalCard({
               <DropdownMenuContent align="end" className="min-w-[14rem] rounded-[18px] border-border/60 bg-white p-1 shadow-lg">
                 <DropdownMenuItem
                   className="rounded-[14px] px-3 py-2 text-sm"
+                  disabled={areContentActionsLocked}
                   onSelect={(event) => {
                     event.preventDefault();
                     onRecreateContent(row);
@@ -663,6 +678,7 @@ function PendingApprovalCard({
                 <DropdownMenuItem
                   variant="destructive"
                   className="rounded-[14px] px-3 py-2 text-sm"
+                  disabled={areContentActionsLocked}
                   onSelect={(event) => {
                     event.preventDefault();
                     onRejectContent(row);
@@ -672,12 +688,6 @@ function PendingApprovalCard({
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
-
-            {displayStatus === "PENDING_G5_APPROVAL" ? (
-              <div className="inline-flex items-center gap-2 self-start rounded-full border border-sky-200 bg-sky-50 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-sky-700">
-                Pending G5 Approval
-              </div>
-            ) : null}
           </div>
         </div>
 
@@ -999,7 +1009,7 @@ function PendingApprovalDetailsDialog({
                   disabled={sendToG5Disabled}
                   onClick={() => void onSendToG5Approval(row)}
                 >
-                  {displayStatus === "PENDING_G5_APPROVAL" ? "Sent to G5 Approval" : "Send to G5 Approval"}
+                  {displayStatus === "PENDING_G5_APPROVAL" ? "Sent to G5" : "Send to G5 Approval"}
                 </Button>
                 <Button
                   type="button"
@@ -1208,12 +1218,15 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
 
   const openRejectConfirm = useCallback(
     (row: G4RecentOutcome) => {
+      if (resolveRowDisplayStatus(row) === "PENDING_G5_APPROVAL") {
+        return;
+      }
       setSelectedDetailRow(null);
       setSelectedRecentRow(null);
       setSelectedCaptionHookRow(null);
       setRejectingRow(row);
     },
-    [],
+    [resolveRowDisplayStatus],
   );
 
   const handleRejectConfirm = useCallback(async () => {
@@ -1222,6 +1235,10 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
     }
 
     const row = rejectingRow;
+    if (resolveRowDisplayStatus(row) === "PENDING_G5_APPROVAL") {
+      return null;
+    }
+
     const rowKey = getRowKey(row);
     if (actioningRowKey === rowKey) {
       return null;
@@ -1252,13 +1269,17 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
       setActioningRowKey((current) => (current === rowKey ? null : current));
       setActioningTask((current) => (current === "REJECT_CONTENT" ? null : current));
     }
-  }, [actioningRowKey, callG4Webhook, getActorLabel, getRowKey, markRowStatus, rejectingRow, router]);
+  }, [actioningRowKey, callG4Webhook, getActorLabel, getRowKey, markRowStatus, rejectingRow, resolveRowDisplayStatus, router]);
 
   const handleRecreateContent = useCallback(
     async (row: G4RecentOutcome) => {
       const rowKey = getRowKey(row);
       if (!row.assetId) {
         toast.error("Action failed. Please try again.");
+        return null;
+      }
+
+      if (resolveRowDisplayStatus(row) === "PENDING_G5_APPROVAL") {
         return null;
       }
 
@@ -1270,7 +1291,9 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
       setActioningTask("RECREATE_CONTENT");
       try {
         const feedbackNote = rowFeedbackNotes[rowKey] ?? undefined;
-        const body = await callG4Webhook("/api/admin/workflow-dashboard/g4/recheck", {
+        const body = await callG4Webhook("/api/admin/workflow-dashboard/g4/user-action", {
+          action_type: "RECREATE_CONTENT",
+          review_id: row.reviewId,
           asset_id: row.assetId,
           source_platform: getSourcePlatform(row),
           source_event: getSourceEvent(row),
@@ -1285,7 +1308,7 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
         if (nextStatus !== "ERROR") {
           markRowStatus(row, nextStatus);
         }
-        toast.success("Content checked");
+        toast.success(body.message || "Content recreated and ready for G5.");
         router.refresh();
         return body;
       } catch (error) {
@@ -1308,6 +1331,7 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
       getSourcePlatform,
       markRowStatus,
       rowFeedbackNotes,
+      resolveRowDisplayStatus,
       router,
     ],
   );
@@ -1352,7 +1376,7 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
               <CardHeader className="gap-2 pb-4">
                 <CardTitle className="font-serif text-2xl tracking-tight text-primary">Content Ready For G5</CardTitle>
                 <CardDescription className="max-w-3xl text-sm leading-6 text-muted-foreground">
-                  {readyRows.length} check{readyRows.length === 1 ? "" : "s"} are ready for G5. Swipe the carousel or use the arrows to hand off the content or review AI notes.
+                  {readyRows.length} check{readyRows.length === 1 ? "" : "s"} are ready or already sent to G5. Swipe the carousel or use the arrows to review the handoff or AI notes.
                 </CardDescription>
                 {readyRows.length > 1 ? (
                   <CardAction className="self-start pt-1 sm:self-auto">
