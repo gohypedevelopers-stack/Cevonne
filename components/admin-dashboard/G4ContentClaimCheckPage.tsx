@@ -3,7 +3,6 @@
 import { Fragment, useCallback, useEffect, useState, type ReactNode } from "react";
 import { format, parseISO } from "date-fns";
 import {
-  AlertTriangle,
   ArrowLeft,
   ArrowRight,
   ChevronDown,
@@ -15,8 +14,6 @@ import {
   Loader2,
   MoreHorizontal,
   Music2,
-  PencilLine,
-  RefreshCcw,
   Sparkles,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
@@ -37,7 +34,6 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/context/AuthContext";
 import { type G4RecentOutcome, type G4WorkflowDetail } from "@/lib/admin/g4-content-review";
 import { cn } from "@/lib/utils";
@@ -750,89 +746,17 @@ function PendingApprovalDetailsDialog({
   row,
   open,
   onOpenChange,
-  displayStatus,
-  isBusy,
-  onSendToG5Approval,
-  onRejectContent,
-  onManualEditCheck,
 }: {
   row: G4RecentOutcome | null;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  displayStatus: G4DisplayStatus;
-  isBusy: boolean;
-  onSendToG5Approval: (row: G4RecentOutcome) => Promise<G4WebhookResponse | null>;
-  onRejectContent: (row: G4RecentOutcome) => void;
-  onManualEditCheck: (row: G4RecentOutcome, contentText: string) => Promise<G4WebhookResponse | null>;
 }) {
-  const [manualEditOpen, setManualEditOpen] = useState(false);
-  const [manualEditDraft, setManualEditDraft] = useState(buildManualEditDraft(row));
-  const [manualEditSubmitting, setManualEditSubmitting] = useState(false);
-  const [manualEditValidated, setManualEditValidated] = useState(false);
   const sourceUrl = row?.contentPreview.sourceUrl ?? row?.contentPreview.landingPageUrl;
   const sourceCaption = row ? getSourceCaptionText(row.contentPreview) : null;
-
-  useEffect(() => {
-    if (!row) {
-      setManualEditOpen(false);
-      setManualEditDraft("");
-      setManualEditSubmitting(false);
-      setManualEditValidated(false);
-      return;
-    }
-
-    setManualEditOpen(false);
-    setManualEditDraft(buildManualEditDraft(row));
-    setManualEditSubmitting(false);
-    setManualEditValidated(displayStatus === "PASS");
-  }, [displayStatus, row]);
-
-  const handleManualEditToggle = () => {
-    setManualEditOpen((current) => {
-      const next = !current;
-      if (next) {
-        setManualEditValidated(false);
-      }
-      return next;
-    });
-  };
 
   if (!row) {
     return null;
   }
-
-  const hasManualRiskWarning = isRiskyRewriteLanguage(manualEditDraft);
-  const selectedCaption = row.cleanAiOutput?.captionSuggestions?.[0] ?? row.contentPreview.captionPreview ?? row.contentPreview.contentText ?? null;
-  const selectedHook = row.cleanAiOutput?.hookSuggestions?.[0] ?? row.contentPreview.hookAngle ?? row.contentPreview.contentRecommendation ?? null;
-  const reviewAssetKey = getReviewAssetKey(row.reviewId, row.assetId);
-  const canSendToG5 = displayStatus === "PASS" && Boolean(reviewAssetKey && selectedCaption && selectedHook);
-  const sendToG5Disabled = isBusy || !canSendToG5 || displayStatus !== "PASS";
-
-  const handleManualEditCheck = async () => {
-    const draft = manualEditDraft.trim();
-    if (!draft) {
-      toast.error("Add content before checking.");
-      return;
-    }
-
-    setManualEditSubmitting(true);
-    try {
-      const response = await onManualEditCheck(row, draft);
-      if (!response || response.status === "ERROR") {
-        setManualEditValidated(false);
-        throw new Error(response?.message || "Unable to check edited content.");
-      }
-
-      setManualEditValidated(response.status === "PASS");
-      toast.success("Edited content checked");
-    } catch (error) {
-      setManualEditValidated(false);
-      const message = error instanceof Error ? error.message : "Action failed. Please try again.";
-      toast.error(message);
-    } finally {
-      setManualEditSubmitting(false);
-    }
-  };
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -883,10 +807,7 @@ function PendingApprovalDetailsDialog({
                     <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Original post data</p>
                   </div>
                   <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                    <SourceDataTile
-                      label="Handle"
-                      value={row.contentPreview.profileUsername ?? "Not available"}
-                    />
+                    <SourceDataTile label="Handle" value={row.contentPreview.profileUsername ?? "Not available"} />
                     <SourceDataTile label="Audio" value={formatSourceAudioName(row.contentPreview.audioSound) ?? "original sound"} />
                   </div>
                   <div className="mt-3">
@@ -914,70 +835,14 @@ function PendingApprovalDetailsDialog({
                       Review the generated guidance before sending this item forward.
                     </CardDescription>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <CopyButton label="Copy safe rewrite" text={row.cleanAiOutput?.safeRewrite ?? null} />
-                    <Button type="button" variant="outline" size="sm" className="h-8 rounded-full border-border/70 bg-white px-3 text-[11px] font-medium shadow-none" onClick={handleManualEditToggle}>
-                      <PencilLine />
-                      Edit manually
-                    </Button>
-                  </div>
+                  <CopyButton label="Copy safe rewrite" text={row.cleanAiOutput?.safeRewrite ?? null} />
                 </div>
               </CardHeader>
               <CardContent className="space-y-4">
                 {row.cleanAiOutput ? (
                   <>
-                    <FieldBlock
-                      label="Risk summary"
-                      value={row.cleanAiOutput.riskSummary ?? "No risk summary provided."}
-                      className="bg-muted/10 shadow-none"
-                    />
-                    <FieldBlock
-                      label="Safe rewrite"
-                      value={row.cleanAiOutput.safeRewrite ?? "No safe rewrite provided."}
-                      className="bg-muted/10 shadow-none"
-                    />
-                    {manualEditOpen ? (
-                      <div className="space-y-3 rounded-[22px] border border-border/60 bg-white p-4 shadow-sm">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Edit manually</p>
-                          <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", manualEditValidated ? "border-emerald-200 bg-emerald-50 text-emerald-700" : "border-sky-200 bg-sky-50 text-sky-700")}>
-                            {manualEditValidated ? "Edited PASS" : "Needs check"}
-                          </Badge>
-                        </div>
-                        <Textarea
-                          value={manualEditDraft}
-                          onChange={(event) => {
-                            setManualEditDraft(event.target.value);
-                            setManualEditValidated(false);
-                          }}
-                          rows={8}
-                          className="min-h-[220px] rounded-[20px] border-border/70 bg-muted/10 text-sm leading-6"
-                          placeholder="Edit the caption here"
-                        />
-                        {hasManualRiskWarning ? (
-                          <div className="flex gap-3 rounded-[20px] border border-amber-200 bg-amber-50 p-4">
-                            <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-700" />
-                            <p className="text-sm leading-6 text-amber-950">
-                              This edited caption still looks risky. Review it carefully before checking again.
-                            </p>
-                          </div>
-                        ) : null}
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <p className="text-sm leading-6 text-muted-foreground">
-                            Re-run G4 on this edited caption. Send to G5 only after the edited version returns PASS.
-                          </p>
-                          <Button
-                            type="button"
-                            className="h-10 rounded-full px-5"
-                            onClick={() => void handleManualEditCheck()}
-                            disabled={manualEditSubmitting || !manualEditDraft.trim()}
-                          >
-                            <RefreshCcw className={cn(manualEditSubmitting && "animate-spin")} />
-                            {manualEditSubmitting ? "Checking content..." : "Check edited content"}
-                          </Button>
-                        </div>
-                      </div>
-                    ) : null}
+                    <FieldBlock label="Risk summary" value={row.cleanAiOutput.riskSummary ?? "No risk summary provided."} className="bg-muted/10 shadow-none" />
+                    <FieldBlock label="Safe rewrite" value={row.cleanAiOutput.safeRewrite ?? "No safe rewrite provided."} className="bg-muted/10 shadow-none" />
                     <FieldBlock
                       label="Human review recommendation"
                       value={row.cleanAiOutput.humanReviewRecommendation ?? "No human review recommendation provided."}
@@ -1002,36 +867,7 @@ function PendingApprovalDetailsDialog({
                   <p className="text-sm leading-6 text-muted-foreground">No AI notes are available for this check.</p>
                 )}
               </CardContent>
-              <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border/60 px-6 py-4">
-                <Button
-                  type="button"
-                  className="h-9 rounded-full px-4"
-                  disabled={sendToG5Disabled}
-                  onClick={() => void onSendToG5Approval(row)}
-                >
-                  {displayStatus === "PENDING_G5_APPROVAL" ? "Sent to G5" : "Send to G5 Approval"}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-9 rounded-full border-border/70 bg-white px-4 text-sm font-medium shadow-none"
-                  onClick={handleManualEditToggle}
-                >
-                  Edit Manually
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="h-9 rounded-full border-rose-200 bg-white px-4 text-sm font-medium text-rose-700 shadow-none hover:bg-rose-50 hover:text-rose-800"
-                  disabled={isBusy}
-                  onClick={() => void onRejectContent(row)}
-                >
-                  Reject
-                </Button>
-              </div>
             </Card>
-
-
           </div>
         </div>
       </DialogContent>
@@ -1091,6 +927,7 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
   const [actioningRowKey, setActioningRowKey] = useState<string | null>(null);
   const [actioningTask, setActioningTask] = useState<G4ActionTask | null>(null);
   const [rejectingRow, setRejectingRow] = useState<G4RecentOutcome | null>(null);
+  const [hasShownDetailErrorToast, setHasShownDetailErrorToast] = useState(false);
 
   const getActorLabel = useCallback(() => user?.email?.trim() || user?.id?.trim() || "admin", [user?.email, user?.id]);
 
@@ -1103,6 +940,15 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
     },
     [getRowKey, rowStatusOverrides],
   );
+
+  useEffect(() => {
+    if (detail.status !== "ERROR" || hasShownDetailErrorToast) {
+      return;
+    }
+
+    toast.error(detail.actionNeeded || "Unable to load content checks right now.");
+    setHasShownDetailErrorToast(true);
+  }, [detail.actionNeeded, detail.status, hasShownDetailErrorToast]);
 
   const getSelectedCaption = useCallback(
     (row: G4RecentOutcome) =>
@@ -1343,11 +1189,9 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
 
       return { row, displayStatus, canSendToG5 };
     })
-    .filter(({ displayStatus }) => displayStatus === "PENDING_G5_APPROVAL" || displayStatus === "PASS")
+    .filter(({ displayStatus }) => displayStatus === "PASS")
     .slice(0, 3);
 
-  const selectedDetailDisplayStatus = selectedDetailRow ? resolveRowDisplayStatus(selectedDetailRow) : "ERROR";
-  const selectedDetailBusy = selectedDetailRow ? actioningRowKey === getRowKey(selectedDetailRow) : false;
   const rejectingBusy = rejectingRow ? actioningRowKey === getRowKey(rejectingRow) : false;
 
   return (
@@ -1360,31 +1204,22 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
         titleClassName="lg:whitespace-nowrap"
         descriptionClassName="lg:max-w-none lg:whitespace-nowrap"
       >
-        {detail.status === "ERROR" ? (
-          <Card role="alert" className="rounded-[28px] border-rose-200 bg-rose-50 shadow-sm">
-            <CardContent className="p-5 text-sm leading-6 text-rose-900">{detail.actionNeeded}</CardContent>
-          </Card>
-        ) : null}
-
-        {readyRows.length ? (
-          <Card className="overflow-hidden rounded-[28px] border-border/60 bg-white/95 shadow-sm">
-            <Carousel
-              opts={{ align: "start", loop: readyRows.length > 1 }}
-              className="relative w-full"
-              aria-label="Content Ready For G5 carousel"
-            >
-              <CardHeader className="gap-2 pb-4">
-                <CardTitle className="font-serif text-2xl tracking-tight text-primary">Content Ready For G5</CardTitle>
-                <CardDescription className="max-w-3xl text-sm leading-6 text-muted-foreground">
-                  {readyRows.length} check{readyRows.length === 1 ? "" : "s"} are ready or already sent to G5. Swipe the carousel or use the arrows to review the handoff or AI notes.
-                </CardDescription>
-                {readyRows.length > 1 ? (
-                  <CardAction className="self-start pt-1 sm:self-auto">
-                    <ReadyRowsCarouselControls />
-                  </CardAction>
-                ) : null}
-              </CardHeader>
-              <CardContent className="pt-0">
+        <Card className="overflow-hidden rounded-[28px] border-border/60 bg-white/95 shadow-sm">
+          <CardHeader className="gap-2 pb-4">
+            <CardTitle className="font-serif text-2xl tracking-tight text-primary">Content Ready For G5</CardTitle>
+            {readyRows.length > 1 ? (
+              <CardAction className="self-start pt-1 sm:self-auto">
+                <ReadyRowsCarouselControls />
+              </CardAction>
+            ) : null}
+          </CardHeader>
+          {readyRows.length ? (
+            <CardContent className="pt-0">
+              <Carousel
+                opts={{ align: "start", loop: readyRows.length > 1 }}
+                className="relative w-full"
+                aria-label="Content Ready For G5 carousel"
+              >
                 <CarouselContent className="h-full min-h-0">
                   {readyRows.map(({ row, displayStatus }) => (
                     <CarouselItem key={`${row.time}-${row.reviewId ?? row.assetId ?? row.platform ?? "pending"}`} className="basis-full lg:basis-1/2">
@@ -1400,10 +1235,17 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
                     </CarouselItem>
                   ))}
                 </CarouselContent>
-              </CardContent>
-            </Carousel>
-          </Card>
-        ) : null}
+              </Carousel>
+            </CardContent>
+          ) : (
+            <CardContent className="flex min-h-[18rem] items-center justify-center px-6 pb-10 pt-0">
+              <div className="max-w-md text-center">
+                <p className="text-base font-medium text-foreground">No content ready for G5 approval.</p>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">New items will appear here after a G4 check passes.</p>
+              </div>
+            </CardContent>
+          )}
+        </Card>
 
         <Card id="recent-checks" className="rounded-[28px] border-border/60 bg-white shadow-sm">
           <CardHeader className="space-y-2">
@@ -1688,45 +1530,6 @@ export default function G4ContentClaimCheckPage({ detail }: G4ContentClaimCheckP
         onOpenChange={(open) => {
           if (!open) {
             setSelectedDetailRow(null);
-          }
-        }}
-        displayStatus={selectedDetailDisplayStatus}
-        isBusy={selectedDetailBusy}
-        onSendToG5Approval={handleSendToG5Approval}
-        onRejectContent={openRejectConfirm}
-        onManualEditCheck={async (row, contentText) => {
-          const rowKey = getRowKey(row);
-          if (actioningRowKey === rowKey) {
-            return null;
-          }
-
-          setActioningRowKey(rowKey);
-          setActioningTask("MANUAL_EDIT_CHECK");
-          try {
-            const body = await callG4Webhook("/api/admin/workflow-dashboard/g4/recheck", {
-              asset_id: row.assetId,
-              source_platform: getSourcePlatform(row),
-              source_event: "MANUAL_EDIT_CHECK",
-              platform: row.platform,
-              original_post_caption: getOriginalCaption(row) ?? "",
-              content_text: contentText,
-              manual_content_text: contentText,
-              feedback_note: rowFeedbackNotes[rowKey] ?? undefined,
-              actor: getActorLabel(),
-            });
-
-            const nextStatus = normalizeWebhookDisplayStatus(body.status);
-            if (nextStatus !== "ERROR") {
-              markRowStatus(row, nextStatus);
-            }
-            return body;
-          } catch (error) {
-            const message = error instanceof Error ? error.message : "Action failed. Please try again.";
-            toast.error(message);
-            return null;
-          } finally {
-            setActioningRowKey((current) => (current === rowKey ? null : current));
-            setActioningTask((current) => (current === "MANUAL_EDIT_CHECK" ? null : current));
           }
         }}
       />

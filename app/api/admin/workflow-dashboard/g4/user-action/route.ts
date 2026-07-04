@@ -64,7 +64,15 @@ export async function POST(request: Request) {
     http_status: result.http_status ?? null,
   });
 
-  if (result.status === "PASS" && actionType === "SEND_TO_G5_APPROVAL") {
+  if (result.status !== "ERROR" && actionType === "SEND_TO_G5_APPROVAL") {
+    console.info("[g4-user-action] queueing G4 approval handoff", {
+      action_type: actionType,
+      review_id: reviewId || null,
+      asset_id: assetId || null,
+      webhook_status: result.status,
+      handled_at: result.handled_at ?? null,
+    });
+
     const handoff = await queueG4ApprovalRequest({
       adminUserId: auth.id,
       adminEmail: auth.email ?? null,

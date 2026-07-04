@@ -651,10 +651,10 @@ const updateG4ReviewByColumn = async (column: "id" | "review_id" | "content_revi
   return data as G4ContentReviewRow;
 };
 
-const syncG4ReviewApproval = async (review: G4ContentReviewRow, handledAt: string) => {
+const syncG4ReviewReadyForApproval = async (review: G4ContentReviewRow, handledAt: string) => {
   const update = {
     status: "PASS",
-    approval_state: "APPROVED",
+    approval_state: null,
     requires_human_approval: false,
     reviewed_at: handledAt,
   };
@@ -682,7 +682,7 @@ const syncG4ReviewApproval = async (review: G4ContentReviewRow, handledAt: strin
   for (const [column, value] of candidates) {
     const updated = await updateG4ReviewByColumn(column, value, update);
     if (updated) {
-      console.info("[g12-send-to-content-draft] approval update response", {
+      console.info("[g12-send-to-content-draft] G4 draft-ready update response", {
         review_id: updated.id ?? updated.review_id ?? updated.content_review_id,
         asset_id: updated.asset_id ?? null,
         approval_state: updated.approval_state ?? null,
@@ -697,7 +697,7 @@ const syncG4ReviewApproval = async (review: G4ContentReviewRow, handledAt: strin
     lastError = { column, value };
   }
 
-  console.warn("[g12-send-to-content-draft] Failed to sync G4 approval status", {
+  console.warn("[g12-send-to-content-draft] Failed to sync G4 draft-ready status", {
     review_id: review.id ?? review.review_id ?? review.content_review_id,
     asset_id: review.asset_id ?? null,
     last_error: lastError,
@@ -705,6 +705,19 @@ const syncG4ReviewApproval = async (review: G4ContentReviewRow, handledAt: strin
   });
 
   return null;
+};
+
+const isG4ApprovalInFlight = (value: string | null | undefined) => {
+  const approvalState = toText(value, "").toUpperCase();
+
+  return (
+    approvalState === "APPROVED" ||
+    approvalState === "PENDING_HUMAN_APPROVAL" ||
+    approvalState === "PENDING_APPROVAL" ||
+    approvalState === "READY_FOR_APPROVAL" ||
+    approvalState === "REVIEW_REQUESTED" ||
+    approvalState === "IN_REVIEW"
+  );
 };
 
 const updateG12InsightByColumn = async (
@@ -816,7 +829,7 @@ const buildG4OutcomeMessage = (review: G4ReviewSnapshot, status: G4ReviewSnapsho
     return "Sent to content draft. Human approval is still required before this can be used.";
   }
 
-  return alreadySent ? "This content has already been sent to content draft." : "Sent to content draft.";
+  return alreadySent ? "Draft already exists and is ready for G4 approval." : "Draft created and is ready for G4 approval.";
 };
 
 const buildG4OutcomeSummary = (review: G4ReviewSnapshot, status: G4ReviewSnapshot["status"], alreadySent: boolean) => {
@@ -832,7 +845,7 @@ const buildG4OutcomeSummary = (review: G4ReviewSnapshot, status: G4ReviewSnapsho
     return null;
   }
 
-  return alreadySent ? "The insight already has a G4 review record." : null;
+  return alreadySent ? "The draft already exists and is ready for G4 approval." : "The draft is ready for G4 approval.";
 };
 
 const buildOutcomeResponse = (
@@ -1020,8 +1033,9 @@ export async function sendG12TrendToContentDraft(
       return buildNeedsEvidenceResponse(insight, requestId, handledAt, handledAt, preExistingSnapshot, true);
     }
 
-    const approvedReview =
-      preExistingSnapshot.approval_state === "APPROVED" ? preExistingReview : (await syncG4ReviewApproval(preExistingReview, handledAt) ?? preExistingReview);
+      const approvedReview = isG4ApprovalInFlight(preExistingSnapshot.approval_state)
+        ? preExistingReview
+        : (await syncG4ReviewReadyForApproval(preExistingReview, handledAt) ?? preExistingReview);
     const approvedSnapshot = buildG4ReviewSnapshot(approvedReview, approvedReview.review_id ?? approvedReview.content_review_id ?? approvedReview.id);
     const approvalHandledAt = toText(approvedReview.reviewed_at ?? approvedReview.created_at, handledAt);
     await syncG12Insight(insight, buildUpdateFields(approvedSnapshot, approvalHandledAt));
@@ -1048,8 +1062,9 @@ export async function sendG12TrendToContentDraft(
       return buildNeedsEvidenceResponse(insight, requestId, handledAt, handledAt, existingReviewSnapshot, true);
     }
 
-    const approvedReview =
-      existingReviewSnapshot.approval_state === "APPROVED" ? existingReview : (await syncG4ReviewApproval(existingReview, handledAt) ?? existingReview);
+    const approvedReview = isG4ApprovalInFlight(existingReviewSnapshot.approval_state)
+      ? existingReview
+      : (await syncG4ReviewReadyForApproval(existingReview, handledAt) ?? existingReview);
     const approvedSnapshot = buildG4ReviewSnapshot(approvedReview, approvedReview.review_id ?? approvedReview.content_review_id ?? approvedReview.id);
     const approvalHandledAt = toText(approvedReview.reviewed_at ?? approvedReview.created_at, handledAt);
     await syncG12Insight(insight, buildUpdateFields(approvedSnapshot, approvalHandledAt));
@@ -1123,8 +1138,9 @@ export async function sendG12TrendToContentDraft(
         return buildNeedsEvidenceResponse(insight, webhookResponse.request_id, sentAt, recoveredHandledAt, recoveredSnapshot, false);
       }
 
-      const approvedReview =
-        recoveredSnapshot.approval_state === "APPROVED" ? webhookReview : (await syncG4ReviewApproval(webhookReview, recoveredHandledAt) ?? webhookReview);
+      const approvedReview = isG4ApprovalInFlight(recoveredSnapshot.approval_state)
+        ? webhookReview
+        : (await syncG4ReviewReadyForApproval(webhookReview, recoveredHandledAt) ?? webhookReview);
       const approvedSnapshot = buildG4ReviewSnapshot(approvedReview, approvedReview.review_id ?? approvedReview.content_review_id ?? approvedReview.id);
       const approvalHandledAt = toText(approvedReview.reviewed_at ?? approvedReview.created_at, recoveredHandledAt);
       await syncG12Insight(insight, buildUpdateFields(approvedSnapshot, approvalHandledAt));
@@ -1174,8 +1190,9 @@ export async function sendG12TrendToContentDraft(
     return buildNeedsEvidenceResponse(insight, webhookResponse.request_id, sentAt, handledAt, webhookReviewSnapshot, false);
   }
 
-  const approvedReview =
-    webhookReviewSnapshot.approval_state === "APPROVED" ? webhookReview : (await syncG4ReviewApproval(webhookReview, handledAt) ?? webhookReview);
+  const approvedReview = isG4ApprovalInFlight(webhookReviewSnapshot.approval_state)
+    ? webhookReview
+    : (await syncG4ReviewReadyForApproval(webhookReview, handledAt) ?? webhookReview);
   const approvedSnapshot = buildG4ReviewSnapshot(approvedReview, approvedReview.review_id ?? approvedReview.content_review_id ?? approvedReview.id);
   const approvalHandledAt = toText(approvedReview.reviewed_at ?? approvedReview.created_at, handledAt);
   await syncG12Insight(insight, buildUpdateFields(approvedSnapshot, approvalHandledAt));

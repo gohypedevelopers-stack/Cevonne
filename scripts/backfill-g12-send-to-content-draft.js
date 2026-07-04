@@ -245,19 +245,19 @@ const needsG4Repair = (g4Review) => {
     return false;
   }
 
-  return g4Review.approval_state !== "APPROVED" || g4Review.status !== "PASS" || g4Review.requires_human_approval !== false;
+  return g4Review.approval_state === "APPROVED";
 };
 
-const updateG4ReviewApproval = async (g4Review) => {
+const updateG4ReviewReadyForApproval = async (g4Review) => {
   const update = {
     status: "PASS",
-    approval_state: "APPROVED",
+    approval_state: null,
     requires_human_approval: false,
     reviewed_at: new Date().toISOString(),
   };
 
   if (DRY_RUN) {
-    console.info("[g12-backfill] dry run approval update", {
+    console.info("[g12-backfill] dry run draft-ready update", {
       review_id: g4Review.id || g4Review.review_id || g4Review.content_review_id,
       asset_id: g4Review.asset_id || null,
     });
@@ -265,7 +265,7 @@ const updateG4ReviewApproval = async (g4Review) => {
     return {
       ...g4Review,
       status: "PASS",
-      approval_state: "APPROVED",
+      approval_state: null,
       requires_human_approval: false,
       reviewed_at: update.reviewed_at,
     };
@@ -276,13 +276,13 @@ const updateG4ReviewApproval = async (g4Review) => {
     const { data, error } = await supabase
       .from(G4_TABLE)
       .update(update)
-      .eq(candidate === g4Review.id ? "id" : candidate === g4Review.review_id ? "review_id" : candidate === g4Review.content_review_id ? "content_review_id" : "asset_id", candidate)
+    .eq(candidate === g4Review.id ? "id" : candidate === g4Review.review_id ? "review_id" : candidate === g4Review.content_review_id ? "content_review_id" : "asset_id", candidate)
       .select("id, review_id, content_review_id, asset_id, status, approval_state, requires_human_approval, created_at, reviewed_at")
       .maybeSingle();
 
     if (!error && data) {
       const updated = normalizeG4Row(data);
-      console.info("[g12-backfill] approval update response", {
+      console.info("[g12-backfill] draft-ready update response", {
         review_id: updated.id,
         asset_id: updated.asset_id || null,
         approval_state: updated.approval_state || null,
@@ -294,7 +294,7 @@ const updateG4ReviewApproval = async (g4Review) => {
     }
   }
 
-  throw new Error(`Failed to update G4 review approval for ${g4Review.id || g4Review.review_id || g4Review.content_review_id}`);
+  throw new Error(`Failed to update G4 review draft-ready state for ${g4Review.id || g4Review.review_id || g4Review.content_review_id}`);
 };
 
 const updateG12Insight = async (row, g4Review) => {
@@ -395,7 +395,7 @@ const main = async () => {
 
     let g4Review = match.review;
     if (needsG4Repair(g4Review)) {
-      g4Review = await updateG4ReviewApproval(g4Review);
+      g4Review = await updateG4ReviewReadyForApproval(g4Review);
       g4Repairs += 1;
     }
 
