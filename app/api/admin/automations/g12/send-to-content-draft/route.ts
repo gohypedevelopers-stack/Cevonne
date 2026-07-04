@@ -34,6 +34,12 @@ export async function POST(request: Request) {
     const record = body && typeof body === "object" && !Array.isArray(body) ? (body as Record<string, unknown>) : {};
     const result = await sendG12TrendToContentDraft({
       insight_id: toText(record.insight_id) || toText(record.trend_insight_id),
+      trend_id: toText(record.trend_id),
+      raw_id: toText(record.raw_id),
+      metric_id: toText(record.metric_id),
+      asset_id: toText(record.asset_id),
+      approval_id: toText(record.approval_id),
+      g4_review_id: toText(record.g4_review_id),
       fetch_run_id: toText(record.fetch_run_id),
     });
 

@@ -57,6 +57,9 @@ type G12LatestRun = {
 
 type G12InsightRecord = {
   id: string;
+  asset_id: string | null;
+  trend_id: string | null;
+  insight_id: string | null;
   metric_id: string | null;
   fetch_run_id: string | null;
   raw_id: string | null;
@@ -184,6 +187,7 @@ type G12SendResponse = {
   g4_detail_href?: string | null;
   review_id?: string | null;
   g4_review_id?: string | null;
+  approval_id?: string | null;
   asset_id?: string | null;
   approval_state?: string | null;
   safe_rewrite?: string | null;
@@ -703,7 +707,25 @@ const getApprovalStatusLabel = (label: string) => {
   }
 };
 
+const getEffectiveG12ApprovalStatus = (
+  insight: Pick<G12InsightRecord, "approval_status" | "approval_id" | "g4_review_id" | "g5_approval_id" | "selected_for_review" | "wf1_handoff_ready">,
+) => {
+  const approval = normalizeApprovalStatusValue(insight.approval_status ?? "");
+  if (
+    approval === "APPROVED" &&
+    !insight.g5_approval_id &&
+    (Boolean(insight.approval_id) || Boolean(insight.g4_review_id) || Boolean(insight.selected_for_review) || Boolean(insight.wf1_handoff_ready))
+  ) {
+    return "SENT TO CONTENT DRAFT";
+  }
+
+  return approval || null;
+};
+
 type ApprovalFilterValue = "NEEDS_REVIEW" | "SENT" | "DRAFT" | "APPROVED" | "REJECTED";
+
+const SEND_OUTCOME_VISIBLE_MS = 4000;
+const LOAD_ERROR_TOAST_MS = 3500;
 
 const getApprovalFilterValue = (label: string): ApprovalFilterValue | null => {
   switch (normalizeApprovalStatusValue(label)) {
@@ -812,7 +834,7 @@ const getSendOutcomeLabel = (outcome: G12SendResponse) => {
 };
 
 const getActionState = (insight: G12InsightRecord, riskScore: number | null): TrendActionState => {
-  const approval = normalizeApprovalStatusValue(insight.approval_status ?? "");
+  const approval = getEffectiveG12ApprovalStatus(insight) ?? "";
   const isRejected = /(REJECT|BLOCK|DENIED|DECLINED|FAILED|FAIL|NOT APPROVED)/.test(approval);
   const isApproved = Boolean(insight.g5_approval_id) || /(APPROVED|APPROVE|PASSED|COMPLETE|COMPLETED|READY)/.test(approval);
   const isSent =
@@ -1151,7 +1173,7 @@ const buildTrendRecords = (insights: G12InsightRecord[], metrics: G12MetricRecor
         trendStrength,
         brandFitScore,
         riskScore,
-        approvalStatus: firstText(insight.approval_status),
+        approvalStatus: getEffectiveG12ApprovalStatus(insight),
         aiGenerated: Boolean(insight.ai_generated),
         aiModel: firstText(insight.ai_model),
         brandFitReason: firstText(insight.brand_fit_reason),
@@ -1189,13 +1211,13 @@ const patchG12InsightForSendOutcome = (insight: G12InsightRecord, outcome: G12Se
 
   const approvalStatus = outcome.approval_status ?? insight.approval_status;
   const normalizedApprovalStatus = approvalStatus ? normalizeApprovalStatusValue(approvalStatus) : "";
-  const isSentToDraft = normalizedApprovalStatus === "SENT TO CONTENT DRAFT";
+  const isSentToDraft = normalizedApprovalStatus === "SENT TO CONTENT DRAFT" || normalizedApprovalStatus === "APPROVED";
 
   return {
     ...insight,
     approval_status: approvalStatus,
-    approval_id: outcome.review_id ?? insight.approval_id,
-    g4_review_id: outcome.g4_review_id ?? outcome.review_id ?? insight.g4_review_id,
+    approval_id: outcome.approval_id ?? outcome.g4_review_id ?? outcome.review_id ?? insight.approval_id,
+    g4_review_id: outcome.g4_review_id ?? outcome.approval_id ?? outcome.review_id ?? insight.g4_review_id,
     selected_for_review: isSentToDraft ? true : insight.selected_for_review,
     wf1_handoff_ready: isSentToDraft ? true : insight.wf1_handoff_ready,
     updated_at: outcome.handled_at ?? outcome.sent_at ?? insight.updated_at,
@@ -1628,7 +1650,6 @@ export default function G12PublicTrendFetcherPageReworked() {
   const [dashboard, setDashboard] = useState<G12DashboardResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [submittingRun, setSubmittingRun] = useState(false);
   const [awaitingFetchRunId, setAwaitingFetchRunId] = useState<string | null>(null);
   const [sendingTrendId, setSendingTrendId] = useState<string | null>(null);
@@ -1642,6 +1663,8 @@ export default function G12PublicTrendFetcherPageReworked() {
 
   const hasLoadedRef = useRef(false);
   const pollTimeoutRef = useRef<number | null>(null);
+  const sendOutcomeTimeoutRef = useRef<number | null>(null);
+  const sendingTrendIdRef = useRef<string | null>(null);
   const deferredSearchTerm = useDeferredValue(searchTerm);
 
   const request = useCallback(
@@ -1656,7 +1679,8 @@ export default function G12PublicTrendFetcherPageReworked() {
     [authFetch],
   );
 
-  const loadDashboard = useCallback(async () => {
+  const loadDashboard = useCallback(async (options: { silentError?: boolean } = {}) => {
+    const { silentError = false } = options;
     const isInitialLoad = !hasLoadedRef.current;
     hasLoadedRef.current = true;
 
@@ -1665,8 +1689,6 @@ export default function G12PublicTrendFetcherPageReworked() {
     } else {
       setRefreshing(true);
     }
-
-    setLoadError(null);
 
     try {
       const response = await request(buildRouteUrl("/api/admin/g12-trend-fetcher/latest"), {
@@ -1678,16 +1700,24 @@ export default function G12PublicTrendFetcherPageReworked() {
       if (body) {
         setDashboard(body);
         if (body.status === "ERROR") {
-          setLoadError(body.message);
+          if (!silentError) {
+            toast.error(body.message || "Unable to load the latest trends.", { duration: LOAD_ERROR_TOAST_MS });
+          }
         }
       } else if (!response.ok) {
-        setLoadError("Unable to load the latest trends.");
+        if (!silentError) {
+          toast.error("Unable to load the latest trends.", { duration: LOAD_ERROR_TOAST_MS });
+        }
       } else {
-        setLoadError("The latest trends response was empty.");
+        if (!silentError) {
+          toast.error("The latest trends response was empty.", { duration: LOAD_ERROR_TOAST_MS });
+        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to load the latest trends.";
-      setLoadError(message);
+      if (!silentError) {
+        toast.error(message, { duration: LOAD_ERROR_TOAST_MS });
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -1722,7 +1752,7 @@ export default function G12PublicTrendFetcherPageReworked() {
 
         if (runComplete) {
           setAwaitingFetchRunId(null);
-          await loadDashboard();
+          await loadDashboard({ silentError: true });
           return;
         }
       } catch (error) {
@@ -1732,7 +1762,7 @@ export default function G12PublicTrendFetcherPageReworked() {
 
         const message = error instanceof Error ? error.message : "The workflow refresh could not finish.";
         setAwaitingFetchRunId(null);
-        toast.error(message);
+        toast.error(message, { duration: LOAD_ERROR_TOAST_MS });
         return;
       }
 
@@ -1762,6 +1792,15 @@ export default function G12PublicTrendFetcherPageReworked() {
       }
     };
   }, [awaitingFetchRunId, loadDashboard, request]);
+
+  useEffect(() => {
+    return () => {
+      if (sendOutcomeTimeoutRef.current !== null) {
+        window.clearTimeout(sendOutcomeTimeoutRef.current);
+        sendOutcomeTimeoutRef.current = null;
+      }
+    };
+  }, []);
 
   const latestRunRecords = useMemo(
     () => buildTrendRecords(dashboard?.insights ?? [], dashboard?.metrics ?? [], dashboard?.rawItems ?? []),
@@ -1998,21 +2037,36 @@ export default function G12PublicTrendFetcherPageReworked() {
 
   const handleSendToContentDraft = useCallback(
     async (record: TrendRecord) => {
-      if (sendingTrendId) {
+      if (sendingTrendIdRef.current) {
         return;
       }
 
+      sendingTrendIdRef.current = record.id;
       setSendingTrendId(record.id);
+      setSendOutcome(null);
+      if (sendOutcomeTimeoutRef.current !== null) {
+        window.clearTimeout(sendOutcomeTimeoutRef.current);
+        sendOutcomeTimeoutRef.current = null;
+      }
+
       try {
+        const payload = {
+          insight_id: record.insight.id,
+          trend_id: record.insight.trend_id ?? undefined,
+          raw_id: record.insight.raw_id ?? undefined,
+          metric_id: record.insight.metric_id ?? undefined,
+          asset_id: record.insight.asset_id ?? undefined,
+          approval_id: record.insight.approval_id ?? undefined,
+          g4_review_id: record.insight.g4_review_id ?? undefined,
+          fetch_run_id: record.fetchRunId ?? undefined,
+        };
+
         const response = await request(buildRouteUrl("/api/admin/automations/g12/send-to-content-draft"), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            insight_id: record.insight.id,
-            fetch_run_id: record.fetchRunId ?? undefined,
-          }),
+          body: JSON.stringify(payload),
           cache: "no-store",
           silent: true,
         });
@@ -2022,42 +2076,60 @@ export default function G12PublicTrendFetcherPageReworked() {
           throw new Error("Unable to send the selected trend.");
         }
 
-        setSendOutcome(body);
-        setDashboard((current) => patchG12DashboardForSendOutcome(current, body));
+        const approvalStatus = normalizeApprovalStatusValue(body.approval_status ?? "");
         const approvalState = (body.approval_state ?? "").trim().toUpperCase();
-        const pendingHumanApproval = body.status === "PASS" && approvalState === "PENDING_HUMAN_APPROVAL";
+        const isApproved = approvalStatus === "APPROVED" || approvalState === "APPROVED" || body.status === "PASS";
 
-        if (pendingHumanApproval) {
-          toast.info(body.message || "Content check passed. Human approval is still required before this can be used.");
-        } else if (body.status === "PASS") {
-          if (body.already_sent) {
-            toast.info(body.message || "Content draft/check already exists in G4.");
-          } else {
-            toast.success(body.message || "Content draft/check created in G4.");
-          }
-        } else if (body.status === "PENDING_APPROVAL" || body.status === "MANUAL_ONLY") {
-          toast.info(body.message || "The draft now needs review.");
+        setDashboard((current) => patchG12DashboardForSendOutcome(current, body));
+        if (body.status === "ERROR") {
+          setSendOutcome(null);
+          toast.error(body.message || "Unable to send the selected trend.", { duration: LOAD_ERROR_TOAST_MS });
+        } else if (isApproved) {
+          setSendOutcome(body);
+          sendOutcomeTimeoutRef.current = window.setTimeout(() => {
+            setSendOutcome(null);
+            sendOutcomeTimeoutRef.current = null;
+          }, SEND_OUTCOME_VISIBLE_MS);
+          toast.success(
+            body.message || (body.already_sent ? "Draft already exists and is approved." : "Draft created and approved successfully."),
+            { duration: LOAD_ERROR_TOAST_MS },
+          );
         } else if (body.status === "NEEDS_EVIDENCE" || body.status === "BLOCK") {
-          toast.warning(body.message || (body.status === "NEEDS_EVIDENCE" ? "More evidence is required." : "Blocked safely."));
-        } else if (body.status === "ERROR") {
-          toast.error(body.message || "Unable to send the selected trend.");
+          setSendOutcome(null);
+          toast.warning(body.message || (body.status === "NEEDS_EVIDENCE" ? "More evidence is required." : "Blocked safely."), {
+            duration: LOAD_ERROR_TOAST_MS,
+          });
+        } else if (body.status === "MANUAL_ONLY" || body.status === "PENDING_APPROVAL") {
+          setSendOutcome(body);
+          sendOutcomeTimeoutRef.current = window.setTimeout(() => {
+            setSendOutcome(null);
+            sendOutcomeTimeoutRef.current = null;
+          }, SEND_OUTCOME_VISIBLE_MS);
+          toast.info(body.message || "The draft now needs review.", { duration: LOAD_ERROR_TOAST_MS });
         } else {
-          toast.info(body.message || "The selected trend was updated.");
+          setSendOutcome(body);
+          sendOutcomeTimeoutRef.current = window.setTimeout(() => {
+            setSendOutcome(null);
+            sendOutcomeTimeoutRef.current = null;
+          }, SEND_OUTCOME_VISIBLE_MS);
+          toast.info(body.message || "The selected trend was updated.", { duration: LOAD_ERROR_TOAST_MS });
         }
 
         if (body.status !== "ERROR") {
           window.setTimeout(() => {
-            void loadDashboard();
-          }, 1200);
+            void loadDashboard({ silentError: true });
+          }, 800);
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unable to send the selected trend.";
-        toast.error(message);
+        setSendOutcome(null);
+        toast.error(message, { duration: LOAD_ERROR_TOAST_MS });
       } finally {
+        sendingTrendIdRef.current = null;
         setSendingTrendId(null);
       }
     },
-    [loadDashboard, request, sendingTrendId],
+    [loadDashboard, request],
   );
 
   const statusBadge = (
@@ -2144,17 +2216,6 @@ export default function G12PublicTrendFetcherPageReworked() {
                 ) : null}
               </div>
             ) : null}
-          </CardContent>
-        </Card>
-      ) : null}
-
-      {loadError && !dashboard ? (
-        <Card role="alert" className="rounded-[24px] border-rose-200 bg-rose-50 shadow-sm">
-          <CardContent className="flex flex-col gap-4 p-4 md:flex-row md:items-center md:justify-between">
-            <p className="text-sm leading-6 text-rose-900">{loadError}</p>
-            <Button type="button" variant="outline" className="rounded-full border-rose-200 bg-white text-rose-700 hover:bg-rose-50" onClick={() => void loadDashboard()}>
-              Retry
-            </Button>
           </CardContent>
         </Card>
       ) : null}
