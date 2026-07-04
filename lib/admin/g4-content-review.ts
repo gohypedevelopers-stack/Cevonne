@@ -74,6 +74,7 @@ export type G4LatestOutcome = {
 };
 
 export type G4RecentOutcome = {
+  id: string | null;
   time: string;
   result: G4ClientStatus;
   reviewId: string | null;

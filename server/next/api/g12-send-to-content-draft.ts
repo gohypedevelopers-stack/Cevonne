@@ -1138,13 +1138,11 @@ export async function sendG12TrendToContentDraft(
         return buildNeedsEvidenceResponse(insight, webhookResponse.request_id, sentAt, recoveredHandledAt, recoveredSnapshot, false);
       }
 
-      const approvedReview = isG4ApprovalInFlight(recoveredSnapshot.approval_state)
-        ? webhookReview
-        : (await syncG4ReviewReadyForApproval(webhookReview, recoveredHandledAt) ?? webhookReview);
-      const approvedSnapshot = buildG4ReviewSnapshot(approvedReview, approvedReview.review_id ?? approvedReview.content_review_id ?? approvedReview.id);
-      const approvalHandledAt = toText(approvedReview.reviewed_at ?? approvedReview.created_at, recoveredHandledAt);
-      await syncG12Insight(insight, buildUpdateFields(approvedSnapshot, approvalHandledAt));
-      return buildPassResponse(insight, webhookResponse.request_id, sentAt, approvalHandledAt, approvedSnapshot, false);
+      const readyReview = (await syncG4ReviewReadyForApproval(webhookReview, recoveredHandledAt)) ?? webhookReview;
+      const readySnapshot = buildG4ReviewSnapshot(readyReview, readyReview.review_id ?? readyReview.content_review_id ?? readyReview.id);
+      const approvalHandledAt = toText(readyReview.reviewed_at ?? readyReview.created_at, recoveredHandledAt);
+      await syncG12Insight(insight, buildUpdateFields(readySnapshot, approvalHandledAt));
+      return buildPassResponse(insight, webhookResponse.request_id, sentAt, approvalHandledAt, readySnapshot, false);
     }
 
     if (isConnectedWebhookIssue(webhookResponse)) {
@@ -1190,13 +1188,11 @@ export async function sendG12TrendToContentDraft(
     return buildNeedsEvidenceResponse(insight, webhookResponse.request_id, sentAt, handledAt, webhookReviewSnapshot, false);
   }
 
-  const approvedReview = isG4ApprovalInFlight(webhookReviewSnapshot.approval_state)
-    ? webhookReview
-    : (await syncG4ReviewReadyForApproval(webhookReview, handledAt) ?? webhookReview);
-  const approvedSnapshot = buildG4ReviewSnapshot(approvedReview, approvedReview.review_id ?? approvedReview.content_review_id ?? approvedReview.id);
-  const approvalHandledAt = toText(approvedReview.reviewed_at ?? approvedReview.created_at, handledAt);
-  await syncG12Insight(insight, buildUpdateFields(approvedSnapshot, approvalHandledAt));
-  return buildPassResponse(insight, webhookResponse.request_id, sentAt, approvalHandledAt, approvedSnapshot, false);
+  const readyReview = (await syncG4ReviewReadyForApproval(webhookReview, handledAt)) ?? webhookReview;
+  const readySnapshot = buildG4ReviewSnapshot(readyReview, readyReview.review_id ?? readyReview.content_review_id ?? readyReview.id);
+  const approvalHandledAt = toText(readyReview.reviewed_at ?? readyReview.created_at, handledAt);
+  await syncG12Insight(insight, buildUpdateFields(readySnapshot, approvalHandledAt));
+  return buildPassResponse(insight, webhookResponse.request_id, sentAt, approvalHandledAt, readySnapshot, false);
 }
 
 export const g12ContentDraftConnectedMessage = G4_NOT_CONNECTED_MESSAGE;

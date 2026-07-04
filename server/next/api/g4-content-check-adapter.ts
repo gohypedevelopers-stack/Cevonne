@@ -61,6 +61,15 @@ type G4SourcePreview = Pick<
   G4ContentPreview,
   "captionPreview" | "profileUsername" | "audioSound" | "views" | "likes" | "comments" | "shares" | "trendStrength" | "brandFitScore" | "riskScore" | "sourceUrl"
 >;
+type G4RowLike = Record<string, unknown> & {
+  id?: string | null;
+  review_id?: string | null;
+  reviewId?: string | null;
+  content_review_id?: string | null;
+  contentReviewId?: string | null;
+  asset_id?: string | null;
+  assetId?: string | null;
+};
 
 const asG4Row = (row: Record<string, unknown>): G4Row => row as G4Row;
 
@@ -71,6 +80,28 @@ const asJsonRecord = (value: unknown): JsonRecord | null => {
 
   return value as JsonRecord;
 };
+
+const readG4RowText = (row: G4RowLike | null | undefined, keys: string[]) => {
+  if (!row) {
+    return null;
+  }
+
+  for (const key of keys) {
+    const value = normalizeG4Text(row[key]);
+    if (value) {
+      return value;
+    }
+  }
+
+  return null;
+};
+
+const getG4RowIdentifiers = (row: G4RowLike | null | undefined) => ({
+  id: readG4RowText(row, ["id"]),
+  reviewId: readG4RowText(row, ["review_id", "reviewId"]),
+  contentReviewId: readG4RowText(row, ["content_review_id", "contentReviewId"]),
+  assetId: readG4RowText(row, ["asset_id", "assetId"]),
+});
 
 const getJsonRecordCandidates = (record: JsonRecord | null | undefined) => {
   const direct = asJsonRecord(record);
@@ -324,11 +355,8 @@ const loadG4SourcePreviewMap = async (rows: G4Row[]) => {
 const normalizeG4StatusKey = (value: string | null | undefined) => value?.trim().toUpperCase() ?? "";
 
 const buildG4SyntheticApprovalId = (row: G4Row) => {
-  const sourceId =
-    getG4ReviewSourceId(row) ??
-    normalizeG4Text(row.review_id) ??
-    normalizeG4Text(row.content_review_id) ??
-    normalizeG4Text(row.asset_id);
+  const { reviewId, contentReviewId, assetId, id } = getG4RowIdentifiers(row);
+  const sourceId = getG4ReviewSourceId(row) ?? reviewId ?? contentReviewId ?? assetId ?? id;
 
   return sourceId ? `g4-approval:${sourceId}` : null;
 };
@@ -381,11 +409,8 @@ const persistG4ApprovalHandoff = async (row: G4Row, handledAt: string) => {
     reviewed_at: handledAt,
   };
 
+  const { id: rowId, reviewId, contentReviewId, assetId } = getG4RowIdentifiers(row);
   const candidates: Array<[column: "id" | "review_id" | "content_review_id" | "asset_id", value: string]> = [];
-  const rowId = normalizeG4Text(row.id);
-  const reviewId = normalizeG4Text(row.review_id);
-  const contentReviewId = normalizeG4Text(row.content_review_id);
-  const assetId = normalizeG4Text(row.asset_id);
 
   if (rowId) {
     candidates.push(["id", rowId]);
@@ -401,12 +426,25 @@ const persistG4ApprovalHandoff = async (row: G4Row, handledAt: string) => {
   }
 
   console.info("[g4-content-check-adapter] persisting G4 approval handoff", {
+    row_id: rowId ?? null,
     review_id: reviewId ?? contentReviewId ?? rowId,
     asset_id: assetId ?? null,
     approval_state: update.approval_state,
     requires_human_approval: update.requires_human_approval,
     reviewed_at: handledAt,
   });
+
+  if (!candidates.length) {
+    console.warn("[g4-content-check-adapter] Unable to resolve identifiers for G4 approval handoff", {
+      row_id: rowId ?? null,
+      review_id: reviewId ?? null,
+      content_review_id: contentReviewId ?? null,
+      asset_id: assetId ?? null,
+      handled_at: handledAt,
+    });
+
+    return null;
+  }
 
   let lastError: unknown = null;
   for (const [column, value] of candidates) {
@@ -441,11 +479,8 @@ const persistG4ReviewActionUpdate = async (
   actionLabel: string,
   update: Record<string, unknown>,
 ) => {
+  const { id: rowId, reviewId, contentReviewId, assetId } = getG4RowIdentifiers(row);
   const candidates: Array<[column: "id" | "review_id" | "content_review_id" | "asset_id", value: string]> = [];
-  const rowId = normalizeG4Text(row.id);
-  const reviewId = normalizeG4Text(row.review_id);
-  const contentReviewId = normalizeG4Text(row.content_review_id);
-  const assetId = normalizeG4Text(row.asset_id);
 
   if (rowId) {
     candidates.push(["id", rowId]);
@@ -462,11 +497,25 @@ const persistG4ReviewActionUpdate = async (
 
   console.info("[g4-content-check-adapter] persisting G4 review action", {
     action: actionLabel,
+    row_id: rowId ?? null,
     review_id: reviewId ?? contentReviewId ?? rowId ?? null,
     asset_id: assetId ?? null,
     update,
     handled_at: handledAt,
   });
+
+  if (!candidates.length) {
+    console.warn("[g4-content-check-adapter] Unable to resolve identifiers for G4 review action", {
+      action: actionLabel,
+      row_id: rowId ?? null,
+      review_id: reviewId ?? null,
+      content_review_id: contentReviewId ?? null,
+      asset_id: assetId ?? null,
+      handled_at: handledAt,
+    });
+
+    return null;
+  }
 
   let lastError: unknown = null;
   for (const [column, value] of candidates) {
@@ -645,6 +694,7 @@ const buildG4RecentOutcome = (row: G4Row, sourcePreview?: Partial<G4SourcePrevie
   const contentPreview = mergeG4ContentPreview(extractG4ContentPreview(row), sourcePreview ?? null);
 
   return {
+    id: normalizeG4Text(row.id),
     time,
     result,
     reviewId: normalizeG4Text(row.review_id) ?? normalizeG4Text(row.content_review_id),
