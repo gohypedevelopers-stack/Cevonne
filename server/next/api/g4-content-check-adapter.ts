@@ -4,7 +4,6 @@ import { supabaseAdmin } from "@/lib/supabase-admin";
 import {
   extractG4ContentPreview,
   getG4ReviewSourceId,
-  getG4ReviewSourceIds,
   getG4ActionNeeded,
   mapG4Status,
   normalizeG4StringArray,
@@ -16,11 +15,6 @@ import {
   type G4ContentReviewRecord,
   type G4WorkflowDetail,
 } from "@/lib/admin/g4-content-review";
-import {
-  getCevonneAdminApprovals,
-  queueCevonneAdminApprovalRequest,
-} from "@/server/next/api/cevonne-admin-store";
-import { env } from "@/server/config";
 import { G12_SUPABASE_TABLES } from "@/server/next/api/g12-trend-fetcher-supabase";
 
 const G4_SELECT_COLUMNS = `
@@ -35,6 +29,7 @@ const G4_SELECT_COLUMNS = `
   asset_type,
   status,
   approval_state,
+  reviewed_at,
   failure_reasons,
   safe_summary,
   ai_used,
@@ -57,6 +52,8 @@ const G4_EMPTY_ACTION = "Check content to see the latest result." as const;
 const G4_ERROR_ACTION = "Unable to load content checks right now." as const;
 const G4_FETCH_LIMIT = 100 as const;
 const G4_UNIQUE_ROW_LIMIT = 10 as const;
+const G4_HANDOFF_APPROVAL_STATE = "PENDING_HUMAN_APPROVAL" as const;
+const G4_HANDOFF_REQUEST_STATUS = "PENDING" as const;
 
 type G4Row = G4ContentReviewRecord & Record<string, unknown>;
 type JsonRecord = Record<string, unknown>;
@@ -324,17 +321,302 @@ const loadG4SourcePreviewMap = async (rows: G4Row[]) => {
   return previewByTrendId;
 };
 
-const findG4ApprovalBySourceIds = (sourceIds: string[]) => {
-  const normalizedSourceIds = new Set(sourceIds.map((value) => normalizeG4Text(value)).filter((value): value is string => Boolean(value)));
-  if (!normalizedSourceIds.size) {
+const normalizeG4StatusKey = (value: string | null | undefined) => value?.trim().toUpperCase() ?? "";
+
+const buildG4SyntheticApprovalId = (row: G4Row) => {
+  const sourceId =
+    getG4ReviewSourceId(row) ??
+    normalizeG4Text(row.review_id) ??
+    normalizeG4Text(row.content_review_id) ??
+    normalizeG4Text(row.asset_id);
+
+  return sourceId ? `g4-approval:${sourceId}` : null;
+};
+
+const buildG4SyntheticApprovalRequest = (row: G4Row): G4ApprovalRequest | null => {
+  if (normalizeG4StatusKey(row.approval_state) !== G4_HANDOFF_APPROVAL_STATE) {
     return null;
   }
 
-  return getCevonneAdminApprovals("G4").find((approval) => {
-    const sourceId = approval.sourceId?.trim() ?? "";
-    return Boolean(sourceId && normalizedSourceIds.has(sourceId));
-  }) ?? null;
+  const approvalId = buildG4SyntheticApprovalId(row);
+  if (!approvalId) {
+    return null;
+  }
+
+  const requestedBy =
+    readG4RawPayloadText(row, ["requested_by", "requestedBy"]) ??
+    normalizeG4Text(row.actor) ??
+    "admin";
+
+  return {
+    approvalId,
+    status: G4_HANDOFF_REQUEST_STATUS,
+    createdAt: normalizeG4Timestamp(row.reviewed_at) ?? normalizeG4Timestamp(row.created_at) ?? new Date().toISOString(),
+    requestedBy,
+    reviewerAction: null,
+  };
 };
+
+const updateG4ReviewByColumn = async (column: "id" | "review_id" | "content_review_id" | "asset_id", value: string, update: Record<string, unknown>) => {
+  const { data, error } = await supabaseAdmin
+    .from("g4_content_reviews")
+    .update(update)
+    .eq(column, value)
+    .select(G4_SELECT_COLUMNS)
+    .maybeSingle();
+
+  const normalizedData = asJsonRecord(data);
+  if (error || !normalizedData) {
+    return null;
+  }
+
+  return normalizedData as G4Row;
+};
+
+const persistG4ApprovalHandoff = async (row: G4Row, handledAt: string) => {
+  const update = {
+    status: "PASS",
+    approval_state: G4_HANDOFF_APPROVAL_STATE,
+    requires_human_approval: true,
+    reviewed_at: handledAt,
+  };
+
+  const candidates: Array<[column: "id" | "review_id" | "content_review_id" | "asset_id", value: string]> = [];
+  const rowId = normalizeG4Text(row.id);
+  const reviewId = normalizeG4Text(row.review_id);
+  const contentReviewId = normalizeG4Text(row.content_review_id);
+  const assetId = normalizeG4Text(row.asset_id);
+
+  if (rowId) {
+    candidates.push(["id", rowId]);
+  }
+  if (reviewId) {
+    candidates.push(["review_id", reviewId]);
+  }
+  if (contentReviewId) {
+    candidates.push(["content_review_id", contentReviewId]);
+  }
+  if (assetId) {
+    candidates.push(["asset_id", assetId]);
+  }
+
+  console.info("[g4-content-check-adapter] persisting G4 approval handoff", {
+    review_id: reviewId ?? contentReviewId ?? rowId,
+    asset_id: assetId ?? null,
+    approval_state: update.approval_state,
+    requires_human_approval: update.requires_human_approval,
+    reviewed_at: handledAt,
+  });
+
+  let lastError: unknown = null;
+  for (const [column, value] of candidates) {
+    const updatedRow = await updateG4ReviewByColumn(column, value, update);
+    if (updatedRow) {
+      console.info("[g4-content-check-adapter] G4 approval handoff persisted", {
+        review_id: normalizeG4Text(updatedRow.id) ?? normalizeG4Text(updatedRow.review_id) ?? normalizeG4Text(updatedRow.content_review_id),
+        asset_id: normalizeG4Text(updatedRow.asset_id) ?? null,
+        approval_state: normalizeG4Text(updatedRow.approval_state) ?? null,
+        requires_human_approval: updatedRow.requires_human_approval ?? null,
+        reviewed_at: normalizeG4Timestamp(updatedRow.reviewed_at) ?? null,
+      });
+      return updatedRow;
+    }
+
+    lastError = { column, value };
+  }
+
+  console.warn("[g4-content-check-adapter] Failed to persist G4 approval handoff", {
+    review_id: normalizeG4Text(row.id) ?? normalizeG4Text(row.review_id) ?? normalizeG4Text(row.content_review_id),
+    asset_id: normalizeG4Text(row.asset_id) ?? null,
+    last_error: lastError,
+    handled_at: handledAt,
+  });
+
+  return null;
+};
+
+const persistG4ReviewActionUpdate = async (
+  row: G4Row,
+  handledAt: string,
+  actionLabel: string,
+  update: Record<string, unknown>,
+) => {
+  const candidates: Array<[column: "id" | "review_id" | "content_review_id" | "asset_id", value: string]> = [];
+  const rowId = normalizeG4Text(row.id);
+  const reviewId = normalizeG4Text(row.review_id);
+  const contentReviewId = normalizeG4Text(row.content_review_id);
+  const assetId = normalizeG4Text(row.asset_id);
+
+  if (rowId) {
+    candidates.push(["id", rowId]);
+  }
+  if (reviewId) {
+    candidates.push(["review_id", reviewId]);
+  }
+  if (contentReviewId) {
+    candidates.push(["content_review_id", contentReviewId]);
+  }
+  if (assetId) {
+    candidates.push(["asset_id", assetId]);
+  }
+
+  console.info("[g4-content-check-adapter] persisting G4 review action", {
+    action: actionLabel,
+    review_id: reviewId ?? contentReviewId ?? rowId ?? null,
+    asset_id: assetId ?? null,
+    update,
+    handled_at: handledAt,
+  });
+
+  let lastError: unknown = null;
+  for (const [column, value] of candidates) {
+    const updatedRow = await updateG4ReviewByColumn(column, value, update);
+    if (updatedRow) {
+      console.info("[g4-content-check-adapter] G4 review action persisted", {
+        action: actionLabel,
+        review_id: normalizeG4Text(updatedRow.id) ?? normalizeG4Text(updatedRow.review_id) ?? normalizeG4Text(updatedRow.content_review_id),
+        asset_id: normalizeG4Text(updatedRow.asset_id) ?? null,
+        status: normalizeG4Text(updatedRow.status) ?? null,
+        approval_state: normalizeG4Text(updatedRow.approval_state) ?? null,
+        requires_human_approval: updatedRow.requires_human_approval ?? null,
+        reviewed_at: normalizeG4Timestamp(updatedRow.reviewed_at) ?? null,
+      });
+      return updatedRow;
+    }
+
+    lastError = { column, value };
+  }
+
+  console.warn("[g4-content-check-adapter] Failed to persist G4 review action", {
+    action: actionLabel,
+    review_id: normalizeG4Text(row.id) ?? normalizeG4Text(row.review_id) ?? normalizeG4Text(row.content_review_id),
+    asset_id: normalizeG4Text(row.asset_id) ?? null,
+    last_error: lastError,
+    handled_at: handledAt,
+  });
+
+  return null;
+};
+
+export async function persistG4RejectedReview(input: {
+  adminUserId: string;
+  adminEmail: string | null;
+  sourceId?: string | null;
+  handledAt?: string | null;
+}) {
+  const detail = await getG4WorkflowDetail();
+  const target = findG4ApprovalTarget(detail, input.sourceId);
+  if (!target) {
+    return {
+      status: "ERROR" as const,
+      message: input.sourceId ? "The selected G4 content review could not be found." : "No G4 content review is available to reject.",
+      approvalId: null,
+      alreadyQueued: false,
+      approvalRequest: null,
+    };
+  }
+
+  const handledAt = input.handledAt ?? new Date().toISOString();
+  console.info("[g4-content-check-adapter] queueing G4 rejection", {
+    sourceId: target.sourceId,
+    reviewId: target.row.reviewId,
+    assetId: target.row.assetId,
+    handledAt,
+    adminUserId: input.adminUserId,
+    adminEmail: input.adminEmail,
+  });
+
+  const persistedRow = await persistG4ReviewActionUpdate(
+    target.row as G4Row,
+    handledAt,
+    "reject",
+    {
+      status: "BLOCK",
+      approval_state: "REJECTED",
+      requires_human_approval: false,
+      reviewed_at: handledAt,
+      action_type: "REJECT_CONTENT",
+    },
+  );
+
+  if (!persistedRow) {
+    return {
+      status: "ERROR" as const,
+      message: "Unable to persist the G4 rejection right now.",
+      approvalId: null,
+      alreadyQueued: false,
+      approvalRequest: null,
+    };
+  }
+
+  return {
+    status: "REJECTED" as const,
+    message: "Content rejected.",
+    approvalId: normalizeG4Text(persistedRow.review_id) ?? normalizeG4Text(persistedRow.content_review_id) ?? normalizeG4Text(persistedRow.asset_id),
+    alreadyQueued: false,
+    approvalRequest: null,
+  };
+}
+
+export async function persistG4RecreatedReview(input: {
+  adminUserId: string;
+  adminEmail: string | null;
+  sourceId?: string | null;
+  handledAt?: string | null;
+}) {
+  const detail = await getG4WorkflowDetail();
+  const target = findG4ApprovalTarget(detail, input.sourceId);
+  if (!target) {
+    return {
+      status: "ERROR" as const,
+      message: input.sourceId ? "The selected G4 content review could not be found." : "No G4 content review is available to recreate.",
+      approvalId: null,
+      alreadyQueued: false,
+      approvalRequest: null,
+    };
+  }
+
+  const handledAt = input.handledAt ?? new Date().toISOString();
+  console.info("[g4-content-check-adapter] queueing G4 recreation", {
+    sourceId: target.sourceId,
+    reviewId: target.row.reviewId,
+    assetId: target.row.assetId,
+    handledAt,
+    adminUserId: input.adminUserId,
+    adminEmail: input.adminEmail,
+  });
+
+  const persistedRow = await persistG4ReviewActionUpdate(
+    target.row as G4Row,
+    handledAt,
+    "recreate",
+    {
+      status: "PASS",
+      approval_state: null,
+      requires_human_approval: false,
+      reviewed_at: handledAt,
+      action_type: "RECREATE_CONTENT",
+    },
+  );
+
+  if (!persistedRow) {
+    return {
+      status: "ERROR" as const,
+      message: "Unable to persist the G4 recreation right now.",
+      approvalId: null,
+      alreadyQueued: false,
+      approvalRequest: null,
+    };
+  }
+
+  return {
+    status: "PASS" as const,
+    message: "Content recreated and ready for G5.",
+    approvalId: normalizeG4Text(persistedRow.review_id) ?? normalizeG4Text(persistedRow.content_review_id) ?? normalizeG4Text(persistedRow.asset_id),
+    alreadyQueued: false,
+    approvalRequest: null,
+  };
+}
 
 const buildG4LatestOutcome = (row: G4Row): G4WorkflowDetail["latestOutcome"] => ({
   result: mapG4Status(row),
@@ -349,11 +631,11 @@ const buildG4LatestOutcome = (row: G4Row): G4WorkflowDetail["latestOutcome"] => 
   riskSummary: normalizeG4Text(row.ai_risk_summary),
   failureReasons: normalizeG4StringArray(row.failure_reasons),
   landingPageStatus: normalizeG4Text(row.landing_page_match_status),
-  handledAt: normalizeG4Timestamp(row.created_at),
+  handledAt: normalizeG4Timestamp(row.reviewed_at) ?? normalizeG4Timestamp(row.created_at),
 });
 
 const buildG4RecentOutcome = (row: G4Row, sourcePreview?: Partial<G4SourcePreview> | null): G4WorkflowDetail["recentOutcomes"][number] | null => {
-  const time = normalizeG4Timestamp(row.created_at);
+  const time = normalizeG4Timestamp(row.reviewed_at) ?? normalizeG4Timestamp(row.created_at);
   if (!time) {
     return null;
   }
@@ -477,19 +759,13 @@ const buildG4CleanAiOutput = (row: G4Row): G4WorkflowDetail["cleanAiOutput"] => 
 };
 
 const buildG4ApprovalRequest = (row: G4Row): G4ApprovalRequest | null => {
-  const approval = findG4ApprovalBySourceIds(getG4ReviewSourceIds(row));
+  const approvalRequest = buildG4SyntheticApprovalRequest(row);
 
-  if (!approval) {
+  if (!approvalRequest) {
     return null;
   }
 
-  return {
-    approvalId: approval.approvalId,
-    status: approval.status,
-    createdAt: approval.createdAt,
-    requestedBy: approval.requestedBy,
-    reviewerAction: approval.reviewerAction ?? null,
-  };
+  return approvalRequest;
 };
 
 const findG4ApprovalTarget = (detail: G4WorkflowDetail, sourceId?: string | null) => {
@@ -531,7 +807,8 @@ export async function getG4WorkflowDetail(): Promise<G4WorkflowDetail> {
     .from("g4_content_reviews")
     .select(G4_SELECT_COLUMNS)
     .eq("workflow_group", "G4")
-    .order("created_at", { ascending: false })
+    .order("reviewed_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false, nullsFirst: false })
     .limit(G4_FETCH_LIMIT);
 
   if (error) {
@@ -556,7 +833,7 @@ export async function getG4WorkflowDetail(): Promise<G4WorkflowDetail> {
     title: G4_WORKFLOW_TITLE,
     purpose: G4_WORKFLOW_PURPOSE,
     status: mapG4Status(latest),
-    lastRunAt: normalizeG4Timestamp(latest.created_at),
+    lastRunAt: normalizeG4Timestamp(latest.reviewed_at) ?? normalizeG4Timestamp(latest.created_at),
     latestOutcome: buildG4LatestOutcome(latest),
     contentPreview: mergeG4ContentPreview(extractG4ContentPreview(latest), latestSourcePreview),
     actionNeeded: getG4ActionNeeded(latest),
@@ -571,6 +848,7 @@ export async function queueG4ApprovalRequest(input: {
   adminEmail: string | null;
   sourceId?: string | null;
   ipUserAgentHash?: string | null;
+  handledAt?: string | null;
 }) {
   const detail = await getG4WorkflowDetail();
   const target = findG4ApprovalTarget(detail, input.sourceId);
@@ -587,24 +865,16 @@ export async function queueG4ApprovalRequest(input: {
   const candidateSourceIds = [target.row.sourceId, target.row.reviewId, target.row.assetId].filter(
     (value): value is string => Boolean(value && value.trim()),
   );
-  const existingApproval = findG4ApprovalBySourceIds(candidateSourceIds);
-  const approvalRequest = target.row.approvalRequest ?? (existingApproval ? {
-    approvalId: existingApproval.approvalId,
-    status: existingApproval.status,
-    createdAt: existingApproval.createdAt,
-    requestedBy: existingApproval.requestedBy,
-    reviewerAction: existingApproval.reviewerAction ?? null,
-  } : null);
+  const sourceId = candidateSourceIds[0] ?? null;
+  const approvalRequest = buildG4ApprovalRequest(target.row);
 
   if (approvalRequest) {
-    if (process.env.NODE_ENV === "development") {
-      console.debug("[g4-content-check-adapter] approval request already exists", {
-        sourceId: target.sourceId,
-        candidateSourceIds,
-        approvalId: approvalRequest.approvalId,
-        approvalStatus: approvalRequest.status,
-      });
-    }
+    console.info("[g4-content-check-adapter] approval request already persisted", {
+      sourceId: target.sourceId,
+      candidateSourceIds,
+      approvalId: approvalRequest.approvalId,
+      approvalStatus: approvalRequest.status,
+    });
 
     return {
       status: "PASS" as const,
@@ -615,7 +885,7 @@ export async function queueG4ApprovalRequest(input: {
     };
   }
 
-  if (target.row.result !== "PENDING_APPROVAL") {
+  if (target.row.result !== "PASS") {
     return {
       status: "BLOCK" as const,
       message: input.sourceId ? "The selected G4 content review is not waiting for approval." : "The latest G4 content review is not waiting for approval.",
@@ -625,7 +895,6 @@ export async function queueG4ApprovalRequest(input: {
     };
   }
 
-  const sourceId = candidateSourceIds[0] ?? null;
   if (!sourceId) {
     return {
       status: "ERROR" as const,
@@ -642,38 +911,39 @@ export async function queueG4ApprovalRequest(input: {
     target.row.platform ? `Platform ${target.row.platform}` : null,
   ].filter((value): value is string => Boolean(value));
 
-  if (process.env.NODE_ENV === "development") {
-    console.debug("[g4-content-check-adapter] queueing approval request", {
-      sourceId,
-      candidateSourceIds,
-      reviewId: target.row.reviewId,
-      assetId: target.row.assetId,
-      status: target.row.result,
-      actionNeeded: target.row.actionNeeded,
-    });
-  }
+  const handledAt = input.handledAt ?? new Date().toISOString();
 
-  const queued = queueCevonneAdminApprovalRequest({
-    workflowGroup: "G4",
-    actionType: "CONTENT_APPROVAL",
-    riskLevel: "MEDIUM",
-    requestedBy: input.adminEmail ?? "admin",
-    summary: summaryParts.join(" | "),
-    requireConfirmation: true,
-    routeName: "/api/admin/workflow-dashboard/g4/send-approval",
+  console.info("[g4-content-check-adapter] queueing G4 approval handoff", {
     sourceId,
+    candidateSourceIds,
+    reviewId: target.row.reviewId,
     assetId: target.row.assetId,
-    platform: target.row.platform,
-    approvalNotes: target.row.cleanAiOutput?.humanReviewRecommendation ?? target.row.cleanAiOutput?.riskSummary ?? null,
+    status: target.row.result,
+    approvalState: target.row.approvalState,
+    actionNeeded: target.row.actionNeeded,
+    summary: summaryParts.join(" | "),
+    handledAt,
     adminUserId: input.adminUserId,
     adminEmail: input.adminEmail,
     ipUserAgentHash: input.ipUserAgentHash ?? null,
   });
 
-  if (!queued) {
+  const persistedRow = await persistG4ApprovalHandoff(target.row as G4Row, handledAt);
+  if (!persistedRow) {
     return {
       status: "ERROR" as const,
-      message: "Unable to queue the G4 approval request right now.",
+      message: "Unable to persist the G4 approval handoff right now.",
+      approvalId: null,
+      alreadyQueued: false,
+      approvalRequest: null,
+    };
+  }
+
+  const persistedApprovalRequest = buildG4ApprovalRequest(persistedRow);
+  if (!persistedApprovalRequest) {
+    return {
+      status: "ERROR" as const,
+      message: "The G4 approval handoff was saved, but the approval request could not be reconstructed.",
       approvalId: null,
       alreadyQueued: false,
       approvalRequest: null,
@@ -682,16 +952,10 @@ export async function queueG4ApprovalRequest(input: {
 
   return {
     status: "PASS" as const,
-    message: queued.created ? "Content sent to G5 queue." : "Content is already in G5 queue.",
-    approvalId: queued.approval.approvalId,
-    alreadyQueued: !queued.created,
-    approvalRequest: {
-      approvalId: queued.approval.approvalId,
-      status: queued.approval.status,
-      createdAt: queued.approval.createdAt,
-      requestedBy: queued.approval.requestedBy,
-      reviewerAction: queued.approval.reviewerAction ?? null,
-    },
+    message: "Content sent to G5 queue.",
+    approvalId: persistedApprovalRequest.approvalId,
+    alreadyQueued: false,
+    approvalRequest: persistedApprovalRequest,
   };
 }
 
