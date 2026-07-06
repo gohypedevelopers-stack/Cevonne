@@ -82,6 +82,10 @@ export type G7OfferProofSubmissionInput = {
   intended_use?: string | null;
   requested_by_workflow?: string | null;
   actor?: string | null;
+  second_stock_source?: string | null;
+  second_stock_available?: string | null;
+  second_stock_evidence_url?: string | null;
+  second_stock_checked_at?: string | null;
 };
 
 const EMPTY_STATE_COPY =
@@ -339,7 +343,19 @@ export const getG7ProofResultToneClass = (result: G7ProofResultBadge) => {
   }
 };
 
-export const getG7ProofResultLabel = (result: G7ProofResultBadge) => result;
+export const getG7ProofResultLabel = (result: G7ProofResultBadge) => {
+  switch (result) {
+    case "PASS":
+      return "Verified";
+    case "BLOCK":
+      return "Blocked";
+    case "NEEDS_EVIDENCE":
+      return "Needs evidence";
+    case "NOT_RUN":
+    default:
+      return "Not run";
+  }
+};
 
 export const normalizeG7DashboardSummary = (payload: unknown): G7DashboardSummary | null => {
   if (!isRecord(payload)) {
@@ -367,16 +383,20 @@ export const normalizeG7DashboardSummary = (payload: unknown): G7DashboardSummar
 };
 
 export const buildG7OfferProofPayload = (input: G7OfferProofSubmissionInput) => ({
-  requested_by_workflow: cleanText(input.requested_by_workflow) || "G4",
-  platform: "WEBSITE",
+  requested_by_workflow: cleanText(input.requested_by_workflow) || "WEBSITE_ADMIN",
+  actor: cleanText(input.actor) || "website_admin",
   sku: cleanText(input.sku) || "",
-  urgency_claim: cleanText(input.urgency_claim) || null,
   discount_code: cleanText(input.discount_code) || null,
+  urgency_claim: input.urgency_claim === null || input.urgency_claim === undefined ? null : cleanText(input.urgency_claim) || "",
+  second_stock_source: cleanText(input.second_stock_source) || null,
+  second_stock_available: cleanText(input.second_stock_available) || null,
+  second_stock_evidence_url: cleanText(input.second_stock_evidence_url) || null,
+  second_stock_checked_at: cleanText(input.second_stock_checked_at) || null,
+  platform: "WEBSITE",
   offer_type: "OFFER_SAFETY_CHECK",
   intended_use: cleanText(input.intended_use) || "ORGANIC_POST",
   source_platform: "CUSTOM_WEBSITE",
   source_event: "WEBSITE_G7_OFFER_PROOF_CHECK",
-  actor: cleanText(input.actor) || "admin_ui",
 });
 
 export const getG7SubmissionDisplayResult = (status: string | null | undefined, message: string | null | undefined) => {

@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from "@/components/ui/sheet";
 import { useAuth } from "@/context/AuthContext";
 import { cn } from "@/lib/utils";
 import {
@@ -127,11 +128,32 @@ const formatRowTimeLabel = (value?: string | null) => {
 
 const formatDisplayValue = (value: string | number | null | undefined) => {
   if (value === null || value === undefined) {
-    return "Not available";
+    return "—";
   }
 
   const text = String(value).trim();
-  return text || "Not available";
+  return text || "—";
+};
+
+const formatSecondStockProof = (value: string | number | null | undefined) => {
+  if (value === null || value === undefined || String(value).trim() === "") {
+    return "Second proof missing";
+  }
+  return "Second proof verified";
+};
+
+const formatDiscountStatus = (value: string | null | undefined) => {
+  if (!value || value.trim() === "") {
+    return "No discount";
+  }
+  
+  const text = value.trim().toLowerCase();
+  if (text === "active") return "Active";
+  if (text === "expired") return "Expired";
+  if (text === "paused") return "Paused";
+  
+  // Return title-cased fallback if unknown
+  return value.charAt(0).toUpperCase() + value.slice(1).toLowerCase();
 };
 
 const isActionIssueListVisible = (issues: string[]) => issues.length > 0;
@@ -302,6 +324,8 @@ export default function G7OfferSafetyPage() {
   const [submissionFeedback, setSubmissionFeedback] = useState<SubmissionFeedback | null>(null);
   const [form, setForm] = useState<G7ProofFormState>(DEFAULT_FORM);
   const hasLoadedRef = useRef(false);
+
+  const [selectedProofDrawer, setSelectedProofDrawer] = useState<G7ProofView | null>(null);
 
   const loadDashboard = useCallback(
     async ({ silent = false }: { silent?: boolean } = {}) => {
@@ -552,73 +576,46 @@ export default function G7OfferSafetyPage() {
                       The most recent proof, shown in plain language and without backend details.
                     </CardDescription>
                   </div>
-                  {latestProof ? (
-                    <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getSummaryResultTone(latestProof.rawResult))}>
-                      Latest result: {latestProof.rawResult}
-                    </Badge>
-                  ) : null}
                 </div>
               </CardHeader>
 
               <CardContent className="space-y-4 p-6 pt-6 md:p-8 md:pt-6">
                 {latestProof ? (
-                  <>
-                    <ResultCallout proof={latestProof} />
-
-                    <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-                      <ProofField
-                        label="Product"
-                        value={<span className="font-medium text-foreground">{formatDisplayValue(latestProof.productName)}</span>}
-                      />
-                      <ProofField
-                        label="SKU"
-                        value={<span translate="no" className="font-medium text-foreground">{formatDisplayValue(latestProof.sku)}</span>}
-                      />
-                      <ProofField
-                        label="Stock available"
-                        value={<span className="font-medium text-foreground">{formatDisplayValue(latestProof.stockAvailable)}</span>}
-                      />
-                      <ProofField
-                        label="Urgency claim"
-                        value={<span className="font-medium text-foreground">{formatDisplayValue(latestProof.urgencyClaim)}</span>}
-                      />
-                      <ProofField
-                        label="Second stock proof"
-                        value={<span className="font-medium text-foreground">{formatDisplayValue(latestProof.secondStockProof)}</span>}
-                      />
-                      <ProofField
-                        label="Discount"
-                        value={<span className="font-medium text-foreground">{formatDisplayValue(latestProof.discountCode)}</span>}
-                      />
-                      <ProofField
-                        label="Discount status"
-                        value={<span className="font-medium text-foreground">{formatDisplayValue(latestProof.discountStatus)}</span>}
-                      />
-                      <ProofField
-                        label="Result"
-                        value={proofResultBadge(latestProof)}
-                      />
-                      <ProofField
-                        label="Action needed"
-                        value={
-                          <div className="space-y-2">
-                            <p className="font-medium text-foreground">{latestProof.actionNeeded}</p>
-                            {isActionIssueListVisible(latestProof.otherProofIssues) ? (
-                              <div className="space-y-1">
-                                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Other proof issues</p>
-                                <ul className="ml-4 list-disc space-y-1 text-sm leading-6 text-muted-foreground">
-                                  {latestProof.otherProofIssues.map((issue) => (
-                                    <li key={issue}>{issue}</li>
-                                  ))}
-                                </ul>
-                              </div>
-                            ) : null}
-                          </div>
-                        }
-                        className="md:col-span-2 xl:col-span-3"
-                      />
-                    </div>
-                  </>
+                  <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    <ProofField
+                      label="Result"
+                      value={proofResultBadge(latestProof)}
+                    />
+                    <ProofField
+                      label="Product"
+                      value={<span className="font-medium text-foreground">{formatDisplayValue(latestProof.productName)}</span>}
+                    />
+                    <ProofField
+                      label="SKU"
+                      value={<span translate="no" className="font-medium text-foreground">{formatDisplayValue(latestProof.sku)}</span>}
+                    />
+                    <ProofField
+                      label="Urgency claim"
+                      value={<span className="font-medium text-foreground">{formatDisplayValue(latestProof.urgencyClaim)}</span>}
+                    />
+                    <ProofField
+                      label="Stock available"
+                      value={<span className="font-medium text-foreground">{formatDisplayValue(latestProof.stockAvailable)}</span>}
+                    />
+                    <ProofField
+                      label="Second stock proof"
+                      value={<span className="font-medium text-foreground">{formatSecondStockProof(latestProof.secondStockProof)}</span>}
+                    />
+                    <ProofField
+                      label="Discount"
+                      value={<span className="font-medium text-foreground">{formatDiscountStatus(latestProof.discountStatus)}</span>}
+                    />
+                    <ProofField
+                      label="Action needed"
+                      value={<span className="font-medium text-foreground">{latestProof.actionNeeded}</span>}
+                      className="md:col-span-2 xl:col-span-2"
+                    />
+                  </div>
                 ) : (
                   <div className="rounded-[22px] border border-dashed border-border/70 bg-muted/10 px-4 py-5 text-sm leading-6 text-muted-foreground">
                     {dashboard.emptyStateCopy}
@@ -627,32 +624,32 @@ export default function G7OfferSafetyPage() {
               </CardContent>
             </Card>
 
-            <Card className="rounded-[28px] border-border/60 bg-white shadow-sm">
+            <Card className="rounded-[28px] border-border/60 bg-white shadow-sm flex flex-col">
               <CardHeader className="space-y-2 p-6 pb-0 md:p-8 md:pb-0">
-                <CardTitle className="font-serif text-2xl tracking-tight text-primary">Actions Needed</CardTitle>
-                <CardDescription className="text-sm leading-6 text-muted-foreground">
-                  The next safe step, written for the client.
-                </CardDescription>
+                <CardTitle className="font-serif text-2xl tracking-tight text-primary">Next Step</CardTitle>
               </CardHeader>
 
-              <CardContent className="space-y-4 p-6 pt-6 md:p-8 md:pt-6">
+              <CardContent className="space-y-6 p-6 pt-6 md:p-8 flex-1 flex flex-col justify-between">
                 {latestProof ? (
-                  <ResultCallout proof={latestProof} className="shadow-none" />
-                ) : (
-                  <div className="rounded-[22px] border border-border/60 bg-muted/15 p-4">
-                    <p className="text-sm leading-6 text-foreground text-pretty">{dashboard.emptyStateCopy}</p>
+                  <div className="space-y-2">
+                    <p className="font-medium text-foreground">{latestProof.clientSummary}</p>
+                    <p className="text-sm leading-6 text-muted-foreground">{latestProof.actionNeeded}</p>
                   </div>
+                ) : (
+                  <p className="text-sm leading-6 text-foreground text-pretty">{dashboard.emptyStateCopy}</p>
                 )}
 
-                <Button
-                  type="button"
-                  className="h-11 justify-center rounded-full px-5"
-                  onClick={openRunDialog}
-                  disabled={loading || refreshing || submitting}
-                >
-                  <Play data-icon="inline-start" />
-                  Check Offer Proof
-                </Button>
+                <div>
+                  <Button
+                    type="button"
+                    className="h-11 justify-center rounded-full px-5"
+                    onClick={openRunDialog}
+                    disabled={loading || refreshing || submitting}
+                  >
+                    <Play data-icon="inline-start" />
+                    Check Offer Proof
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           </div>
@@ -685,10 +682,11 @@ export default function G7OfferSafetyPage() {
                         <TableHead className="px-6 py-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Discount</TableHead>
                         <TableHead className="px-6 py-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Result</TableHead>
                         <TableHead className="px-6 py-4 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Action Needed</TableHead>
+                        <TableHead className="px-6 py-4 w-[100px]"></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {dashboard.recentOfferChecks.slice(0, 10).map((proof, index) => (
+                      {dashboard.recentOfferChecks.slice(0, 8).map((proof, index) => (
                         <TableRow
                           key={`${proof.checkedAt ?? "g7"}-${proof.sku ?? "sku"}-${proof.displayResult}-${index}`}
                           className={cn("group hover:bg-primary/5", proof.displayResult === "NEEDS_EVIDENCE" && "bg-amber-50/30")}
@@ -710,16 +708,26 @@ export default function G7OfferSafetyPage() {
                           <TableCell className="align-top px-6 py-4 text-sm leading-6 text-foreground">{formatDisplayValue(proof.urgencyClaim)}</TableCell>
                           <TableCell className="align-top px-6 py-4 text-sm leading-6 text-foreground">{formatDisplayValue(proof.stockAvailable)}</TableCell>
                           <TableCell className="align-top px-6 py-4 text-sm leading-6 text-foreground">{formatDisplayValue(proof.discountCode)}</TableCell>
-                          <TableCell className="align-top px-6 py-4">{proofResultBadge(proof)}</TableCell>
-                          <TableCell className="align-top px-6 py-4 text-sm leading-6 text-foreground text-pretty">
-                            <div className="space-y-2">
-                              <p>{proof.actionNeeded}</p>
+                          <TableCell className="align-top px-6 py-4 whitespace-nowrap">{proofResultBadge(proof)}</TableCell>
+                          <TableCell className="align-top px-6 py-4 text-sm leading-6 text-foreground max-w-[200px]">
+                            <div className="space-y-1">
+                              <p className="truncate">{proof.actionNeeded}</p>
                               {isActionIssueListVisible(proof.otherProofIssues) ? (
-                                <p className="text-xs leading-5 text-muted-foreground">
-                                  Other proof issues: {proof.otherProofIssues.join(" · ")}
+                                <p className="text-xs leading-5 text-muted-foreground truncate">
+                                  + {proof.otherProofIssues.length} other issue{proof.otherProofIssues.length !== 1 ? 's' : ''}
                                 </p>
                               ) : null}
                             </div>
+                          </TableCell>
+                          <TableCell className="align-top px-6 py-4 text-right">
+                            <Button 
+                              variant="outline" 
+                              size="sm" 
+                              className="h-8 rounded-full px-3 text-xs font-medium"
+                              onClick={() => setSelectedProofDrawer(proof)}
+                            >
+                              View
+                            </Button>
                           </TableCell>
                         </TableRow>
                       ))}
@@ -922,6 +930,94 @@ export default function G7OfferSafetyPage() {
           </form>
         </DialogContent>
       </Dialog>
+
+      <Sheet open={!!selectedProofDrawer} onOpenChange={(open) => !open && setSelectedProofDrawer(null)}>
+        <SheetContent className="w-full sm:max-w-md overflow-y-auto bg-white p-6 sm:p-8">
+          <SheetHeader className="mb-6 px-0 pt-0">
+            <SheetTitle className="font-serif text-2xl text-primary">Offer Proof Details</SheetTitle>
+            <SheetDescription>
+              Details of the safety check run on {selectedProofDrawer?.checkedAt ? formatDateTime(selectedProofDrawer.checkedAt) : "unknown"}.
+            </SheetDescription>
+          </SheetHeader>
+          
+          {selectedProofDrawer && (
+            <div className="space-y-6 pb-8">
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Status</h4>
+                <div className="flex items-start">
+                  {proofResultBadge(selectedProofDrawer)}
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Action Needed</h4>
+                <p className="text-sm leading-6 font-medium text-foreground text-pretty">
+                  {selectedProofDrawer.actionNeeded}
+                </p>
+                {isActionIssueListVisible(selectedProofDrawer.otherProofIssues) && (
+                  <div className="mt-2 rounded-xl bg-muted/20 p-4 border border-border/50">
+                    <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground mb-2">Other issues found</p>
+                    <ul className="ml-4 list-disc space-y-1 text-sm leading-6 text-foreground">
+                      {selectedProofDrawer.otherProofIssues.map((issue, idx) => (
+                        <li key={idx}>{issue}</li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Product Details</h4>
+                <div className="grid grid-cols-2 gap-4 rounded-xl border border-border/50 p-4">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Product Name</p>
+                    <p className="text-sm font-medium">{formatDisplayValue(selectedProofDrawer.productName)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">SKU</p>
+                    <p className="text-sm font-medium break-all" translate="no">{formatDisplayValue(selectedProofDrawer.sku)}</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Claims & Evidence</h4>
+                <div className="space-y-4 rounded-xl border border-border/50 p-4">
+                  <div className="grid grid-cols-2 gap-4 border-b border-border/50 pb-4">
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Urgency Claim</p>
+                      <p className="text-sm font-medium">{formatDisplayValue(selectedProofDrawer.urgencyClaim)}</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-muted-foreground mb-1">Stock Checked</p>
+                      <p className="text-sm font-medium">{formatDisplayValue(selectedProofDrawer.stockAvailable)}</p>
+                    </div>
+                  </div>
+                  
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Second Stock Proof</p>
+                    <p className="text-sm font-medium">{formatSecondStockProof(selectedProofDrawer.secondStockProof)}</p>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="space-y-3">
+                <h4 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground">Discount Info</h4>
+                <div className="grid grid-cols-2 gap-4 rounded-xl border border-border/50 p-4">
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Discount Code</p>
+                    <p className="text-sm font-medium break-all" translate="no">{formatDisplayValue(selectedProofDrawer.discountCode)}</p>
+                  </div>
+                  <div>
+                    <p className="text-xs text-muted-foreground mb-1">Status</p>
+                    <p className="text-sm font-medium">{formatDiscountStatus(selectedProofDrawer.discountStatus)}</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </WorkflowDashboardShell>
   );
 }

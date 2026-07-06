@@ -1223,8 +1223,8 @@ function DiscountFormDialog({
                                 style={{ width: "var(--radix-popover-trigger-width)" }}
                                 align="start"
                               >
-                                <Command>
-                                  <CommandInput placeholder="Search products..." />
+                                <Command className="">
+                                  <CommandInput className="" placeholder="Search products..." />
                                   <CommandList>
                                     <CommandEmpty>No product found.</CommandEmpty>
                                     <CommandGroup>
@@ -1295,8 +1295,8 @@ function DiscountFormDialog({
                                 style={{ width: "var(--radix-popover-trigger-width)" }}
                                 align="start"
                               >
-                                <Command>
-                                  <CommandInput placeholder="Search collections..." />
+                                <Command className="">
+                                  <CommandInput className="" placeholder="Search collections..." />
                                   <CommandList>
                                     <CommandEmpty>No collection found.</CommandEmpty>
                                     <CommandGroup>
@@ -1466,6 +1466,206 @@ function DiscountFormDialog({
   );
 }
 
+function CheckProofDialog({
+  discount,
+  onOpenChange,
+  onRunProof,
+}: {
+  discount: AdminDiscountRecord | null;
+  onOpenChange: (open: boolean) => void;
+  onRunProof: (
+    discount: AdminDiscountRecord,
+    payload: {
+      sku?: string;
+      urgencyClaim?: string;
+      secondStockSource?: string;
+      secondStockQuantity?: string;
+      secondStockEvidenceUrl?: string;
+      secondStockCheckedAt?: string;
+    },
+  ) => void;
+}) {
+  const [sku, setSku] = useState("");
+  const [urgencyClaim, setUrgencyClaim] = useState("none");
+  const [secondStockSource, setSecondStockSource] = useState("");
+  const [secondStockQuantity, setSecondStockQuantity] = useState("");
+  const [secondStockEvidenceUrl, setSecondStockEvidenceUrl] = useState("");
+  const [secondStockCheckedAt, setSecondStockCheckedAt] = useState("");
+
+  useEffect(() => {
+    if (discount) {
+      setSku(discount.sku ?? "");
+      setUrgencyClaim("none");
+      setSecondStockSource("");
+      setSecondStockQuantity("");
+      setSecondStockEvidenceUrl("");
+      setSecondStockCheckedAt("");
+    }
+  }, [discount]);
+
+  if (!discount) return null;
+
+  const requiresSku = discount.appliesToType === "ALL_PRODUCTS" || discount.appliesToType === "SPECIFIC_COLLECTION";
+  const needsStockProof = urgencyClaim === "Low stock" || urgencyClaim === "Only X left";
+  const isTimeBased = urgencyClaim === "Limited time" || urgencyClaim === "Ends soon" || urgencyClaim === "Today only";
+  const hasNoEndDate = !discount.endsAt;
+  const isBlockedByExpiry = isTimeBased && hasNoEndDate;
+
+  const handleRun = () => {
+    onRunProof(discount, {
+      sku: sku,
+      urgencyClaim: urgencyClaim === "none" ? "" : urgencyClaim,
+      secondStockSource: needsStockProof ? secondStockSource : undefined,
+      secondStockQuantity: needsStockProof ? secondStockQuantity : undefined,
+      secondStockEvidenceUrl: needsStockProof ? secondStockEvidenceUrl : undefined,
+      secondStockCheckedAt: needsStockProof ? secondStockCheckedAt : undefined,
+    });
+  };
+
+  return (
+    <Dialog open={!!discount} onOpenChange={onOpenChange}>
+      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto sm:rounded-[32px]">
+        <DialogHeader className="px-6 pt-6 md:px-8 md:pt-8">
+          <DialogTitle className="text-xl tracking-tight">Check Discount Proof</DialogTitle>
+          <DialogDescription className="text-sm leading-6">
+            G7 will check if this discount is safe to use in content or ads.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-6 px-6 pb-6 md:px-8 md:pb-8">
+          {requiresSku && (
+            <Field>
+              <FieldLabel htmlFor="proof-sku">Which product or SKU will this discount be used for?</FieldLabel>
+              <FieldContent>
+                <Input
+                  id="proof-sku"
+                  placeholder="Example: SKU-9002"
+                  value={sku}
+                  onChange={(e) => setSku(e.target.value)}
+                  className="h-11 rounded-full border-border/70 bg-white shadow-none"
+                />
+                <FieldDescription>G7 needs a specific product or SKU to verify the discount.</FieldDescription>
+              </FieldContent>
+            </Field>
+          )}
+
+          <Field>
+            <FieldLabel htmlFor="proof-urgency">Will you use urgency wording?</FieldLabel>
+            <FieldContent>
+              <Select value={urgencyClaim} onValueChange={setUrgencyClaim}>
+                <SelectTrigger id="proof-urgency" className="h-11 w-full rounded-full border-border/70 bg-white shadow-none">
+                  <SelectValue placeholder="No urgency wording" />
+                </SelectTrigger>
+                <SelectContent className="rounded-2xl border-border/70 bg-white/95 backdrop-blur-md">
+                  <SelectItem value="none">No urgency wording</SelectItem>
+                  <SelectItem value="Limited time">Limited time</SelectItem>
+                  <SelectItem value="Ends soon">Ends soon</SelectItem>
+                  <SelectItem value="Today only">Today only</SelectItem>
+                  <SelectItem value="Low stock">Low stock</SelectItem>
+                  <SelectItem value="Only X left">Only X left</SelectItem>
+                </SelectContent>
+              </Select>
+            </FieldContent>
+          </Field>
+
+          {isBlockedByExpiry && (
+            <Alert variant="destructive" className="border-rose-200 bg-rose-50 text-rose-800">
+              <AlertTriangle className="size-4 text-rose-600" />
+              <AlertTitle>Action required</AlertTitle>
+              <AlertDescription>
+                This discount must have a valid end date before urgency wording can be used. Add an end date before using urgency wording.
+              </AlertDescription>
+            </Alert>
+          )}
+
+          {needsStockProof && (
+            <div className="space-y-4 rounded-[22px] border border-border/60 bg-muted/10 p-5">
+              <h4 className="text-[13px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Stock Proof Required
+              </h4>
+              <p className="text-sm text-muted-foreground">
+                Low-stock claims need a second proof source before they can be used.
+              </p>
+
+              <Field>
+                <FieldLabel htmlFor="proof-stock-source">Second stock source</FieldLabel>
+                <FieldContent>
+                  <Input
+                    id="proof-stock-source"
+                    placeholder="e.g. Warehouse system, supplier email"
+                    value={secondStockSource}
+                    onChange={(e) => setSecondStockSource(e.target.value)}
+                    className="h-11 rounded-full border-border/70 bg-white shadow-none"
+                  />
+                </FieldContent>
+              </Field>
+
+              <Field>
+                <FieldLabel htmlFor="proof-stock-qty">Second stock quantity</FieldLabel>
+                <FieldContent>
+                  <Input
+                    id="proof-stock-qty"
+                    type="number"
+                    placeholder="e.g. 5"
+                    value={secondStockQuantity}
+                    onChange={(e) => setSecondStockQuantity(e.target.value)}
+                    className="h-11 rounded-full border-border/70 bg-white shadow-none"
+                  />
+                </FieldContent>
+              </Field>
+
+              <Field>
+                <FieldLabel htmlFor="proof-stock-evidence">Evidence URL or note</FieldLabel>
+                <FieldContent>
+                  <Input
+                    id="proof-stock-evidence"
+                    placeholder="Link to evidence or quick note"
+                    value={secondStockEvidenceUrl}
+                    onChange={(e) => setSecondStockEvidenceUrl(e.target.value)}
+                    className="h-11 rounded-full border-border/70 bg-white shadow-none"
+                  />
+                </FieldContent>
+              </Field>
+
+              <Field>
+                <FieldLabel htmlFor="proof-stock-checked">Checked at</FieldLabel>
+                <FieldContent>
+                  <Input
+                    id="proof-stock-checked"
+                    type="datetime-local"
+                    value={secondStockCheckedAt}
+                    onChange={(e) => setSecondStockCheckedAt(e.target.value)}
+                    className="h-11 rounded-full border-border/70 bg-white shadow-none"
+                  />
+                </FieldContent>
+              </Field>
+            </div>
+          )}
+
+          <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:items-center sm:justify-end">
+            <Button
+              type="button"
+              variant="outline"
+              className="h-11 rounded-full border-border/70 bg-white px-5"
+              onClick={() => onOpenChange(false)}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              className="h-11 rounded-full px-6"
+              onClick={handleRun}
+              disabled={isBlockedByExpiry || (requiresSku && !sku.trim())}
+            >
+              Run Proof Check
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function DiscountsPage() {
   const { authFetch } = useAuth();
   const request = authFetch ?? defaultRequest;
@@ -1485,6 +1685,7 @@ export default function DiscountsPage() {
   const [busyAction, setBusyAction] = useState<{ id: string; kind: string } | null>(null);
   const [confirmDanger, setConfirmDanger] = useState<{ discount: AdminDiscountRecord; action: DangerAction } | null>(null);
   const [proofOverrides, setProofOverrides] = useState<Record<string, DiscountProofStatusDetail>>({});
+  const [checkProofDiscount, setCheckProofDiscount] = useState<AdminDiscountRecord | null>(null);
   const hasLoadedRef = useRef(false);
 
   const searchValue = useDeferredValue(search.trim().toLowerCase());
@@ -1763,7 +1964,14 @@ export default function DiscountsPage() {
     }
   };
 
-  const handleCheckProof = async (discount: AdminDiscountRecord) => {
+  const handleCheckProof = (discount: AdminDiscountRecord) => {
+    setCheckProofDiscount(discount);
+  };
+
+  const handleRunProofCheck = async (
+    discount: AdminDiscountRecord,
+    payload: { sku?: string; urgencyClaim?: string; secondStockSource?: string; secondStockQuantity?: string; secondStockEvidenceUrl?: string; secondStockCheckedAt?: string },
+  ) => {
     setBusyAction({ id: discount.discountId, kind: "CHECK_PROOF" });
 
     try {
@@ -1772,10 +1980,7 @@ export default function DiscountsPage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({
-          sku: discount.sku ?? "",
-          urgencyClaim: discount.notes ?? "",
-        }),
+        body: JSON.stringify(payload),
         cache: "no-store",
         silent: true,
       });
@@ -1799,8 +2004,9 @@ export default function DiscountsPage() {
       } else {
         toast.error(body.message);
       }
-    } catch (proofError) {
-      toast.error(proofError instanceof Error ? proofError.message : "Proof check failed.");
+      setCheckProofDiscount(null);
+    } catch (checkError) {
+      toast.error(checkError instanceof Error ? checkError.message : "Proof check failed.");
     } finally {
       setBusyAction(null);
     }
@@ -2113,6 +2319,14 @@ export default function DiscountsPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+        <CheckProofDialog
+          discount={checkProofDiscount}
+          onOpenChange={(open) => {
+            if (!open) setCheckProofDiscount(null);
+          }}
+          onRunProof={handleRunProofCheck}
+        />
       </div>
     </SidebarProvider>
   );

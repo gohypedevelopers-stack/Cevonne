@@ -23,7 +23,7 @@ function Alert({
   className,
   variant,
   ...props
-}) {
+}: React.HTMLAttributes<HTMLDivElement> & { variant?: any }) {
   return (
     <div
       data-slot="alert"
@@ -36,7 +36,7 @@ function Alert({
 function AlertTitle({
   className,
   ...props
-}) {
+}: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       data-slot="alert-title"
@@ -48,7 +48,7 @@ function AlertTitle({
 function AlertDescription({
   className,
   ...props
-}) {
+}: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
       data-slot="alert-description"

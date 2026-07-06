@@ -202,6 +202,10 @@ export const discountActionSchema = z.object({
 export const discountProofRequestSchema = z.object({
   sku: z.string().trim().optional().default(""),
   urgencyClaim: z.string().trim().optional().default(""),
+  secondStockSource: z.string().trim().optional().default(""),
+  secondStockQuantity: z.string().trim().optional().default(""),
+  secondStockEvidenceUrl: z.string().trim().optional().default(""),
+  secondStockCheckedAt: z.string().trim().optional().default(""),
 });
 
 const discountStatusLabels: Record<DiscountStatus, string> = {

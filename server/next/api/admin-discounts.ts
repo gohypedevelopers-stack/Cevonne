@@ -28,7 +28,7 @@ import { getPrisma } from "@/server/db/prismaClient";
 import { getAuthUser, invalidJsonResponse, jsonResponse, methodNotAllowed, readJsonBody } from "@/server/next/route-utils";
 
 const G7_OFFER_CHANGE_EVENT_URL = "https://n8n.cevonne.com/webhook/g7-offer-change-event";
-const G7_OFFER_PROOF_URL = env.n8nG7OfferProofUrl || "https://n8n.cevonne.com/webhook/g7-offer-proof";
+const G7_OFFER_PROOF_URL = env.n8nG7OfferProofUrl || "https://n8n.cevonne.com/webhook/g7-offer-safety-check";
 
 const unauthorizedResponse = () => jsonResponse({ message: "Unauthorized" }, 401);
 const forbiddenResponse = () => jsonResponse({ message: "Forbidden" }, 403);
@@ -942,6 +942,10 @@ export const runAdminDiscountProofCheck = async (
   input: {
     sku?: string | null;
     urgencyClaim?: string | null;
+    secondStockSource?: string | null;
+    secondStockQuantity?: string | null;
+    secondStockEvidenceUrl?: string | null;
+    secondStockCheckedAt?: string | null;
   },
 ) => {
   const current = await loadDiscountForEdit(discountId);
@@ -983,9 +987,10 @@ export const runAdminDiscountProofCheck = async (
       sku: requestedTarget || source?.sku || current.sku || "",
       urgency_claim: urgencyClaim || null,
       discount_code: current.code,
-      intended_use: "ORGANIC_POST",
-      requested_by_workflow: "G4",
-      actor: "website_admin",
+      second_stock_source: input.secondStockSource || null,
+      second_stock_available: input.secondStockQuantity || null,
+      second_stock_evidence_url: input.secondStockEvidenceUrl || null,
+      second_stock_checked_at: input.secondStockCheckedAt || null,
     }),
     source: "discounts",
   });
