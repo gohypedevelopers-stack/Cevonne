@@ -2,7 +2,7 @@
 
 import * as React from "react"
 import Image from "next/image"
-import { Boxes, House, Layers3, Package, ShoppingCart, Users, Workflow } from "lucide-react"
+import { BadgePercent, Boxes, House, Layers3, Package, ShoppingCart, Users, Workflow } from "lucide-react"
 
 import { NavMain } from "@/components/admin-dashboard/nav-main"
 import { NavUser } from "@/components/admin-dashboard/nav-user"
@@ -61,6 +61,13 @@ const data = {
       icon: Boxes,
       exactMatch: true,
       isActive: (pathname) => pathname === "/dashboard/inventory",
+    },
+    {
+      title: "Discounts",
+      href: "/dashboard/discounts",
+      icon: BadgePercent,
+      exactMatch: true,
+      isActive: (pathname) => pathname === "/dashboard/discounts",
     },
     {
       title: "Users",

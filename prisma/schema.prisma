@@ -24,15 +24,16 @@ model User {
 }
 
 model Collection {
-  id          String    @id @default(cuid())
+  id          String              @id @default(cuid())
   name        String
-  slug        String    @unique
+  slug        String              @unique
   description String?
   imageUrl    String?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  products    Product[]
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
   media       CollectionMedia[]
+  products    Product[]
+  discounts   cevonne_discounts[]
 }
 
 model Product {
@@ -59,6 +60,7 @@ model Product {
   images              ProductImage[]
   reviews             Review[]
   shades              Shade[]
+  discounts           cevonne_discounts[]
   g7_discount_targets g7_discount_targets[]
 
   @@index([name])
@@ -74,15 +76,10 @@ model ProductImage {
   product   Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
 }
 
-enum CollectionMediaKind {
-  IMAGE
-  VIDEO
-}
-
 model CollectionMedia {
   id           String              @id @default(cuid())
   collectionId String
-  kind         CollectionMediaKind  @default(IMAGE)
+  kind         CollectionMediaKind @default(IMAGE)
   url          String
   storageKey   String              @unique
   mimeType     String?
@@ -394,6 +391,47 @@ model g7_offer_change_log {
 
   @@index([sku], map: "idx_g7_offer_change_log_sku")
   @@index([status, created_at], map: "idx_g7_offer_change_log_status")
+}
+
+model cevonne_discounts {
+  discount_id              String      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code                     String      @unique
+  discount_type            String
+  discount_value           Decimal?    @db.Decimal(10, 2)
+  applies_to_type          String
+  product_id               String?
+  sku                      String?
+  collection_id            String?
+  starts_at                DateTime?   @db.Timestamptz(6)
+  ends_at                  DateTime?   @db.Timestamptz(6)
+  status                   String      @default("DRAFT")
+  usage_limit_total        Int?
+  usage_limit_per_customer Int?
+  used_count               Int         @default(0)
+  minimum_order_value      Decimal?    @db.Decimal(10, 2)
+  notes                    String?
+  created_by               String?
+  updated_by               String?
+  created_at               DateTime    @default(now()) @db.Timestamptz(6)
+  updated_at               DateTime    @updatedAt @db.Timestamptz(6)
+  archived_at              DateTime?   @db.Timestamptz(6)
+  collection               Collection? @relation(fields: [collection_id], references: [id], onUpdate: NoAction)
+  product                  Product?    @relation(fields: [product_id], references: [id], onUpdate: NoAction)
+
+  @@index([applies_to_type], map: "idx_cevonne_discounts_applies_to_type")
+  @@index([collection_id], map: "idx_cevonne_discounts_collection")
+  @@index([code], map: "idx_cevonne_discounts_code")
+  @@index([ends_at], map: "idx_cevonne_discounts_ends_at")
+  @@index([product_id], map: "idx_cevonne_discounts_product")
+  @@index([sku], map: "idx_cevonne_discounts_sku")
+  @@index([starts_at], map: "idx_cevonne_discounts_starts_at")
+  @@index([status], map: "idx_cevonne_discounts_status")
+  @@map("cevonne_discounts")
+}
+
+enum CollectionMediaKind {
+  IMAGE
+  VIDEO
 }
 
 enum Role {
