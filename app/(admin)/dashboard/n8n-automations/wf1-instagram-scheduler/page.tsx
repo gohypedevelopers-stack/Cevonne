@@ -1,5 +1,5 @@
-import WorkflowDashboardDetail from "@/components/admin-dashboard/WorkflowDashboardDetail";
+import { redirect } from "next/navigation";
 
 export default function Page() {
-  return <WorkflowDashboardDetail workflowId="WF1" />;
+  redirect("/dashboard/n8n-automations");
 }

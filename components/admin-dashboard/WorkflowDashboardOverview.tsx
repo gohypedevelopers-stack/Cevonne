@@ -63,7 +63,7 @@ const lastRunLabel = (value?: string | null) => {
 function OverviewSkeleton() {
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-      {Array.from({ length: 13 }).map((_, index) => (
+      {Array.from({ length: 12 }).map((_, index) => (
         <Card key={index} className="overflow-hidden rounded-[24px] border-border/60 bg-white shadow-sm">
           <CardContent className="space-y-4 p-5">
             <Skeleton className="h-1.5 w-full rounded-full" />
@@ -203,7 +203,7 @@ export default function WorkflowDashboardOverview() {
     {
       label: "Workflows",
       value: String(workflows.length || 0),
-      helper: "G1 through G12 plus WF1",
+      helper: "G1 through G12",
       icon: <Workflow className="h-5 w-5" />,
       toneClass: "bg-primary",
     },

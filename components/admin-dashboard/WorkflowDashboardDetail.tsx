@@ -45,6 +45,11 @@ type WorkflowDashboardRunResponse = {
   status: WorkflowUiStatus;
   message: string;
   response_type: string | null;
+  recommended_decision?: string | null;
+  recommendation_only?: boolean | null;
+  not_executed?: boolean | null;
+  fail_reason?: string | null;
+  failure_reasons?: string[] | null;
   handled_at: string;
   outcome: WorkflowOutcomeSummary;
   workflowId: AdminWorkflowId;
@@ -154,6 +159,8 @@ const getSavedOutputBlock = (workflowId: AdminWorkflowId, outcome: WorkflowOutco
   }
 
   switch (workflowId) {
+    case "G11":
+      return null;
     case "G3":
       return {
         label: "Consent / privacy summary",
@@ -210,6 +217,233 @@ function DetailField({
     </div>
   );
 }
+
+const G11_RECOMMENDATION_TONES: Record<string, string> = {
+  PASS: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  SCALE: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  PAUSE: "border-amber-200 bg-amber-50 text-amber-800",
+  FIX_FIRST: "border-rose-200 bg-rose-50 text-rose-700",
+  TEST: "border-sky-200 bg-sky-50 text-sky-700",
+  INVESTIGATE: "border-slate-200 bg-slate-100 text-slate-700",
+  NO_ACTION: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  DO_NOT_SCALE: "border-orange-200 bg-orange-50 text-orange-700",
+  BLOCK: "border-rose-200 bg-rose-50 text-rose-700",
+  BLOCKED: "border-rose-200 bg-rose-50 text-rose-700",
+  NEEDS_APPROVAL: "border-amber-200 bg-amber-50 text-amber-800",
+  PENDING_APPROVAL: "border-amber-200 bg-amber-50 text-amber-800",
+  RECOMMENDATION_ONLY: "border-slate-200 bg-slate-100 text-slate-700",
+};
+
+const G11_RISK_TONES: Record<string, string> = {
+  LOW: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  MEDIUM: "border-amber-200 bg-amber-50 text-amber-800",
+  HIGH: "border-rose-200 bg-rose-50 text-rose-700",
+};
+
+const G11_SAFETY_TONES: Record<string, string> = {
+  PASS: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  CLEAN: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  KNOWN: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  VALID: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  NOT_REQUIRED: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  NOT_EXECUTED: "border-slate-200 bg-slate-100 text-slate-700",
+  WARNING: "border-amber-200 bg-amber-50 text-amber-800",
+  REVIEW: "border-amber-200 bg-amber-50 text-amber-800",
+  UNKNOWN: "border-slate-200 bg-slate-100 text-slate-700",
+  BLOCK: "border-rose-200 bg-rose-50 text-rose-700",
+};
+
+const G11_WORKFLOW_FRIENDLY_NAMES: Record<string, string> = {
+  G1: "Compliance Guard",
+  G2: "Account Health",
+  G3: "Consent + Attribution",
+  G4: "Content Review",
+  G5: "Publishing",
+  G6: "Messaging + Recovery",
+  G7: "Offer Safety",
+  G8: "UGC + Creator Proof",
+  G9: "Ads + Retargeting",
+  G10: "SEO + CRO",
+  G11: "Decision Engine",
+  G12: "Public Trend Fetcher",
+  ALL: "All workflows",
+};
+
+const G11_PLATFORM_FRIENDLY_NAMES: Record<string, string> = {
+  META: "Meta Ads",
+  GOOGLE: "Google",
+  INSTAGRAM: "Instagram",
+  WHATSAPP: "WhatsApp",
+  ALL: "All platforms",
+};
+
+const normalizeG11Text = (value?: string | null) => (typeof value === "string" ? value.trim() : "");
+const normalizeG11EnumValue = (value?: string | null) => normalizeG11Text(value).toUpperCase().replace(/[\s-]+/g, "_");
+
+const getG11FriendlyWorkflowName = (value?: string | null) => {
+  const normalized = normalizeG11EnumValue(value);
+  if (normalized && G11_WORKFLOW_FRIENDLY_NAMES[normalized]) {
+    return G11_WORKFLOW_FRIENDLY_NAMES[normalized];
+  }
+
+  const sanitized = normalizeG11Text(value);
+  return sanitized || null;
+};
+
+const getG11FriendlyPlatformName = (value?: string | null) => {
+  const normalized = normalizeG11EnumValue(value);
+  if (normalized && G11_PLATFORM_FRIENDLY_NAMES[normalized]) {
+    return G11_PLATFORM_FRIENDLY_NAMES[normalized];
+  }
+
+  const sanitized = normalizeG11Text(value);
+  return sanitized || null;
+};
+
+const getG11DisplayStatus = (value?: string | null) => {
+  const normalized = normalizeG11EnumValue(value);
+  if (!normalized) {
+    return "UNKNOWN";
+  }
+
+  if (normalized === "NOT_EXECUTED") {
+    return "Not executed by G11";
+  }
+
+  if (normalized === "NOT_REQUIRED") {
+    return "Not required";
+  }
+
+  return normalized.replace(/_/g, " ");
+};
+
+const getG11RecommendationTone = (recommendation?: string | null) => {
+  const normalized = normalizeG11EnumValue(recommendation);
+  return G11_RECOMMENDATION_TONES[normalized] ?? "border-slate-200 bg-slate-100 text-slate-700";
+};
+
+const getG11RiskTone = (riskLevel?: string | null) => {
+  const normalized = normalizeG11EnumValue(riskLevel);
+  return G11_RISK_TONES[normalized] ?? "border-slate-200 bg-slate-100 text-slate-700";
+};
+
+const getG11SafetyTone = (value?: string | null) => {
+  const normalized = normalizeG11EnumValue(value);
+  return G11_SAFETY_TONES[normalized] ?? "border-slate-200 bg-slate-100 text-slate-700";
+};
+
+const getG11RecommendationValue = (outcome: WorkflowOutcomeSummary) =>
+  outcome.details?.recommendation ?? outcome.details?.recommendationLabel ?? getWorkflowStatusLabel(outcome.result);
+
+const getG11SafetySummary = (outcome: WorkflowOutcomeSummary) => {
+  const details = outcome.details;
+
+  if (!details) {
+    return {
+      label: "UNKNOWN",
+      tone: getG11SafetyTone("UNKNOWN"),
+      description: "No safety status was stored for this recommendation.",
+    };
+  }
+
+  const complianceStatus = normalizeG11EnumValue(details.complianceStatus);
+  const accountHealthStatus = normalizeG11EnumValue(details.accountHealthStatus);
+  const consentStatus = normalizeG11EnumValue(details.consentStatus);
+  const rightsStatus = normalizeG11EnumValue(details.rightsStatus);
+  const offerStatus = normalizeG11EnumValue(details.offerStatus);
+  const executionStatus = normalizeG11EnumValue(details.executionStatus ?? (details.notExecuted ? "NOT_EXECUTED" : null));
+
+  if (complianceStatus === "BLOCK" || rightsStatus === "BLOCK" || offerStatus === "BLOCK" || outcome.result === "BLOCK") {
+    return {
+      label: "BLOCK",
+      tone: getG11SafetyTone("BLOCK"),
+      description: "One or more safety checks blocked this recommendation.",
+    };
+  }
+
+  if (accountHealthStatus === "WARNING") {
+    return {
+      label: "REVIEW",
+      tone: getG11SafetyTone("REVIEW"),
+      description: "Account health needs review before any action.",
+    };
+  }
+
+  const safetyStatuses = [
+    complianceStatus,
+    accountHealthStatus,
+    consentStatus,
+    rightsStatus,
+    offerStatus,
+    executionStatus,
+  ];
+
+  const hasUnknown = safetyStatuses.some((status) => !status || status === "UNKNOWN");
+  if (hasUnknown) {
+    return {
+      label: "REVIEW",
+      tone: getG11SafetyTone("REVIEW"),
+      description: "One or more safety signals still needs review.",
+    };
+  }
+
+  return {
+    label: "PASS",
+    tone: getG11SafetyTone("PASS"),
+    description: "Safety signals are clean.",
+  };
+};
+
+const getG11BulletList = (items: string[] | null | undefined, fallback: string) => {
+  const values = (items ?? []).map((item) => normalizeG11Text(item)).filter(Boolean);
+
+  if (values.length === 0) {
+    return fallback;
+  }
+
+  return (
+    <ul className="space-y-2">
+      {values.slice(0, 5).map((item) => (
+        <li key={item} className="flex gap-2">
+          <span className="mt-2 h-1.5 w-1.5 shrink-0 rounded-full bg-primary/70" />
+          <span>{item}</span>
+        </li>
+      ))}
+      </ul>
+  );
+};
+
+const normalizeG11ResponseType = (value?: string | null) => (typeof value === "string" ? value.trim().toUpperCase() : "");
+
+const getG11RecommendedDecision = (response: WorkflowDashboardRunResponse) => {
+  if (typeof response.recommended_decision !== "string") {
+    return null;
+  }
+
+  const decision = response.recommended_decision.trim();
+  return decision || null;
+};
+
+const isG11RecommendationSuccess = (response: WorkflowDashboardRunResponse) => {
+  const responseType = normalizeG11ResponseType(response.response_type);
+  const decision = getG11RecommendedDecision(response);
+
+  return (
+    response.status === "PASS" ||
+    response.status === "RECOMMENDATION_ONLY" ||
+    response.status === "DO_NOT_SCALE" ||
+    response.status === "FIX_FIRST" ||
+    response.status === "DRY_RUN" ||
+    responseType === "G11_DECISION_RECOMMENDATION_CREATED" ||
+    (response.recommendation_only === true && response.not_executed === true && Boolean(decision)) ||
+    (Boolean(decision) && response.status !== "ERROR" && response.status !== "BLOCK")
+  );
+};
+
+const isG11RecommendationBlocked = (response: WorkflowDashboardRunResponse) => {
+  const responseType = normalizeG11ResponseType(response.response_type);
+  return response.status === "BLOCK" || response.outcome.result === "BLOCK" || responseType.includes("BLOCK");
+};
 
 function LoadingSkeleton() {
   return (
@@ -347,7 +581,15 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
   const primaryAction = workflow ? getWorkflowPrimaryActionConfig(workflow.workflowId, workflow.runLabel, workflow.runEnabled) : null;
   const g2NeedsUpdate = Boolean(workflow && workflow.workflowId === "G2" && isG2StatusUnsafe(workflow.status));
   const g2PrimaryCopy = g2NeedsUpdate ? "Update Account Status" : "View Account Health";
+  const isG11Workflow = workflow?.workflowId === "G11";
+  const g11Details = isG11Workflow ? latestOutcome?.details ?? null : null;
+  const g11RecommendationValue = isG11Workflow && latestOutcome ? getG11RecommendationValue(latestOutcome) : null;
+  const g11SafetySummary = isG11Workflow && latestOutcome ? getG11SafetySummary(latestOutcome) : null;
+  const g11TargetWorkflow = isG11Workflow ? getG11FriendlyWorkflowName(g11Details?.targetWorkflow ?? g11Details?.target) : null;
+  const g11TargetPlatform = isG11Workflow ? getG11FriendlyPlatformName(g11Details?.targetPlatform) : null;
+  const g11ExecutionDisplay = isG11Workflow ? getG11DisplayStatus(g11Details?.executionStatus ?? (g11Details?.notExecuted ? "NOT_EXECUTED" : null)) : null;
   const savedOutput = workflow ? getSavedOutputBlock(workflow.workflowId, latestOutcome) : null;
+  const hideActionPanels = isG11Workflow;
 
   const refreshDetail = useCallback(async () => {
     if (workflow?.workflowId === "G2") {
@@ -405,14 +647,40 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
     });
 
     const body = await parseJsonResponse<WorkflowDashboardRunResponse>(response);
-    if (!response.ok || !body) {
-      throw new Error(body?.message ?? `Unable to submit workflow action (${response.status}).`);
+    if (!body) {
+      throw new Error(`Unable to submit workflow action (${response.status}).`);
+    }
+
+    if (!response.ok && workflowId === "G11" && (isG11RecommendationSuccess(body) || isG11RecommendationBlocked(body))) {
+      return body;
+    }
+
+    if (!response.ok) {
+      throw new Error(body.message ?? `Unable to submit workflow action (${response.status}).`);
     }
 
     return body;
   };
 
   const handleRunSuccess = (response: WorkflowDashboardRunResponse) => {
+    if (workflow?.workflowId === "G11") {
+      if (isG11RecommendationSuccess(response)) {
+        setRunOpen(false);
+        toast.success("Recommendation created. Nothing was executed.");
+        setRefreshNonce((value) => value + 1);
+        return;
+      }
+
+      if (isG11RecommendationBlocked(response)) {
+        toast.warning("G11 blocked this recommendation safely. Review the issue before continuing.");
+        setRefreshNonce((value) => value + 1);
+        return;
+      }
+
+      toast.error("G11 could not create a recommendation. Please try again.");
+      return;
+    }
+
     setRunOpen(false);
 
     if (response.status === "ERROR") {
@@ -462,7 +730,7 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
     }
   };
 
-  const headerBadges = (
+  const headerBadges = isG11Workflow ? null : (
     <>
       <Badge
         variant="outline"
@@ -479,12 +747,14 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
 
   const headerActions = (
     <>
-      <Button asChild variant="outline" className="h-10 min-w-[132px] justify-center rounded-full border-border/70 bg-white px-3.5 text-[11px] font-medium shadow-sm">
-        <Link href="/dashboard/n8n-automations">
-          <ArrowLeft data-icon="inline-start" />
-          Back
-        </Link>
-      </Button>
+      {!isG11Workflow ? (
+        <Button asChild variant="outline" className="h-10 min-w-[132px] justify-center rounded-full border-border/70 bg-white px-3.5 text-[11px] font-medium shadow-sm">
+          <Link href="/dashboard/n8n-automations">
+            <ArrowLeft data-icon="inline-start" />
+            Back
+          </Link>
+        </Button>
+      ) : null}
 
       {workflow ? (
         workflow.workflowId === "G2" ? (
@@ -669,8 +939,255 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
       {loading && !workflow ? (
         <LoadingSkeleton />
       ) : workflow ? (
-        <>
-          <Card id="latest-outcome" className="overflow-hidden rounded-[28px] border-border/60 bg-white shadow-sm">
+        isG11Workflow ? (
+          <>
+            <Card id="latest-outcome" className="overflow-hidden rounded-[28px] border-border/60 bg-white shadow-sm">
+              <CardHeader className="space-y-2">
+                <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                  <div className="space-y-2">
+                    <CardTitle className="font-serif text-2xl tracking-tight text-primary">{outcomeTitles.latest}</CardTitle>
+                    <CardDescription className="text-sm leading-6 text-muted-foreground">
+                      The latest recommendation in plain language. Nothing was executed.
+                    </CardDescription>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {latestOutcomeBadge}
+                    <Badge variant="outline" className="rounded-full border-border/70 bg-secondary/20 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
+                      Handled {formatRowTimeLabel(latestOutcome?.time ?? workflow.lastRunAt)}
+                    </Badge>
+                    <Badge variant="outline" className="rounded-full border-border/70 bg-muted/20 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
+                      Recommendation only
+                    </Badge>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-5">
+                {latestOutcome && g11SafetySummary ? (
+                  <>
+                    <div className="grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(290px,0.75fr)]">
+                      <div className="space-y-4">
+                        <div className="rounded-3xl border border-border/60 bg-[linear-gradient(180deg,rgba(79,33,115,0.04),rgba(255,255,255,0))] p-5">
+                          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">Recommendation</p>
+                          <div className="mt-3 flex flex-wrap items-center gap-2">
+                            <Badge
+                              variant="outline"
+                              className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG11RecommendationTone(g11RecommendationValue))}
+                            >
+                              {g11RecommendationValue}
+                            </Badge>
+                            {g11TargetWorkflow || g11Details?.target ? (
+                              <Badge variant="outline" className="rounded-full border-border/70 bg-secondary/20 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
+                                Target: {g11TargetWorkflow ?? g11Details?.target}
+                              </Badge>
+                            ) : null}
+                            {g11TargetPlatform ? (
+                              <Badge variant="outline" className="rounded-full border-border/70 bg-secondary/20 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
+                                Platform: {g11TargetPlatform}
+                              </Badge>
+                            ) : null}
+                            {g11Details?.riskLevel ? (
+                              <Badge
+                                variant="outline"
+                                className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG11RiskTone(g11Details.riskLevel))}
+                              >
+                                Risk: {g11Details.riskLevel}
+                              </Badge>
+                            ) : null}
+                          </div>
+                          <p className="mt-4 text-lg leading-8 text-pretty text-foreground">{latestOutcome.whatHappened}</p>
+                          <p className="mt-3 text-sm leading-6 text-muted-foreground">
+                            G11 did not execute anything. This is only a recommendation.
+                          </p>
+                        </div>
+
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <DetailField
+                            label="What G11 is recommending"
+                            value={latestOutcome.whatHappened}
+                            helper={
+                              [g11TargetWorkflow, g11TargetPlatform]
+                                .filter(Boolean)
+                                .join(" · ") || undefined
+                            }
+                          />
+                          <DetailField
+                            label="Why"
+                            value={getG11BulletList(g11Details?.why, "No written explanation was stored for this recommendation.")}
+                          />
+                          <DetailField
+                            label="Next step"
+                            value={g11Details?.nextStep ?? latestOutcome.actionNeeded}
+                            helper={latestOutcome.result === "ERROR" ? "Recommendation output needs review." : g11Details?.riskNote ?? undefined}
+                          />
+                          <DetailField
+                            label="Execution"
+                            value={<span className="font-medium text-foreground">{g11ExecutionDisplay ?? "Not executed"}</span>}
+                            helper="G11 only writes a recommendation. Nothing live happened."
+                          />
+                        </div>
+                      </div>
+
+                      <div className="space-y-4">
+                        <DetailField
+                          label="Safety status"
+                          value={
+                            <div className="flex flex-wrap gap-2">
+                              <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG11SafetyTone(g11Details?.complianceStatus))}>
+                                Compliance: {getG11DisplayStatus(g11Details?.complianceStatus)}
+                              </Badge>
+                              <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG11SafetyTone(g11Details?.accountHealthStatus))}>
+                                Account Health: {getG11DisplayStatus(g11Details?.accountHealthStatus)}
+                              </Badge>
+                              <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG11SafetyTone(g11Details?.consentStatus))}>
+                                Consent: {getG11DisplayStatus(g11Details?.consentStatus)}
+                              </Badge>
+                              <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG11SafetyTone(g11Details?.rightsStatus))}>
+                                Rights: {getG11DisplayStatus(g11Details?.rightsStatus)}
+                              </Badge>
+                              <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG11SafetyTone(g11Details?.offerStatus))}>
+                                Offer: {getG11DisplayStatus(g11Details?.offerStatus)}
+                              </Badge>
+                              <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG11SafetyTone(g11Details?.executionStatus))}>
+                                Execution: {g11ExecutionDisplay ?? "Not executed"}
+                              </Badge>
+                            </div>
+                          }
+                          helper={g11SafetySummary.description}
+                        />
+                        <DetailField
+                          label="Risk level"
+                          value={
+                            <Badge
+                              variant="outline"
+                              className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG11RiskTone(g11Details?.riskLevel))}
+                            >
+                              {g11Details?.riskLevel ?? "UNKNOWN"}
+                            </Badge>
+                          }
+                          helper={g11Details?.riskNote ?? (latestOutcome.result === "BLOCK" ? "This needs human review before any action." : undefined)}
+                        />
+                        <DetailField label="Target workflow" value={g11TargetWorkflow ?? "Not available"} />
+                        <DetailField label="Platform" value={g11TargetPlatform ?? "Not available"} />
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      <Button asChild variant="outline" className="h-10 rounded-full border-border/70 bg-white px-5">
+                        <a href="#recent-outcomes">
+                          <ArrowRight data-icon="inline-start" />
+                          View Recent Recommendations
+                        </a>
+                      </Button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-border/70 bg-muted/10 px-4 py-5 text-sm leading-6 text-muted-foreground">
+                    {workflow.emptyStateCopy}
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+
+            <Card id="recent-outcomes" className="overflow-hidden rounded-[28px] border-border/60 bg-white shadow-sm">
+              <CardHeader className="space-y-2">
+                <CardTitle className="font-serif text-2xl tracking-tight text-primary">{outcomeTitles.recent}</CardTitle>
+                <CardDescription className="text-sm leading-6 text-muted-foreground">
+                  The latest recommendation events, newest first.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-0">
+                <div className="overflow-x-auto">
+                  <Table className="min-w-[1120px]">
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Time</TableHead>
+                        <TableHead>Recommendation</TableHead>
+                        <TableHead>Target</TableHead>
+                        <TableHead>Risk</TableHead>
+                        <TableHead>Safety</TableHead>
+                        <TableHead>Next Step</TableHead>
+                        <TableHead>Details</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {displayedRecentOutcomes.length ? (
+                        displayedRecentOutcomes.slice(0, 10).map((outcome, index) => {
+                          const details = outcome.details ?? null;
+                          const recommendationValue = getG11RecommendationValue(outcome);
+                          const safetySummary = getG11SafetySummary(outcome);
+
+                          return (
+                            <TableRow key={`${outcome.time ?? "outcome"}-${index}`}>
+                              <TableCell className="align-top whitespace-nowrap font-medium text-foreground">{formatRowTimeLabel(outcome.time)}</TableCell>
+                              <TableCell className="align-top">
+                                <Badge
+                                  variant="outline"
+                                  className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG11RecommendationTone(recommendationValue))}
+                                >
+                                  {recommendationValue}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="align-top whitespace-normal text-sm leading-6 text-foreground text-pretty">
+                                {details?.target ?? details?.targetWorkflow ?? "Not available"}
+                              </TableCell>
+                              <TableCell className="align-top whitespace-normal">
+                                <div className="space-y-2">
+                                  <Badge
+                                    variant="outline"
+                                    className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG11RiskTone(details?.riskLevel))}
+                                  >
+                                    {details?.riskLevel ?? "UNKNOWN"}
+                                  </Badge>
+                                  {details?.riskNote ? <p className="text-xs leading-5 text-muted-foreground">{details.riskNote}</p> : null}
+                                </div>
+                              </TableCell>
+                              <TableCell className="align-top whitespace-normal">
+                                <Badge
+                                  variant="outline"
+                                  className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", safetySummary.tone)}
+                                >
+                                  {safetySummary.label}
+                                </Badge>
+                              </TableCell>
+                              <TableCell className="align-top whitespace-normal text-sm leading-6 text-foreground text-pretty">
+                                {details?.nextStep ?? outcome.actionNeeded}
+                              </TableCell>
+                              <TableCell className="align-top">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  className="h-8 rounded-full border-border/70 bg-white px-3 text-[11px] font-medium shadow-none"
+                                  onClick={() => {
+                                    setSelectedOutcome(outcome);
+                                    setOutcomeDetailsOpen(true);
+                                  }}
+                                >
+                                  View Details
+                                  <ArrowRight data-icon="inline-end" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          );
+                        })
+                      ) : (
+                        <TableRow>
+                          <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
+                            No recommendation has been created yet. Click Generate Recommendation to create one.
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+            <p className="px-1 text-xs leading-5 text-muted-foreground">
+              G11 only recommends actions. It never executes live changes.
+            </p>
+          </>
+        ) : (
+          <>
+            <Card id="latest-outcome" className="overflow-hidden rounded-[28px] border-border/60 bg-white shadow-sm">
             <CardHeader className="space-y-2">
               <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                 <div className="space-y-2">
@@ -742,40 +1259,42 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
             </CardContent>
           </Card>
 
-          <div className="grid gap-4 xl:grid-cols-2">
-            <Card id="actions-needed" className="rounded-[28px] border-border/60 bg-white shadow-sm">
-              <CardHeader className="space-y-2">
-                <CardTitle className="font-serif text-2xl tracking-tight text-primary">Actions Needed</CardTitle>
-                <CardDescription className="text-sm leading-6 text-muted-foreground">
-                  The next safe step, written for the client.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="rounded-2xl border border-border/60 bg-muted/15 p-4">
-                  <p className="text-sm leading-6 text-foreground text-pretty">{actionsNeededText}</p>
-                  {actionsNeededHelper ? <p className="mt-2 text-sm leading-6 text-muted-foreground">{actionsNeededHelper}</p> : null}
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  {actionsNeededButton}
-                </div>
-              </CardContent>
-            </Card>
-
-            {savedOutput ? (
-              <Card id="saved-output" className="rounded-[28px] border-border/60 bg-white shadow-sm">
+          {!hideActionPanels ? (
+            <div className="grid gap-4 xl:grid-cols-2">
+              <Card id="actions-needed" className="rounded-[28px] border-border/60 bg-white shadow-sm">
                 <CardHeader className="space-y-2">
-                  <CardTitle className="font-serif text-2xl tracking-tight text-primary">Saved Output</CardTitle>
+                  <CardTitle className="font-serif text-2xl tracking-tight text-primary">Actions Needed</CardTitle>
                   <CardDescription className="text-sm leading-6 text-muted-foreground">
-                    The clean result saved for client review.
+                    The next safe step, written for the client.
                   </CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <DetailField label={savedOutput.label} value={savedOutput.value} helper={savedOutput.helper} />
+                  <div className="rounded-2xl border border-border/60 bg-muted/15 p-4">
+                    <p className="text-sm leading-6 text-foreground text-pretty">{actionsNeededText}</p>
+                    {actionsNeededHelper ? <p className="mt-2 text-sm leading-6 text-muted-foreground">{actionsNeededHelper}</p> : null}
+                  </div>
+
+                  <div className="flex flex-wrap gap-2">
+                    {actionsNeededButton}
+                  </div>
                 </CardContent>
               </Card>
-            ) : null}
-          </div>
+
+              {savedOutput ? (
+                <Card id="saved-output" className="rounded-[28px] border-border/60 bg-white shadow-sm">
+                  <CardHeader className="space-y-2">
+                    <CardTitle className="font-serif text-2xl tracking-tight text-primary">Saved Output</CardTitle>
+                    <CardDescription className="text-sm leading-6 text-muted-foreground">
+                      The clean result saved for client review.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <DetailField label={savedOutput.label} value={savedOutput.value} helper={savedOutput.helper} />
+                  </CardContent>
+                </Card>
+              ) : null}
+            </div>
+          ) : null}
 
           <Card id="recent-outcomes" className="overflow-hidden rounded-[28px] border-border/60 bg-white shadow-sm">
             <CardHeader className="space-y-2">
@@ -840,7 +1359,8 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
               </div>
             </CardContent>
           </Card>
-        </>
+          </>
+        )
       ) : null}
 
       {workflow && primaryAction && ["run", "run_dry_run", "generate_recommendation"].includes(primaryAction.kind) ? (
@@ -921,36 +1441,145 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
           }
         }}
       >
-        <DialogContent className="max-h-[90vh] w-[min(96vw,42rem)] overflow-y-auto rounded-[28px] border-border/60 bg-white p-0 shadow-2xl">
+        <DialogContent className="max-h-[90vh] w-[min(98vw,72rem)] max-w-none overflow-y-auto rounded-[28px] border-border/60 bg-white p-0 shadow-2xl sm:max-w-none">
           <div className="space-y-5 p-6">
             <DialogHeader className="space-y-2">
-              <DialogTitle className="font-serif text-3xl tracking-tight text-primary">Health Check Details</DialogTitle>
+              <DialogTitle className="font-serif text-3xl tracking-tight text-primary">
+                {isG11Workflow ? "Recommendation details" : "Health Check Details"}
+              </DialogTitle>
               <DialogDescription className="text-sm leading-6 text-muted-foreground">
-                Safe client-facing summary of the selected health snapshot.
+                {isG11Workflow
+                  ? "Safe client-facing summary of the selected recommendation."
+                  : "Safe client-facing summary of the selected health snapshot."}
               </DialogDescription>
             </DialogHeader>
 
             {selectedOutcome ? (
-              <div className="grid gap-3 md:grid-cols-2">
-                <DetailField
-                  label="Platform / account"
-                  value={
-                    [selectedOutcome.details?.platform, selectedOutcome.details?.account].filter(Boolean).join(" · ") || "Not available"
-                  }
-                />
-                <DetailField
-                  label="Status / result"
-                  value={
-                    <Badge variant="outline" className={cn("inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold", getWorkflowStatusTone(selectedOutcome.result))}>
-                      {getWorkflowStatusLabel(selectedOutcome.result)}
-                    </Badge>
-                  }
-                />
-                <DetailField label="What was checked" value={selectedOutcome.details?.whatWasChecked ?? selectedOutcome.whatWasChecked} />
-                {selectedOutcome.details?.evidenceSummary ? <DetailField label="Evidence summary" value={selectedOutcome.details.evidenceSummary} /> : null}
-                <DetailField label="Action needed" value={selectedOutcome.actionNeeded} />
-                <DetailField label="Checked time" value={formatRowTimeLabel(selectedOutcome.handledAt ?? selectedOutcome.time)} />
-              </div>
+              isG11Workflow ? (
+                <div className="space-y-4">
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <DetailField
+                      label="Recommendation"
+                      value={
+                        <Badge
+                          variant="outline"
+                          className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG11RecommendationTone(getG11RecommendationValue(selectedOutcome)))}
+                        >
+                          {getG11RecommendationValue(selectedOutcome)}
+                        </Badge>
+                      }
+                    />
+                    <DetailField label="Target workflow" value={getG11FriendlyWorkflowName(selectedOutcome.details?.targetWorkflow ?? selectedOutcome.details?.target) ?? "Not available"} />
+                    <DetailField label="Target platform" value={getG11FriendlyPlatformName(selectedOutcome.details?.targetPlatform) ?? "Not available"} />
+                    <DetailField
+                      label="Risk level"
+                      value={
+                        <Badge
+                          variant="outline"
+                          className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG11RiskTone(selectedOutcome.details?.riskLevel))}
+                        >
+                          {selectedOutcome.details?.riskLevel ?? "UNKNOWN"}
+                        </Badge>
+                      }
+                      helper={selectedOutcome.details?.riskNote ?? undefined}
+                    />
+                  </div>
+
+                  <DetailField label="Summary" value={selectedOutcome.whatHappened} />
+
+                  <DetailField
+                    label="Why G11 recommended it"
+                    value={getG11BulletList(selectedOutcome.details?.why, "No written explanation was stored for this recommendation.")}
+                  />
+
+                  <DetailField
+                    label="Evidence used"
+                    value={getG11BulletList(selectedOutcome.details?.evidence, selectedOutcome.details?.evidenceSummary ?? "No evidence summary was stored.")}
+                  />
+
+                  <DetailField
+                    label="Safety checks"
+                    value={
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG11SafetyTone(selectedOutcome.details?.complianceStatus))}>
+                          Compliance: {getG11DisplayStatus(selectedOutcome.details?.complianceStatus)}
+                        </Badge>
+                        <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG11SafetyTone(selectedOutcome.details?.accountHealthStatus))}>
+                          Account Health: {getG11DisplayStatus(selectedOutcome.details?.accountHealthStatus)}
+                        </Badge>
+                        <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG11SafetyTone(selectedOutcome.details?.consentStatus))}>
+                          Consent: {getG11DisplayStatus(selectedOutcome.details?.consentStatus)}
+                        </Badge>
+                        <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG11SafetyTone(selectedOutcome.details?.rightsStatus))}>
+                          Rights: {getG11DisplayStatus(selectedOutcome.details?.rightsStatus)}
+                        </Badge>
+                        <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG11SafetyTone(selectedOutcome.details?.offerStatus))}>
+                          Offer: {getG11DisplayStatus(selectedOutcome.details?.offerStatus)}
+                        </Badge>
+                        <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG11SafetyTone(selectedOutcome.details?.executionStatus ?? (selectedOutcome.details?.notExecuted ? "NOT_EXECUTED" : null)))}>
+                          Execution: {getG11DisplayStatus(selectedOutcome.details?.executionStatus ?? (selectedOutcome.details?.notExecuted ? "NOT_EXECUTED" : null))}
+                        </Badge>
+                      </div>
+                    }
+                    helper={getG11SafetySummary(selectedOutcome).description}
+                  />
+
+                  <DetailField
+                    label="Next step"
+                    value={selectedOutcome.details?.nextStep ?? selectedOutcome.actionNeeded}
+                    helper={selectedOutcome.result === "BLOCK" ? "Fix missing or blocked data first." : undefined}
+                  />
+
+                  <div className="grid gap-3 md:grid-cols-2">
+                    <DetailField
+                      label="Execution status"
+                      value={<span className="font-medium text-foreground">Not executed by G11</span>}
+                      helper="G11 only writes a recommendation."
+                    />
+                    <DetailField label="Checked time" value={formatRowTimeLabel(selectedOutcome.handledAt ?? selectedOutcome.time)} />
+                  </div>
+
+                  <DetailField
+                    label="Missing data"
+                    value={getG11BulletList(selectedOutcome.details?.missingData, "No missing data was flagged.")}
+                  />
+
+                  {selectedOutcome.details?.technicalNotes?.length ? (
+                    <details className="rounded-2xl border border-border/60 bg-muted/15 p-4">
+                      <summary className="cursor-pointer list-none text-sm font-semibold text-foreground">
+                        Technical details
+                      </summary>
+                      <div className="mt-3">
+                        <DetailField
+                          label="Technical notes"
+                          value={getG11BulletList(selectedOutcome.details.technicalNotes, "No technical details were stored.")}
+                        />
+                      </div>
+                    </details>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="grid gap-3 md:grid-cols-2">
+                  <DetailField
+                    label="Platform / account"
+                    value={
+                      [selectedOutcome.details?.platform, selectedOutcome.details?.account].filter(Boolean).join(" · ") || "Not available"
+                    }
+                  />
+                  <DetailField
+                    label="Status / result"
+                    value={
+                      <Badge variant="outline" className={cn("inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold", getWorkflowStatusTone(selectedOutcome.result))}>
+                        {getWorkflowStatusLabel(selectedOutcome.result)}
+                      </Badge>
+                    }
+                  />
+                  <DetailField label="What was checked" value={selectedOutcome.details?.whatWasChecked ?? selectedOutcome.whatWasChecked} />
+                  {selectedOutcome.details?.evidenceSummary ? <DetailField label="Evidence summary" value={selectedOutcome.details.evidenceSummary} /> : null}
+                  <DetailField label="Action needed" value={selectedOutcome.actionNeeded} />
+                  <DetailField label="Checked time" value={formatRowTimeLabel(selectedOutcome.handledAt ?? selectedOutcome.time)} />
+                </div>
+              )
             ) : (
               <div className="rounded-2xl border border-dashed border-border/70 bg-muted/10 px-4 py-5 text-sm leading-6 text-muted-foreground">
                 No details available.

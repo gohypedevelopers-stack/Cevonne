@@ -8,6 +8,7 @@ import { invalidJsonResponse, jsonResponse, methodNotAllowed } from "@/server/ne
 
 const requestSchema = z.object({
   approval_id: z.string().trim().min(1),
+  asset_id: z.string().trim().min(1),
   decision: z.enum(["APPROVED", "REJECTED"]),
   reviewer_id: z.string().trim().min(1),
   reviewer_note: z.string().trim().min(1).nullable().optional(),

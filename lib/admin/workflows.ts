@@ -77,6 +77,28 @@ export type WorkflowOutcomeDetails = {
   evidenceSummary?: string | null;
   whatWasChecked?: string | null;
   sourceLabel?: string | null;
+  recommendation?: string | null;
+  recommendationLabel?: string | null;
+  target?: string | null;
+  targetWorkflow?: string | null;
+  targetPlatform?: string | null;
+  riskLevel?: string | null;
+  riskNote?: string | null;
+  nextStep?: string | null;
+  why?: string[] | null;
+  evidence?: string[] | null;
+  missingData?: string[] | null;
+  complianceStatus?: string | null;
+  accountHealthStatus?: string | null;
+  sourceDataStatus?: string | null;
+  consentStatus?: string | null;
+  rightsStatus?: string | null;
+  offerStatus?: string | null;
+  recommendationOnly?: boolean | null;
+  notExecuted?: boolean | null;
+  actionPacketDrafted?: boolean | null;
+  executionStatus?: string | null;
+  technicalNotes?: string[] | null;
 };
 
 export type WorkflowOutcomeSummary = {
@@ -262,11 +284,49 @@ const g10ActionOptions: WorkflowRunFieldOption[] = [
   { label: "Other", value: "other" },
 ];
 
-const g11DecisionTypeOptions: WorkflowRunFieldOption[] = [
-  { label: "Weekly digest", value: "weekly_digest" },
-  { label: "Decision recommendation", value: "decision_recommendation" },
-  { label: "Draft action packet", value: "draft_action_packet" },
+type G11ReviewAreaConfig = {
+  label: string;
+  value: string;
+  targetWorkflowGroup: string;
+  platform: string;
+};
+
+type G11RecommendationTypeConfig = {
+  label: string;
+  value: string;
+  requestedDecision: "INVESTIGATE" | "SCALE" | "FIX_FIRST" | "TEST" | null;
+  usesWeeklyDigest: boolean;
+};
+
+const g11ReviewAreaConfigs: G11ReviewAreaConfig[] = [
+  { label: "Ads performance", value: "ads_performance", targetWorkflowGroup: "G9", platform: "META" },
+  { label: "Content performance", value: "content_performance", targetWorkflowGroup: "G4", platform: "INSTAGRAM" },
+  { label: "SEO / website performance", value: "seo_website_performance", targetWorkflowGroup: "G10", platform: "GOOGLE" },
+  { label: "Offers and inventory", value: "offers_inventory", targetWorkflowGroup: "G7", platform: "SHOPIFY" },
+  { label: "UGC / creators", value: "ugc_creators", targetWorkflowGroup: "G8", platform: "INSTAGRAM" },
+  { label: "Overall business summary", value: "overall_business_summary", targetWorkflowGroup: "ALL", platform: "ALL" },
 ];
+
+const g11RecommendationTypeConfigs: G11RecommendationTypeConfig[] = [
+  { label: "What should we do next?", value: "next_step", requestedDecision: "INVESTIGATE", usesWeeklyDigest: false },
+  { label: "Should we scale?", value: "scale", requestedDecision: "SCALE", usesWeeklyDigest: false },
+  { label: "What needs fixing?", value: "fixing", requestedDecision: "FIX_FIRST", usesWeeklyDigest: false },
+  { label: "What should we test?", value: "test", requestedDecision: "TEST", usesWeeklyDigest: false },
+  { label: "Weekly summary", value: "weekly_summary", requestedDecision: null, usesWeeklyDigest: true },
+];
+
+export const G11_REVIEW_AREA_OPTIONS: WorkflowRunFieldOption[] = g11ReviewAreaConfigs.map(({ label, value }) => ({ label, value }));
+export const G11_RECOMMENDATION_TYPE_OPTIONS: WorkflowRunFieldOption[] = g11RecommendationTypeConfigs.map(({ label, value }) => ({ label, value }));
+
+export const getG11ReviewAreaConfig = (value?: string | null) => {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return g11ReviewAreaConfigs.find((entry) => entry.value === normalized) ?? null;
+};
+
+export const getG11RecommendationTypeConfig = (value?: string | null) => {
+  const normalized = typeof value === "string" ? value.trim() : "";
+  return g11RecommendationTypeConfigs.find((entry) => entry.value === normalized) ?? null;
+};
 
 const g6ActionOptions: WorkflowRunFieldOption[] = [
   { label: "Message", value: "message" },
@@ -786,37 +846,33 @@ export const WORKFLOW_CATALOG: Record<AdminWorkflowId, WorkflowCatalogEntry> = {
   },
   G11: {
     id: "G11",
-    title: "G11 - Decision Engine",
-    purpose: "Creates founder / team decisions and recommendations only.",
+    title: "G11 — Decision Engine",
+    purpose: "Creates safe business recommendations. No live action is executed.",
     detailHref: "/dashboard/n8n-automations/g11",
     runLabel: "Generate Recommendation",
     runEnabled: true,
     runDisabledReason: null,
-    emptyStateCopy: "This workflow is ready. Generate a recommendation to create the first outcome.",
+    emptyStateCopy: "No recommendation has been created yet. Click \"Generate Recommendation\" to create one.",
     fallbackStatus: "RECOMMENDATION_ONLY",
     runFields: [
-      ...commonRunFields,
       selectField({
-        key: "decision_type",
-        label: "Decision type",
-        defaultValue: "weekly_digest",
-        options: g11DecisionTypeOptions,
-        helper: "What kind of decision output should be created?",
+        key: "focus_area",
+        label: "What should G11 review?",
+        defaultValue: "ads_performance",
+        options: G11_REVIEW_AREA_OPTIONS,
         required: true,
       }),
       selectField({
-        key: "target_workflow",
-        label: "Target workflow",
-        defaultValue: "G1",
-        options: workflowSelectorOptions,
-        helper: "Which workflow does this help?",
+        key: "recommendation_type",
+        label: "What kind of recommendation do you want?",
+        defaultValue: "next_step",
+        options: G11_RECOMMENDATION_TYPE_OPTIONS,
         required: true,
       }),
       textareaField({
-        key: "supporting_context",
-        label: "Source / account / consent / compliance details",
-        placeholder: "Add only the details needed for the recommendation",
-        helper: "Keep this client-friendly and short.",
+        key: "note",
+        label: "Add a note for G11",
+        placeholder: "Example: Check if Meta ads should be scaled this week.",
         rows: 4,
       }),
     ],
@@ -1460,9 +1516,9 @@ export const getWorkflowPrimaryActionConfig = (
         note: "Create a recommendation only. No live action will be executed.",
         href: null,
         dialogTitle: "Generate Recommendation",
-        dialogDescription: "Create a recommendation only. No live action will be executed.",
+        dialogDescription: "G11 will review available workflow data and suggest what to do next. Nothing will be executed.",
         submitLabel: "Generate Recommendation",
-        hiddenFieldKeys: ["dry_run"],
+        hiddenFieldKeys: [],
       };
     case "G12":
       return {
@@ -1574,7 +1630,7 @@ export const getWorkflowOutcomeSectionTitles = (workflowId: AdminWorkflowId) => 
 
 export const getWorkflowStatusDetailCopy = (workflowId: AdminWorkflowId, status: WorkflowUiStatus) => {
   if (workflowId === "G11" || workflowId === "G9") {
-    return "This workflow creates recommendations only. No live action will be executed.";
+    return "Creates safe business recommendations. No live action is executed.";
   }
 
   if (workflowId === "G3") {

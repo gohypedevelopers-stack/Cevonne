@@ -587,15 +587,29 @@ export const dispatchWf1ActionRoute = async (request: Request, actionInput: stri
       dryRun: true,
     });
 
-    const success = n8nResponse.status === "PASS" || n8nResponse.status === "MANUAL_ONLY";
+    const wf1Status =
+      n8nResponse.status === "PASS" ||
+      n8nResponse.status === "MANUAL_ONLY" ||
+      n8nResponse.status === "RECOMMENDATION_ONLY" ||
+      n8nResponse.status === "DRY_RUN" ||
+      n8nResponse.status === "DO_NOT_SCALE" ||
+      n8nResponse.status === "FIX_FIRST"
+        ? "PASS"
+        : n8nResponse.status === "PENDING_APPROVAL" ||
+            n8nResponse.status === "NEEDS_EVIDENCE" ||
+            n8nResponse.status === "BLOCK" ||
+            n8nResponse.status === "ERROR"
+          ? n8nResponse.status
+          : "ERROR";
+    const success = wf1Status === "PASS";
     const dryRun = recordWf1DryRunResult({
       queueId,
       result:
-        success && n8nResponse.status === "PASS"
+        success && wf1Status === "PASS"
           ? "No Instagram post was published. This was only a safe dry-run."
           : getWf1FailureReason(n8nResponse.fail_reason, "Dry-run could not be completed."),
       notExecuted: !success,
-      status: success && n8nResponse.status === "PASS" ? "PASS" : n8nResponse.status,
+      status: success && wf1Status === "PASS" ? "PASS" : wf1Status,
       responseType: n8nResponse.response_type ?? null,
       requestId: n8nResponse.request_id,
       actor: (parsed.data.actor || "admin") as "admin" | "system" | "website",

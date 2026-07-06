@@ -1,7 +1,7 @@
 import "server-only";
 
 import { env } from "@/server/config";
-import { postN8nWebhook } from "@/lib/n8n-client";
+import { buildN8nWebhookUrl, postN8nWebhook } from "@/lib/n8n-client";
 import { normalizeG1AuditRows } from "@/lib/g1-compliance-guard";
 import {
   G12_SUPABASE_TABLES,
@@ -35,6 +35,8 @@ import {
   normalizeWorkflowId,
   normalizeWorkflowUiStatus,
   sanitizeDisplayText,
+  getG11RecommendationTypeConfig,
+  getG11ReviewAreaConfig,
   type AdminWorkflowId,
   type WorkflowDetailView,
   type WorkflowOutcomeSummary,
@@ -99,7 +101,17 @@ const WORKFLOW_TABLES: Record<AdminWorkflowId, TableSpec[]> = {
   G8: [tableSpec("g8_ugc_proof_logs"), tableSpec("g8_creator_proof_logs"), tableSpec("g8_rights_logs")],
   G9: [tableSpec("g9_ad_recommendations"), tableSpec("g9_ad_dry_runs"), tableSpec("g9_ad_executions")],
   G10: [tableSpec("g10_recommendations"), tableSpec("g10_dry_runs"), tableSpec("g10_experiments")],
-  G11: [tableSpec("g11_decision_digests"), tableSpec("g11_recommendations"), tableSpec("g11_action_packets"), tableSpec("g11_audit_logs")],
+  G11: [
+    tableSpec("g11_latest_recommendation", ["event_time", "created_at", "updated_at", "handled_at", "time"], 1),
+    tableSpec("g11_dashboard_recent_events", ["event_time", "created_at", "updated_at", "handled_at", "time"], 10),
+    tableSpec("g11_decision_recommendations"),
+    tableSpec("g11_recommendations"),
+    tableSpec("g11_decision_digests"),
+    tableSpec("g11_action_packet_drafts"),
+    tableSpec("g11_action_packets"),
+    tableSpec("g11_source_snapshots"),
+    tableSpec("g11_audit_logs"),
+  ],
   G12: [
     tableSpec(G12_SUPABASE_TABLES.fetchRuns, ["completed_at", "created_at"]),
   ],
@@ -132,9 +144,9 @@ const G3_RUN_URLS = {
 } as const;
 
 const G11_RUN_URLS = {
-  weekly_digest: env.cevonneN8nWeeklyDigestUrl,
-  decision_recommendation: env.cevonneN8nDecisionRecommendationUrl,
-  draft_action_packet: env.cevonneN8nDraftActionPacketUrl,
+  weekly_digest: env.cevonneN8nWeeklyDigestUrl || buildN8nWebhookUrl("g11-weekly-decision-digest"),
+  decision_recommendation: env.cevonneN8nDecisionRecommendationUrl || buildN8nWebhookUrl("g11-decision-recommendation"),
+  draft_action_packet: env.cevonneN8nDraftActionPacketUrl || buildN8nWebhookUrl("g11-draft-action-packet"),
 } as const;
 
 const isRecord = (value: unknown): value is JsonRecord =>
@@ -1345,6 +1357,794 @@ const buildG12DetailResponse = async (): Promise<G12WorkflowDetailData> => {
   };
 };
 
+type G11RecommendationDecision = "SCALE" | "PAUSE" | "FIX_FIRST" | "TEST" | "INVESTIGATE" | "NO_ACTION" | "DO_NOT_SCALE" | "BLOCK";
+type G11RiskLevel = "LOW" | "MEDIUM" | "HIGH";
+type G11ComplianceStatus = "PASS" | "BLOCK" | "UNKNOWN";
+type G11AccountHealthStatus = "CLEAN" | "WARNING" | "UNKNOWN";
+type G11SourceDataStatus = "KNOWN" | "UNKNOWN";
+type G11ConsentStatus = "PASS" | "UNKNOWN" | "NOT_REQUIRED";
+type G11SafetyCheckStatus = "PASS" | "BLOCK" | "UNKNOWN";
+
+const G11_RECOMMENDATION_TABLES = new Set(["g11_latest_recommendation", "g11_decision_recommendations", "g11_recommendations"]);
+const G11_RECENT_EVENT_TABLES = new Set(["g11_dashboard_recent_events", "g11_decision_digests"]);
+const G11_CONTEXT_TABLES = new Set(["g11_action_packet_drafts", "g11_action_packets", "g11_source_snapshots", "g11_audit_logs"]);
+
+const G11_WORKFLOW_FRIENDLY_NAMES: Record<string, string> = {
+  G1: "Compliance Guard",
+  G2: "Account Health",
+  G3: "Consent + Attribution",
+  G4: "Content Review",
+  G5: "Publishing",
+  G6: "Messaging + Recovery",
+  G7: "Offer Safety",
+  G8: "UGC + Creator Proof",
+  G9: "Ads + Retargeting",
+  G10: "SEO + CRO",
+  G11: "Decision Engine",
+  G12: "Public Trend Fetcher",
+  ALL: "All workflows",
+};
+
+const G11_PLATFORM_FRIENDLY_NAMES: Record<string, string> = {
+  META: "Meta Ads",
+  GOOGLE: "Google",
+  INSTAGRAM: "Instagram",
+  WHATSAPP: "WhatsApp",
+  ALL: "All platforms",
+};
+
+const flattenG11Row = (row: JsonRecord) => [
+  ...flattenRow(row),
+  asRecord(row.snapshot),
+  asRecord(row.source_snapshot),
+  asRecord(row.sourceSnapshot),
+  asRecord(row.action_packet_draft),
+  asRecord(row.actionPacketDraft),
+  asRecord(row.recommendation),
+  asRecord(row.digest),
+];
+
+const readBooleanFromCandidates = (candidates: Array<JsonRecord | null>, keys: string[]) => {
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+
+    for (const key of keys) {
+      const value = candidate[key];
+      if (typeof value === "boolean") {
+        return value;
+      }
+
+      if (typeof value === "number") {
+        if (value === 0) return false;
+        if (value === 1) return true;
+      }
+
+      if (typeof value === "string") {
+        const normalized = value.trim().toUpperCase();
+        if (["TRUE", "YES", "Y", "1", "PASS", "READY", "DONE", "DRAFTED", "DRAFT_CREATED"].includes(normalized)) {
+          return true;
+        }
+
+        if (["FALSE", "NO", "N", "0", "NOT_READY", "MISSING", "UNKNOWN", "NOT_EXECUTED"].includes(normalized)) {
+          return false;
+        }
+      }
+    }
+  }
+
+  return null;
+};
+
+const readTextListFromCandidates = (candidates: Array<JsonRecord | null>, keys: string[]) => {
+  const items = new Set<string>();
+
+  const pushValue = (value: unknown) => {
+    if (value === null || value === undefined) {
+      return;
+    }
+
+    if (Array.isArray(value)) {
+      value.forEach(pushValue);
+      return;
+    }
+
+    const record = asRecord(value);
+    if (record) {
+      pushValue(record.label ?? record.name ?? record.text ?? record.value ?? record.summary ?? record.description ?? record.reason ?? record.code ?? record.note ?? record.notes);
+      return;
+    }
+
+    const text = String(value).trim();
+    if (!text) {
+      return;
+    }
+
+    for (const part of text.split(/[\n,;|•]+/g)) {
+      const trimmed = part.trim();
+      if (!trimmed) {
+        continue;
+      }
+
+      const sanitized = sanitizeDisplayText(trimmed) ?? humanizeReasonText(trimmed) ?? null;
+      if (sanitized) {
+        items.add(sanitized);
+      }
+    }
+  };
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+
+    for (const key of keys) {
+      pushValue(candidate[key]);
+    }
+  }
+
+  return [...items];
+};
+
+const getG11FriendlyWorkflowName = (workflowId: string | null | undefined) => {
+  const normalized = normalizeWorkflowId(workflowId ?? "");
+  if (normalized && G11_WORKFLOW_FRIENDLY_NAMES[normalized]) {
+    return G11_WORKFLOW_FRIENDLY_NAMES[normalized];
+  }
+
+  const sanitized = sanitizeDisplayText(workflowId ?? "");
+  return sanitized ?? humanizeReasonText(workflowId ?? "") ?? null;
+};
+
+const getG11FriendlyPlatformName = (platform: string | null | undefined) => {
+  const normalized = typeof platform === "string" ? platform.trim().toUpperCase().replace(/[\s-]+/g, "_") : "";
+  if (normalized && G11_PLATFORM_FRIENDLY_NAMES[normalized]) {
+    return G11_PLATFORM_FRIENDLY_NAMES[normalized];
+  }
+
+  const sanitized = sanitizeDisplayText(platform ?? "");
+  return sanitized ?? humanizeReasonText(platform ?? "") ?? null;
+};
+
+const hasG11RecommendationSignals = (candidates: Array<JsonRecord | null>) =>
+  Boolean(
+    pickFromCandidates(candidates, [
+      "recommendation",
+      "decision",
+      "recommended_decision",
+      "recommendedDecision",
+      "requested_decision",
+      "requestedDecision",
+      "recommendation_type",
+      "decision_type",
+      "recommended_action",
+      "action_recommendation",
+      "recommendation_action",
+      "recommendation_label",
+      "decision_label",
+      "focus_area",
+      "focusArea",
+      "target_workflow_group",
+      "targetWorkflowGroup",
+      "target_workflow",
+      "targetWorkflow",
+      "target_platform",
+      "targetPlatform",
+      "response_type",
+      "responseType",
+      "summary_type",
+      "summaryType",
+      "digest_type",
+      "digestType",
+      "risk_level",
+      "riskLevel",
+      "risk_score",
+      "riskScore",
+      "compliance_status",
+      "complianceStatus",
+      "account_health_status",
+      "accountHealthStatus",
+      "source_status",
+      "sourceStatus",
+      "consent_status",
+      "consentStatus",
+      "rights_status",
+      "rightsStatus",
+      "offer_status",
+      "offerStatus",
+    ]) ||
+      readTextListFromCandidates(candidates, [
+        "why",
+        "why_not",
+        "reason",
+        "reason_code",
+        "reason_codes",
+        "reasonCodes",
+        "reasons",
+        "rationale",
+        "evidence",
+        "evidence_summary",
+        "evidenceSummary",
+        "missing_data",
+        "missingData",
+        "data_gaps",
+        "dataGaps",
+      ]).length > 0,
+  );
+
+const normalizeG11Decision = (value?: string | null): G11RecommendationDecision | null => {
+  const normalized = typeof value === "string" ? value.trim().toUpperCase().replace(/[\s-]+/g, "_") : "";
+  if (!normalized) {
+    return null;
+  }
+
+  if (/^(SCALE|SCALE_UP|INCREASE|INCREASE_BUDGET|GROW|EXPAND)/.test(normalized)) {
+    return "SCALE";
+  }
+  if (/^(PAUSE|HOLD|STOP|FREEZE)/.test(normalized)) {
+    return "PAUSE";
+  }
+  if (/^(FIX_FIRST|FIX|REPAIR|RESOLVE|NEEDS_FIX|MISSING_DATA|GAP)/.test(normalized)) {
+    return "FIX_FIRST";
+  }
+  if (/^(TEST|DRY_RUN|VALIDATE|VERIFY|EXPERIMENT)/.test(normalized)) {
+    return "TEST";
+  }
+  if (/^(INVESTIGATE|REVIEW|ANALYZE|ANALYSIS|LOOK_INTO)/.test(normalized)) {
+    return "INVESTIGATE";
+  }
+  if (/^(NO_ACTION|NOACTION|NONE|KEEP|UNCHANGED|DO_NOT_CHANGE|NO_CHANGE)/.test(normalized)) {
+    return "NO_ACTION";
+  }
+  if (/^(DO_NOT_SCALE|DONT_SCALE|DO_NOT_GROW|DO_NOT_EXPAND|BLOCK_SCALING)/.test(normalized)) {
+    return "DO_NOT_SCALE";
+  }
+  if (/^(BLOCK|BLOCKED|REJECT|REJECTED|DENIED|DECLINED)/.test(normalized)) {
+    return "BLOCK";
+  }
+
+  return null;
+};
+
+const normalizeG11ComplianceStatus = (value?: string | null): G11ComplianceStatus => {
+  const normalized = typeof value === "string" ? value.trim().toUpperCase().replace(/[\s-]+/g, "_") : "";
+  if (["PASS", "READY", "OK", "ALLOW", "ALLOWED", "APPROVED", "VALID", "CLEAN"].includes(normalized)) {
+    return "PASS";
+  }
+  if (["BLOCK", "BLOCKED", "FAIL", "FAILED", "REJECT", "REJECTED", "DENIED", "DECLINED", "INVALID"].includes(normalized)) {
+    return "BLOCK";
+  }
+  return "UNKNOWN";
+};
+
+const normalizeG11AccountHealthStatus = (value?: string | null): G11AccountHealthStatus => {
+  const normalized = typeof value === "string" ? value.trim().toUpperCase().replace(/[\s-]+/g, "_") : "";
+  if (["CLEAN", "GOOD", "HEALTHY", "PASS", "OK", "CLOSED"].includes(normalized)) {
+    return "CLEAN";
+  }
+  if (["WARNING", "WARN", "REVIEW", "MONITOR"].includes(normalized)) {
+    return "WARNING";
+  }
+  return "UNKNOWN";
+};
+
+const normalizeG11SourceDataStatus = (value: string | null | undefined, hasSourceData: boolean): G11SourceDataStatus => {
+  const normalized = typeof value === "string" ? value.trim().toUpperCase().replace(/[\s-]+/g, "_") : "";
+  if (["KNOWN", "AVAILABLE", "PRESENT", "READY", "OK", "PASS", "COMPLETE"].includes(normalized)) {
+    return "KNOWN";
+  }
+  if (["UNKNOWN", "MISSING", "MISSING_DATA", "NOT_FOUND", "EMPTY", "NONE"].includes(normalized)) {
+    return "UNKNOWN";
+  }
+  return hasSourceData ? "KNOWN" : "UNKNOWN";
+};
+
+const normalizeG11ConsentStatus = (value: string | null | undefined, targetWorkflow: string | null, targetPlatform: string | null): G11ConsentStatus => {
+  const normalized = typeof value === "string" ? value.trim().toUpperCase().replace(/[\s-]+/g, "_") : "";
+  if (["VALID", "YES", "YES_EXPLICIT", "GRANTED", "ALLOW", "ALLOWED", "APPROVED", "TRUE", "PASS"].includes(normalized)) {
+    return "PASS";
+  }
+  if (["NOT_REQUIRED", "NOT_APPLICABLE", "N_A", "NA", "NONE"].includes(normalized)) {
+    return "NOT_REQUIRED";
+  }
+  if (normalized) {
+    return "UNKNOWN";
+  }
+
+  const consentRelevantWorkflow = Boolean(targetWorkflow && ["G3", "G6", "G9"].includes(targetWorkflow));
+  const consentRelevantPlatform = Boolean(targetPlatform && /META|INSTAGRAM|WHATSAPP|SMS|EMAIL|ADS|PUSH/i.test(targetPlatform));
+  return consentRelevantWorkflow || consentRelevantPlatform ? "UNKNOWN" : "NOT_REQUIRED";
+};
+
+const normalizeG11RiskLevel = (
+  riskLevelRaw: string | null | undefined,
+  riskScoreRaw: unknown,
+  status: WorkflowUiStatus,
+  recommendation: G11RecommendationDecision | null,
+  missingData: string[],
+  complianceStatus: G11ComplianceStatus,
+  accountHealthStatus: G11AccountHealthStatus,
+  sourceDataStatus: G11SourceDataStatus,
+): G11RiskLevel => {
+  const normalizedRiskLevel = typeof riskLevelRaw === "string" ? riskLevelRaw.trim().toUpperCase().replace(/[\s-]+/g, "_") : "";
+  if (["LOW", "MEDIUM", "HIGH", "CRITICAL"].includes(normalizedRiskLevel)) {
+    return normalizedRiskLevel === "CRITICAL" ? "HIGH" : (normalizedRiskLevel as G11RiskLevel);
+  }
+
+  const numericRisk = typeof riskScoreRaw === "number" ? riskScoreRaw : typeof riskScoreRaw === "string" ? Number(riskScoreRaw) : Number.NaN;
+  if (Number.isFinite(numericRisk)) {
+    if (numericRisk >= 70) {
+      return "HIGH";
+    }
+
+    if (numericRisk >= 40) {
+      return "MEDIUM";
+    }
+
+    return "LOW";
+  }
+
+  if (status === "BLOCK" || status === "ERROR" || missingData.length > 0 || complianceStatus === "BLOCK" || accountHealthStatus === "UNKNOWN" || sourceDataStatus === "UNKNOWN") {
+    return "HIGH";
+  }
+
+  switch (recommendation) {
+    case "SCALE":
+      return "HIGH";
+    case "FIX_FIRST":
+      return "HIGH";
+    case "PAUSE":
+    case "INVESTIGATE":
+    case "DO_NOT_SCALE":
+      return "MEDIUM";
+    case "TEST":
+      return "MEDIUM";
+    case "NO_ACTION":
+      return "LOW";
+    case "BLOCK":
+      return "HIGH";
+    default:
+      return "MEDIUM";
+  }
+};
+
+const buildG11DecisionSummary = (
+  decision: G11RecommendationDecision | null,
+  target: string,
+  complianceStatus: G11ComplianceStatus,
+  accountHealthStatus: G11AccountHealthStatus,
+  rightsStatus: G11SafetyCheckStatus,
+  offerStatus: G11SafetyCheckStatus,
+  sourceDataStatus: G11SourceDataStatus,
+  missingData: string[],
+) => {
+  if (decision) {
+    switch (decision) {
+      case "SCALE":
+        return `G11 recommends scaling ${target} because the available signals look strong.`;
+      case "PAUSE":
+        return `G11 recommends pausing ${target} until the situation is clearer.`;
+      case "FIX_FIRST":
+        return "G11 recommends fixing missing data first.";
+      case "TEST":
+        return `G11 recommends testing ${target} before any larger move.`;
+      case "INVESTIGATE":
+        return "G11 recommends investigating the source data first.";
+      case "NO_ACTION":
+        return "G11 does not recommend a change right now.";
+      case "DO_NOT_SCALE":
+        return "G11 does not recommend scaling yet.";
+      case "BLOCK":
+        return "G11 blocked this recommendation because the data is not safe enough.";
+      default:
+        return `G11 reviewed ${target} and produced a recommendation only.`;
+    }
+  }
+
+  if (missingData.length > 0) {
+    return "G11 does not recommend scaling yet.";
+  }
+
+  if (complianceStatus === "BLOCK") {
+    return `G11 recommends fixing compliance before touching ${target}.`;
+  }
+
+  if (rightsStatus === "BLOCK") {
+    return `G11 recommends fixing rights before touching ${target}.`;
+  }
+
+  if (offerStatus === "BLOCK") {
+    return `G11 recommends fixing offer proof before touching ${target}.`;
+  }
+
+  if (accountHealthStatus === "WARNING") {
+    return `G11 recommends reviewing account health before touching ${target}.`;
+  }
+
+  if (accountHealthStatus === "UNKNOWN" || sourceDataStatus === "UNKNOWN") {
+    return "G11 does not recommend scaling yet.";
+  }
+
+  return `G11 reviewed ${target} and produced a recommendation only.`;
+};
+
+const buildG11NextStep = (
+  decision: G11RecommendationDecision | null,
+  status: WorkflowUiStatus,
+  targetWorkflowId: AdminWorkflowId | null,
+  complianceStatus: G11ComplianceStatus,
+  rightsStatus: G11SafetyCheckStatus,
+  offerStatus: G11SafetyCheckStatus,
+  accountHealthStatus: G11AccountHealthStatus,
+  sourceDataStatus: G11SourceDataStatus,
+  consentStatus: G11ConsentStatus,
+  actionPacketDrafted: boolean | null,
+  missingData: string[],
+) => {
+  switch (decision) {
+    case "SCALE":
+      return targetWorkflowId === "G9" ? "Send to G9 approval" : "Review and approve before taking action";
+    case "FIX_FIRST":
+      return "Fix the issue first";
+    case "DO_NOT_SCALE":
+      return "Do not scale";
+    case "TEST":
+      return "Review test recommendation";
+    case "PAUSE":
+      return "Send to approval before pausing";
+    case "INVESTIGATE":
+      return "Review the data before deciding";
+    case "NO_ACTION":
+      return "No action needed";
+    case "BLOCK":
+      return "Review before continuing";
+    default:
+      break;
+  }
+
+  if (complianceStatus === "BLOCK") {
+    return "Fix compliance issue first";
+  }
+
+  if (rightsStatus === "BLOCK") {
+    return "Fix rights issue first";
+  }
+
+  if (offerStatus === "BLOCK") {
+    return "Fix offer issue first";
+  }
+
+  if (accountHealthStatus === "WARNING") {
+    return "Review before continuing";
+  }
+
+  if (missingData.length > 0) {
+    return "Fix missing data first";
+  }
+
+  if (accountHealthStatus === "UNKNOWN" || sourceDataStatus === "UNKNOWN" || consentStatus === "UNKNOWN") {
+    return "Review before continuing";
+  }
+
+  if (status === "PENDING_APPROVAL") {
+    return "Send to G9 approval";
+  }
+
+  if (targetWorkflowId === null) {
+    return "Review the weekly summary";
+  }
+
+  return "Review before continuing";
+};
+
+const buildG11OutcomeFromCandidates = (
+  candidates: Array<JsonRecord | null>,
+  sourceLabel: string,
+  fallbackStatus: WorkflowUiStatus = WORKFLOW_CATALOG.G11.fallbackStatus,
+): WorkflowOutcomeSummary | null => {
+  const time =
+    pickDateFromCandidates(candidates, [
+      "event_time",
+      "eventTime",
+      "recommendation_time",
+      "recommendationTime",
+      "time",
+      "created_at",
+      "createdAt",
+      "updated_at",
+      "updatedAt",
+      "handled_at",
+      "handledAt",
+      "completed_at",
+      "completedAt",
+      "recorded_at",
+      "recordedAt",
+      "stored_at",
+      "storedAt",
+    ]) ?? null;
+
+  if (!time) {
+    return null;
+  }
+
+  const status = normalizeWorkflowUiStatus(pickFromCandidates(candidates, ["status", "result", "decision_status", "recommendation_status", "state", "outcome"]), fallbackStatus);
+  const recommendationRaw =
+    pickFormattedFromCandidates(candidates, [
+      "recommendation",
+      "decision",
+      "recommended_decision",
+      "recommendedDecision",
+      "requested_decision",
+      "requestedDecision",
+      "recommendation_type",
+      "decision_type",
+      "recommended_action",
+      "action_recommendation",
+      "recommendation_action",
+      "recommendation_label",
+      "decision_label",
+    ]) ?? null;
+  const recommendation = normalizeG11Decision(recommendationRaw) ?? (status === "BLOCK" ? "BLOCK" : null);
+
+  if (!hasG11RecommendationSignals(candidates) && !recommendation) {
+    return null;
+  }
+
+  const targetWorkflowRaw = pickFormattedFromCandidates(candidates, ["target_workflow_group", "targetWorkflowGroup", "target_workflow", "targetWorkflow", "workflow_group", "workflowGroup", "workflow_id", "workflowId", "target"]);
+  const targetWorkflowMatch = typeof targetWorkflowRaw === "string" ? targetWorkflowRaw.match(/\b[QG]\d+\b/)?.[0] ?? null : null;
+  const normalizedTargetWorkflowId = normalizeWorkflowId(targetWorkflowRaw) ?? normalizeWorkflowId(targetWorkflowMatch);
+  const targetWorkflow = getG11FriendlyWorkflowName(normalizedTargetWorkflowId ?? targetWorkflowRaw);
+  const targetPlatformRaw = pickFormattedFromCandidates(candidates, ["target_platform", "targetPlatform", "platform", "platform_name", "platformName", "channel", "surface"]);
+  const targetPlatform = getG11FriendlyPlatformName(targetPlatformRaw);
+  const focusAreaRaw = pickFormattedFromCandidates(candidates, ["focus_area", "focusArea", "review_area", "reviewArea", "topic", "subject"]);
+  const responseTypeRaw = pickFormattedFromCandidates(candidates, ["response_type", "responseType", "summary_type", "summaryType", "digest_type", "digestType"]);
+  const isWeeklySummary = Boolean(
+    (typeof responseTypeRaw === "string" && /weekly|digest/i.test(responseTypeRaw)) ||
+      ((targetWorkflowRaw ?? "").trim().toUpperCase() === "ALL" && (targetPlatformRaw ?? "").trim().toUpperCase() === "ALL"),
+  );
+  const target = joinLabels([targetWorkflow, targetPlatform]) ?? targetWorkflow ?? targetPlatform ?? "Recommendation target";
+  const focusArea = sanitizeDisplayText(focusAreaRaw) ?? humanizeReasonText(focusAreaRaw ?? "") ?? null;
+  const summaryTarget = focusArea ?? target;
+
+  const complianceStatus = normalizeG11ComplianceStatus(pickFormattedFromCandidates(candidates, ["compliance_status", "complianceStatus", "g1_status", "g1Status", "approval_status", "approvalStatus"]));
+  const accountHealthStatus = normalizeG11AccountHealthStatus(pickFormattedFromCandidates(candidates, ["account_health_status", "accountHealthStatus", "health_status", "healthStatus", "account_status", "accountStatus"]));
+  const rightsStatus = normalizeG11ComplianceStatus(pickFormattedFromCandidates(candidates, ["rights_status", "rightsStatus", "rights_check_status", "rightsCheckStatus"]));
+  const offerStatus = normalizeG11ComplianceStatus(pickFormattedFromCandidates(candidates, ["offer_status", "offerStatus", "offer_check_status", "offerCheckStatus"]));
+  const hasSourceData = Boolean(
+    readBooleanFromCandidates(candidates, ["has_source_data", "source_data_present"]) ??
+      readTextListFromCandidates(candidates, [
+        "source_summary",
+        "sourceSummary",
+        "evidence",
+        "evidence_summary",
+        "evidenceSummary",
+        "source_notes",
+        "sourceNotes",
+        "source_snapshot",
+        "sourceSnapshot",
+        "snapshot_summary",
+        "snapshotSummary",
+        "source_reference",
+        "sourceReference",
+        "source_name",
+        "sourceName",
+      ]).length,
+  );
+  const sourceDataStatus = normalizeG11SourceDataStatus(pickFormattedFromCandidates(candidates, ["source_status", "sourceStatus", "source_data_status", "sourceDataStatus", "source_state", "sourceState"]), hasSourceData);
+  const consentStatus = normalizeG11ConsentStatus(pickFormattedFromCandidates(candidates, ["consent_status", "consentStatus", "tracking_consent_status", "trackingConsentStatus"]), targetWorkflow, targetPlatform);
+
+  const reasonBullets = readTextListFromCandidates(candidates, [
+    "why",
+    "why_not",
+    "reason",
+    "reason_code",
+    "reason_codes",
+    "reasonCodes",
+    "reasons",
+    "rationale",
+    "highlights",
+    "signals",
+    "notes",
+    "summary_points",
+  ]);
+  const evidenceBullets = readTextListFromCandidates(candidates, [
+    "evidence",
+    "evidence_summary",
+    "evidenceSummary",
+    "source_summary",
+    "sourceSummary",
+    "proof",
+    "supporting_evidence",
+    "supportingEvidence",
+    "findings",
+    "signal_summary",
+    "signalSummary",
+    "key_points",
+    "keyPoints",
+  ]);
+  const missingData = readTextListFromCandidates(candidates, [
+    "missing_data",
+    "missingData",
+    "data_gaps",
+    "dataGaps",
+    "unknowns",
+    "gaps",
+    "blocked_reason",
+    "blockedReason",
+    "missing_fields",
+    "missingFields",
+  ]);
+
+  const actionPacketDrafted = readBooleanFromCandidates(candidates, ["action_packet_drafted", "actionPacketDrafted", "packet_drafted", "packetDrafted", "draft_created", "draftCreated", "drafted"]);
+  const actionPacketPresent = actionPacketDrafted ?? false;
+  const recommendationOnly = readBooleanFromCandidates(candidates, ["recommendation_only", "recommendationOnly", "recommendation_only_mode", "recommendationOnlyMode"]);
+  const notExecuted = readBooleanFromCandidates(candidates, ["not_executed", "notExecuted", "execution_not_executed", "executionNotExecuted"]);
+
+  const riskScoreRaw = pickFromCandidates(candidates, ["risk_score", "riskScore"]);
+  const riskLevel = normalizeG11RiskLevel(
+    pickFormattedFromCandidates(candidates, ["risk_level", "riskLevel"]),
+    typeof riskScoreRaw === "string" && riskScoreRaw.trim() ? Number(riskScoreRaw) : riskScoreRaw,
+    status,
+    recommendation,
+    missingData,
+    complianceStatus,
+    accountHealthStatus,
+    sourceDataStatus,
+  );
+
+  const riskNote =
+    riskLevel === "HIGH"
+      ? "This needs human review before any action."
+      : riskLevel === "MEDIUM"
+        ? "Review the recommendation before making a bigger move."
+        : null;
+
+  const why = [...reasonBullets, ...evidenceBullets];
+  if (complianceStatus !== "UNKNOWN") {
+    why.push(`Compliance is ${complianceStatus}.`);
+  }
+  if (accountHealthStatus !== "UNKNOWN") {
+    why.push(`Account health is ${accountHealthStatus}.`);
+  }
+  if (rightsStatus !== "UNKNOWN") {
+    why.push(`Rights are ${rightsStatus}.`);
+  }
+  if (offerStatus !== "UNKNOWN") {
+    why.push(`Offer is ${offerStatus}.`);
+  }
+  if (sourceDataStatus !== "UNKNOWN") {
+    why.push(`Source data is ${sourceDataStatus}.`);
+  }
+  if (consentStatus !== "UNKNOWN" && consentStatus !== "NOT_REQUIRED") {
+    why.push(`Consent is ${consentStatus}.`);
+  }
+
+  const dedupedWhy = [...new Set(why.map((value) => value.trim()).filter(Boolean))].slice(0, 5);
+  const summary =
+    pickFormattedFromCandidates(candidates, [
+      "what_g11_is_recommending",
+      "recommendation_summary",
+      "what_happened",
+      "whatHappened",
+      "recommendation_text",
+      "recommendationText",
+    ]) ??
+    buildG11DecisionSummary(recommendation, summaryTarget, complianceStatus, accountHealthStatus, rightsStatus, offerStatus, sourceDataStatus, missingData);
+
+  const nextStep = buildG11NextStep(
+    recommendation,
+    status,
+    normalizedTargetWorkflowId,
+    complianceStatus,
+    rightsStatus,
+    offerStatus,
+    accountHealthStatus,
+    sourceDataStatus,
+    consentStatus,
+    actionPacketPresent,
+    missingData,
+  );
+
+  const executionStatusRaw =
+    pickFormattedFromCandidates(candidates, ["execution_status", "executionStatus"]) ??
+    (notExecuted ? "NOT_EXECUTED" : recommendationOnly ? "NOT_EXECUTED" : null);
+  const executionStatus = executionStatusRaw ? sanitizeDisplayText(executionStatusRaw) ?? humanizeReasonText(executionStatusRaw) ?? "NOT_EXECUTED" : "NOT_EXECUTED";
+  const technicalNotes = readTextListFromCandidates(candidates, ["technical_notes", "technicalNotes", "source_tables", "sourceTables", "table_names", "tableNames"]);
+
+  const recommendationLabel =
+    status === "BLOCK"
+      ? "Blocked"
+      : status === "PENDING_APPROVAL"
+        ? "Needs approval"
+        : status === "ERROR"
+          ? "Needs technical review"
+          : recommendation ?? (isWeeklySummary ? "Weekly summary" : "Recommendation only");
+
+  const whatWasChecked = focusArea ?? joinLabels([target, pickFormattedFromCandidates(candidates, ["workflow_name", "workflowName", "focus", "topic", "subject"])]) ?? target;
+  const whyItBlocked =
+    status === "BLOCK" || status === "ERROR" || status === "NEEDS_EVIDENCE" || status === "FIX_FIRST"
+      ? humanizeReasonText(pickFromCandidates(candidates, ["fail_reason", "failReason", "failure_reason", "failureReason", "blocked_reason", "blockedReason"])) ?? null
+      : null;
+
+  return {
+    time,
+    result: status,
+    whatWasChecked,
+    whatHappened: summary,
+    actionNeeded: nextStep,
+    whyItBlocked,
+    sourceLabel: sanitizeDisplayText(sourceLabel),
+    details: {
+      sourceLabel: sanitizeDisplayText(sourceLabel),
+      recommendation,
+      recommendationLabel,
+      target,
+      targetWorkflow,
+      targetPlatform,
+      evidenceSummary: evidenceBullets[0] ?? reasonBullets[0] ?? null,
+      whatWasChecked,
+      riskLevel,
+      riskNote,
+      nextStep,
+      why: dedupedWhy,
+      evidence: [...new Set(evidenceBullets)].slice(0, 5),
+      missingData: [...new Set(missingData)].slice(0, 5),
+      complianceStatus,
+      accountHealthStatus,
+      sourceDataStatus,
+      consentStatus,
+      rightsStatus,
+      offerStatus,
+      recommendationOnly,
+      notExecuted: notExecuted ?? recommendationOnly ?? true,
+      actionPacketDrafted: actionPacketPresent,
+      executionStatus: executionStatus ?? "NOT_EXECUTED",
+      technicalNotes: technicalNotes.length ? technicalNotes.slice(0, 5) : undefined,
+    },
+  };
+};
+
+const buildG11Outcomes = (bundles: TableBundle[]) => {
+  const recommendationRows = bundles
+    .filter((bundle) => G11_RECOMMENDATION_TABLES.has(bundle.table))
+    .flatMap((bundle) => bundle.rows.map((row) => ({ row, sourceLabel: humanizeLabel(bundle.table.replace(/^g11_/, "").replace(/_/g, " ")) })));
+
+  const recentRows = bundles
+    .filter((bundle) => G11_RECENT_EVENT_TABLES.has(bundle.table))
+    .flatMap((bundle) => bundle.rows.map((row) => ({ row, sourceLabel: humanizeLabel(bundle.table.replace(/^g11_/, "").replace(/_/g, " ")) })));
+
+  const contextRows = bundles
+    .filter((bundle) => G11_CONTEXT_TABLES.has(bundle.table))
+    .flatMap((bundle) => bundle.rows.map((row) => ({ row, sourceLabel: humanizeLabel(bundle.table.replace(/^g11_/, "").replace(/_/g, " ")) })));
+
+  const candidateRows = recommendationRows.length ? [...recommendationRows, ...recentRows, ...contextRows] : [...recentRows, ...contextRows];
+
+  const outcomes = candidateRows
+    .map(({ row, sourceLabel }) => buildG11OutcomeFromCandidates(flattenG11Row(row), sourceLabel))
+    .filter((value): value is WorkflowOutcomeSummary => Boolean(value))
+    .sort(sortByTimeDesc);
+
+  const deduped: WorkflowOutcomeSummary[] = [];
+  const seen = new Set<string>();
+
+  for (const outcome of outcomes) {
+    const dedupeKey = [
+      outcome.time ?? "",
+      outcome.result,
+      outcome.details?.recommendation ?? "",
+      outcome.details?.target ?? "",
+      outcome.whatHappened,
+      outcome.actionNeeded,
+    ].join("|");
+
+    if (seen.has(dedupeKey)) {
+      continue;
+    }
+
+    seen.add(dedupeKey);
+    deduped.push(outcome);
+  }
+
+  return deduped.slice(0, 10);
+};
+
 const G4_WORKFLOW_TITLE = "G4 Content / Landing / Claim Check" as const;
 const G4_WORKFLOW_PURPOSE =
   "Checks captions, claims, landing-page wording, and risky language before content moves forward.";
@@ -1467,6 +2267,8 @@ const loadWorkflowOutcomes = async (workflowId: AdminWorkflowId) => {
   switch (workflowId) {
     case "G1":
       return buildG1Outcomes(bundles);
+    case "G11":
+      return buildG11Outcomes(bundles);
     case "G12":
       return buildG12Outcomes(bundles);
     default:
@@ -1520,6 +2322,11 @@ export type WorkflowDashboardRunResponse = {
   status: WorkflowUiStatus;
   message: string;
   response_type: string | null;
+  recommended_decision?: string | null;
+  recommendation_only?: boolean | null;
+  not_executed?: boolean | null;
+  fail_reason?: string | null;
+  failure_reasons?: string[] | null;
   handled_at: string;
   outcome: WorkflowOutcomeSummary;
   workflowId: AdminWorkflowId;
@@ -1528,8 +2335,9 @@ export type WorkflowDashboardRunResponse = {
 };
 
 export const loadWorkflowDashboardOverview = async (): Promise<WorkflowDashboardOverviewResponse> => {
+  const workflowIds = ADMIN_WORKFLOW_IDS.filter((workflowId) => workflowId !== "WF1");
   const workflows = await Promise.all(
-    ADMIN_WORKFLOW_IDS.map(async (workflowId) => {
+    workflowIds.map(async (workflowId) => {
       const workflow = buildWorkflowView(workflowId, await loadWorkflowOutcomes(workflowId));
       const card: WorkflowOverviewCard = {
         workflowId,
@@ -1661,10 +2469,11 @@ const summarizeRunPayload = (workflowId: AdminWorkflowId, values: WorkflowRunVal
         pickFormattedFromCandidates(candidates, ["seo_cro_action_type"]),
       ]);
     case "G11":
-      return joinLabels([
-        pickFormattedFromCandidates(candidates, ["decision_type"]),
-        pickFormattedFromCandidates(candidates, ["target_workflow"]),
-      ]);
+      return (
+        getG11ReviewAreaConfig(pickFormattedFromCandidates(candidates, ["focus_area", "focusArea"]))?.label ??
+        pickFormattedFromCandidates(candidates, ["focus_area", "focusArea"]) ??
+        null
+      );
     case "G12":
       return joinLabels([
         pickFormattedFromCandidates(candidates, ["branch_key"]),
@@ -1880,29 +2689,35 @@ const resolveRunTarget = (workflowId: AdminWorkflowId, values: WorkflowRunValues
         dryRun,
       };
     case "G11": {
-      const decisionType = typeof values.decision_type === "string" ? values.decision_type.trim() : "";
-      const url =
-        decisionType === "decision_recommendation"
-          ? G11_RUN_URLS.decision_recommendation
-          : decisionType === "draft_action_packet"
-            ? G11_RUN_URLS.draft_action_packet
-            : G11_RUN_URLS.weekly_digest;
+      const reviewArea = getG11ReviewAreaConfig(typeof values.focus_area === "string" ? values.focus_area : null);
+      const recommendationType = getG11RecommendationTypeConfig(typeof values.recommendation_type === "string" ? values.recommendation_type : null);
+      const note = typeof values.note === "string" && values.note.trim() ? values.note.trim() : null;
+      const inputSummary = { note };
+
+      if (recommendationType?.usesWeeklyDigest) {
+        return {
+          url: G11_RUN_URLS.weekly_digest,
+          payload: {
+            actor: "website_admin",
+            target_workflow_group: "ALL",
+            platform: "ALL",
+            input_summary: inputSummary,
+          },
+          dryRun: true,
+        };
+      }
 
       return {
-        url,
+        url: G11_RUN_URLS.decision_recommendation,
         payload: {
-          ...basePayload,
-          event_type:
-            decisionType === "decision_recommendation"
-              ? "G11_DECISION_RECOMMENDATION_REQUEST"
-              : decisionType === "draft_action_packet"
-                ? "G11_DRAFT_ACTION_PACKET_REQUEST"
-                : "G11_WEEKLY_DIGEST_REQUEST",
-          decision_type: values.decision_type,
-          target_workflow: values.target_workflow,
-          supporting_context: values.supporting_context ?? null,
+          actor: "website_admin",
+          target_workflow_group: reviewArea?.targetWorkflowGroup ?? "ALL",
+          platform: reviewArea?.platform ?? "ALL",
+          requested_decision: recommendationType?.requestedDecision ?? "INVESTIGATE",
+          focus_area: reviewArea?.label ?? "Overall business summary",
+          input_summary: inputSummary,
         },
-        dryRun,
+        dryRun: true,
       };
     }
     case "G12":
@@ -1930,16 +2745,49 @@ const buildRunOutcome = (
   result: { response: Awaited<ReturnType<typeof postN8nWebhook>>; target: ReturnType<typeof resolveRunTarget> },
 ): WorkflowDashboardRunResponse => {
   const entry = WORKFLOW_CATALOG[workflowId];
-  const status = normalizeWorkflowUiStatus(result.response.status, entry.fallbackStatus);
-  const reason = result.response.fail_reason ?? result.response.failure_reasons?.[0] ?? null;
+  const responseRaw = asRecord(result.response.raw);
+  const responseTypeRaw =
+    responseRaw ? pickFromCandidates([responseRaw], ["response_type", "responseType"]) : result.response.response_type ?? null;
+  const responseType = typeof responseTypeRaw === "string" ? responseTypeRaw.trim().toUpperCase().replace(/[\s-]+/g, "_") : null;
+  const recommendedDecisionRaw =
+    responseRaw ? pickFromCandidates([responseRaw], ["recommended_decision", "recommendedDecision"]) : null;
+  const recommendedDecision = normalizeG11Decision(recommendedDecisionRaw);
+  const recommendationOnlyRaw =
+    responseRaw ? readBooleanFromCandidates([responseRaw], ["recommendation_only", "recommendationOnly"]) : null;
+  const notExecutedRaw = responseRaw ? readBooleanFromCandidates([responseRaw], ["not_executed", "notExecuted"]) : result.response.not_executed ?? null;
+  const failReasonRaw = responseRaw ? pickFromCandidates([responseRaw], ["fail_reason", "failReason"]) : null;
+  const rawStatus = normalizeWorkflowUiStatus(result.response.status, entry.fallbackStatus);
+  const g11RecommendationCreated =
+    workflowId === "G11" &&
+    (rawStatus === "PASS" ||
+      rawStatus === "RECOMMENDATION_ONLY" ||
+      responseType === "G11_DECISION_RECOMMENDATION_CREATED" ||
+      (recommendationOnlyRaw === true && notExecutedRaw === true && Boolean(recommendedDecision)));
+  const g11BlockedRecommendation =
+    workflowId === "G11" &&
+    (rawStatus === "BLOCK" || Boolean(responseType && /BLOCK/i.test(responseType)) || Boolean(failReasonRaw && /block/i.test(failReasonRaw)));
+  const status =
+    workflowId === "G11" && rawStatus === "ERROR" && g11RecommendationCreated
+      ? "RECOMMENDATION_ONLY"
+      : workflowId === "G11" && rawStatus === "ERROR" && g11BlockedRecommendation
+        ? "BLOCK"
+        : rawStatus;
+  const reason = failReasonRaw ?? result.response.fail_reason ?? result.response.failure_reasons?.[0] ?? null;
   const whatWasChecked = summarizeRunPayload(workflowId, values) ?? entry.purpose;
-  const whatHappened =
-    sanitizeDisplayText(result.response.message) ?? getWorkflowStatusMessage(status);
+  const rawMessage = responseRaw ? pickFormattedFromCandidates([responseRaw], ["message", "summary", "what_happened", "whatHappened"]) : null;
+  const whatHappened = sanitizeDisplayText(rawMessage) ?? sanitizeDisplayText(result.response.message) ?? getWorkflowStatusMessage(status);
+  const recommendationOnly = recommendationOnlyRaw === true || status === "RECOMMENDATION_ONLY" || status === "DRY_RUN";
+  const notExecuted = notExecutedRaw === true || recommendationOnly;
 
   return {
     status,
     message: whatHappened,
     response_type: result.response.response_type ?? null,
+    recommended_decision: recommendedDecision ?? null,
+    recommendation_only: recommendationOnly,
+    not_executed: notExecuted,
+    fail_reason: reason,
+    failure_reasons: result.response.failure_reasons ?? null,
     handled_at: result.response.handled_at ?? new Date().toISOString(),
     outcome: {
       time: result.response.handled_at ?? new Date().toISOString(),

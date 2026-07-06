@@ -129,6 +129,7 @@ export default function WorkflowRunDialog({
   const [values, setValues] = useState<FieldState>(() => buildDefaultFieldValues(runFields));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isG11RecommendationFlow = workflow.workflowId === "G11" && primaryAction.kind === "generate_recommendation";
 
   useEffect(() => {
     if (!open) {
@@ -140,6 +141,10 @@ export default function WorkflowRunDialog({
   }, [open, runFields, workflow.workflowId]);
 
   const currentFields = visibleFields(runFields, values);
+  const submittingLabel = isG11RecommendationFlow ? "Generating recommendation..." : "Working...";
+  const dialogClassName = isG11RecommendationFlow
+    ? "flex max-h-[90vh] w-full flex-col overflow-hidden p-0 sm:max-w-2xl"
+    : "flex max-h-[90vh] w-full flex-col overflow-hidden p-0 sm:max-w-xl";
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -174,8 +179,12 @@ export default function WorkflowRunDialog({
       const response = await onSubmit(toWorkflowValues(values, currentFields));
       onSuccess(response);
     } catch (submitError) {
-      const message = submitError instanceof Error ? submitError.message : "Unable to submit workflow action.";
-      setError(message);
+      if (workflow.workflowId === "G11") {
+        setError("G11 could not create a recommendation. Please try again.");
+      } else {
+        const message = submitError instanceof Error ? submitError.message : "Unable to submit workflow action.";
+        setError(message);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -192,7 +201,7 @@ export default function WorkflowRunDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton
-        className="flex max-h-[90vh] w-full flex-col overflow-hidden p-0 sm:max-w-xl"
+        className={dialogClassName}
       >
         <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleSubmit}>
           <div className="border-b border-border/60 bg-muted/20 px-6 py-5">
@@ -318,7 +327,7 @@ export default function WorkflowRunDialog({
               className="rounded-full"
               disabled={submitting || primaryAction.kind === "none" || primaryAction.kind === "open_checks" || primaryAction.kind === "refresh_status"}
             >
-              {submitting ? "Working..." : primaryAction.submitLabel ?? workflow.runLabel}
+              {submitting ? submittingLabel : primaryAction.submitLabel ?? workflow.runLabel}
             </Button>
           </DialogFooter>
         </form>

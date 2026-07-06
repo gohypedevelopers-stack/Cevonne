@@ -250,6 +250,7 @@ export type G5AssetRegisterInput = {
 
 export type G5ApprovalDecisionInput = {
   approval_id: string;
+  asset_id: string;
   decision: "APPROVED" | "REJECTED";
   reviewer_id: string;
   reviewer_note?: string | null;
@@ -585,7 +586,52 @@ const collectTextValuesFromCandidates = (rows: JsonRecord[], keys: string[]) => 
   return [...values];
 };
 
+const collectG4SuggestionTexts = (row: JsonRecord, key: string) => {
+  const rawPayload = asRecord(row.raw_payload);
+  const nestedRawPayload = asRecord(rawPayload?.raw_payload);
+  const rawAiFields = asRecord(rawPayload?.ai_fields);
+  const nestedAiFields = asRecord(nestedRawPayload?.ai_fields);
+  const values = new Set<string>();
+
+  for (const source of [row[key], rawPayload?.[key], rawAiFields?.[key], nestedRawPayload?.[key], nestedAiFields?.[key]]) {
+    for (const candidate of normalizeG4StringArray(source)) {
+      const text = normalizeG4Text(candidate);
+      if (text) {
+        values.add(text);
+      }
+    }
+  }
+
+  return [...values];
+};
+
+const expandRecordWithRawPayload = (row: JsonRecord) => {
+  const rawPayload = row.raw_payload;
+  if (!rawPayload || typeof rawPayload !== "object" || Array.isArray(rawPayload)) {
+    return row;
+  }
+
+  const rawPayloadRecord = asRecord(rawPayload);
+  if (!rawPayloadRecord) {
+    return row;
+  }
+
+  return mergeRecords(row, rawPayloadRecord);
+};
+
+const isSuccessfulG5AssetRegisterAudit = (row: JsonRecord) => {
+  const operation = normalizeStateKey(row.operation);
+  const status = normalizeStateKey(row.status);
+
+  return operation === "ASSET_REGISTER" && (status === "PASS" || status === "SUCCESS" || status === "OK");
+};
+
 const G5_G4_ASSET_LINKS_TABLE = "g5_g4_asset_links" as const;
+const G5_ASSET_AUDIT_TABLE = "g5_asset_audit" as const;
+const G5_APPROVALS_TABLE = "g5_approvals" as const;
+const G5_ASSET_STATE_TABLE = "g5_asset_publish_state" as const;
+const G5_WORKFLOW_GROUP = "G5" as const;
+const G5_WORKFLOW_ID = "WF1" as const;
 
 const normalizeG4ApprovedContentKeyText = (value: string | null | undefined) => value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
 
@@ -874,8 +920,10 @@ const normalizeG4ReviewRecord = (row: JsonRecord, sourcePreview?: Partial<G4Sour
   const preview = extractG4ContentPreview({ raw_payload: row });
   const safeRewriteText = normalizeG4Text(row.ai_safe_rewrite);
   const hookAngleText = normalizeG4Text(preview.hookAngle);
-  const hookCount = collectSelectableOptionTexts(normalizeG4StringArray(row.ai_hook_suggestions), [hookAngleText]).options.length;
-  const captionCount = collectSelectableOptionTexts(normalizeG4StringArray(row.ai_caption_suggestions), []).options.length;
+  const hookSuggestionTexts = collectG4SuggestionTexts(row, "ai_hook_suggestions");
+  const captionSuggestionTexts = collectG4SuggestionTexts(row, "ai_caption_suggestions");
+  const hookCount = collectSelectableOptionTexts(hookSuggestionTexts, [hookAngleText]).options.length;
+  const captionCount = collectSelectableOptionTexts(captionSuggestionTexts, []).options.length;
   const displayTitle =
     preview.headline?.trim() ||
     preview.productName?.trim() ||
@@ -1018,8 +1066,8 @@ const buildG5SelectedG4Content = (
   const displayTitle =
     reviewPreview.headline?.trim() || reviewPreview.productName?.trim() || reviewPreview.captionPreview?.trim() || "Content check passed";
 
-  const captionSuggestionTexts = normalizeG4StringArray(g4Row.ai_caption_suggestions);
-  const hookSuggestionTexts = normalizeG4StringArray(g4Row.ai_hook_suggestions);
+  const captionSuggestionTexts = collectG4SuggestionTexts(g4Row, "ai_caption_suggestions");
+  const hookSuggestionTexts = collectG4SuggestionTexts(g4Row, "ai_hook_suggestions");
   const safeRewriteText =
     normalizeG4Text(g4Row.ai_safe_rewrite) ??
     normalizeG4Text(g4Row.rewritten_caption) ??
@@ -1183,6 +1231,16 @@ const isMissingRelationError = (error: { message?: string; code?: string } | nul
   const code = error.code ?? "";
   const message = error.message ?? "";
   return code === "42P01" || code === "42703" || code === "PGRST205" || /could not find the table|does not exist/i.test(message);
+};
+
+const isMissingColumnError = (error: { message?: string; code?: string } | null | undefined) => {
+  if (!error) {
+    return false;
+  }
+
+  const code = error.code ?? "";
+  const message = error.message ?? "";
+  return code === "42703" || /column .* does not exist/i.test(message);
 };
 
 const queryPublicRows = async (table: string, limit = 200) => {
@@ -1451,14 +1509,28 @@ export async function loadG5DashboardAssets(): Promise<G5DashboardResponse> {
     return createEmptyDashboardResponse("UNAVAILABLE", "G5 dashboard data source is not configured yet.");
   }
 
-  const viewResult = await queryPublicRows("g5_manual_publish_dashboard_view", 250);
+  const [viewResult, auditResult] = await Promise.all([
+    queryPublicRows("g5_manual_publish_dashboard_view", 250),
+    queryPublicRows(G5_ASSET_AUDIT_TABLE, 250),
+  ]);
+  const auditRows = auditResult.rows.filter(isSuccessfulG5AssetRegisterAudit).map(expandRecordWithRawPayload);
+  const merged = new Map<string, G5DashboardAssetRecord>();
+  const mergeRows = (rows: JsonRecord[]) => {
+    for (const row of rows) {
+      const normalized = normalizeAssetRecord(row);
+      if (!normalized) {
+        continue;
+      }
+
+      const current = merged.get(normalized.asset_id);
+      merged.set(normalized.asset_id, current ? mergeRecords(current, normalized) : normalized);
+    }
+  };
+
   if (viewResult.error === null) {
-    const assets = sortAssets(
-      viewResult.rows
-        .map((row) => normalizeAssetRecord(row))
-        .filter((row): row is G5DashboardAssetRecord => Boolean(row))
-        .map(finalizeG5AssetRecord),
-    );
+    mergeRows(viewResult.rows);
+    mergeRows(auditRows);
+    const assets = sortAssets([...merged.values()].map(finalizeG5AssetRecord));
     logG5NormalizedAssetStatuses(assets);
 
     return {
@@ -1476,22 +1548,10 @@ export async function loadG5DashboardAssets(): Promise<G5DashboardResponse> {
     queryPublicRows("g5_manual_publish_results", 250),
   ]);
 
-  const merged = new Map<string, G5DashboardAssetRecord>();
-  const mergeRows = (rows: JsonRecord[]) => {
-    for (const row of rows) {
-      const normalized = normalizeAssetRecord(row);
-      if (!normalized) {
-        continue;
-      }
-
-      const current = merged.get(normalized.asset_id);
-      merged.set(normalized.asset_id, current ? mergeRecords(current, normalized) : normalized);
-    }
-  };
-
   mergeRows(contentAssetsResult.rows);
   mergeRows(stateResult.rows);
   mergeRows(publishResultsResult.rows);
+  mergeRows(auditRows);
 
   const assets = sortAssets([...merged.values()].map(finalizeG5AssetRecord));
   logG5NormalizedAssetStatuses(assets);
@@ -1525,12 +1585,13 @@ export async function loadG5ApprovedContent(): Promise<G5ApprovedContentResponse
     table: "public.g4_content_reviews",
   });
 
-  const [contentAssetsResult, stateResult, publishResultsResult, dashboardViewResult, g5G4LinkResult, g4ReviewResult] = await Promise.all([
+  const [contentAssetsResult, stateResult, publishResultsResult, dashboardViewResult, g5G4LinkResult, auditResult, g4ReviewResult] = await Promise.all([
     queryPublicRows("content_assets", 250),
     queryPublicRows("g5_asset_publish_state", 250),
     queryPublicRows("g5_manual_publish_results", 250),
     queryPublicRows("g5_manual_publish_dashboard_view", 250),
     queryPublicRows(G5_G4_ASSET_LINKS_TABLE, 500),
+    queryPublicRows(G5_ASSET_AUDIT_TABLE, 500),
     client
       .schema("public")
       .from("g4_content_reviews")
@@ -1566,6 +1627,7 @@ export async function loadG5ApprovedContent(): Promise<G5ApprovedContentResponse
         ...publishResultsResult.rows,
         ...dashboardViewResult.rows,
         ...g5G4LinkResult.rows,
+        ...auditResult.rows.filter(isSuccessfulG5AssetRegisterAudit).map(expandRecordWithRawPayload),
       ],
       ["g4_review_id", "g4ReviewId", "g4_review_uuid", "g4ReviewUuid", "content_review_id", "contentReviewId", "review_id", "reviewId"],
     )
@@ -1623,11 +1685,189 @@ export async function loadG5ApprovedContent(): Promise<G5ApprovedContentResponse
   };
 }
 
+const resolveG4ReviewIdFromG5AssetIdentity = async (assetId?: string | null, approvalId?: string | null) => {
+  const normalizedAssetId = assetId?.trim() ?? "";
+  const normalizedApprovalId = approvalId?.trim() ?? "";
+
+  if (!normalizedAssetId && !normalizedApprovalId) {
+    return null;
+  }
+
+  const [linkRowsResult, auditResult] = await Promise.all([
+    queryPublicRows(G5_G4_ASSET_LINKS_TABLE, 500),
+    queryPublicRows(G5_ASSET_AUDIT_TABLE, 500),
+  ]);
+
+  const auditRows = auditResult.rows.filter(isSuccessfulG5AssetRegisterAudit).map(expandRecordWithRawPayload);
+  const candidateRows = [...linkRowsResult.rows, ...auditRows];
+  const normalizedAssetKey = normalizeG4ApprovedContentKeyText(normalizedAssetId);
+  const normalizedApprovalKey = normalizeG4ApprovedContentKeyText(normalizedApprovalId);
+
+  for (const row of candidateRows) {
+    const rowAssetKey = normalizeG4ApprovedContentKeyText(pickTextFromCandidates(row, ["asset_id", "assetId"]) ?? null);
+    const rowApprovalKey = normalizeG4ApprovedContentKeyText(pickTextFromCandidates(row, ["approval_id", "approvalId"]) ?? null);
+    const assetMatches = normalizedAssetKey && rowAssetKey === normalizedAssetKey;
+    const approvalMatches = normalizedApprovalKey && rowApprovalKey === normalizedApprovalKey;
+
+    if (!assetMatches && !approvalMatches) {
+      continue;
+    }
+
+    const rawPayload = asRecord(row.raw_payload);
+    const nestedRawPayload = asRecord(rawPayload?.raw_payload);
+    const resolvedReviewId =
+      pickTextFromCandidates(row, ["g4_review_id", "g4ReviewId", "g4_review_uuid", "g4ReviewUuid", "content_review_id", "contentReviewId", "review_id", "reviewId"]) ??
+      pickTextFromCandidates(rawPayload, ["g4_review_id", "g4ReviewId", "g4_review_uuid", "g4ReviewUuid", "content_review_id", "contentReviewId", "review_id", "reviewId"]) ??
+      pickTextFromCandidates(nestedRawPayload, ["g4_review_id", "g4ReviewId", "g4_review_uuid", "g4ReviewUuid", "content_review_id", "contentReviewId", "review_id", "reviewId"]) ??
+      null;
+
+    if (resolvedReviewId) {
+      return resolvedReviewId;
+    }
+  }
+
+  return null;
+};
+
+type G4ReviewSearchHints = {
+  title?: string | null;
+  caption?: string | null;
+  hook?: string | null;
+  platform?: string | null;
+  sourceUrl?: string | null;
+};
+
+const isSimilarG4Text = (left: unknown, right: unknown) => {
+  const normalizedLeft = normalizeSelectionText(normalizeG4Text(left) ?? undefined);
+  const normalizedRight = normalizeSelectionText(normalizeG4Text(right) ?? undefined);
+
+  if (!normalizedLeft || !normalizedRight) {
+    return false;
+  }
+
+  return normalizedLeft === normalizedRight || normalizedLeft.includes(normalizedRight) || normalizedRight.includes(normalizedLeft);
+};
+
+const scoreG4ReviewContentMatch = (row: JsonRecord, hints: G4ReviewSearchHints) => {
+  const preview = extractG4ContentPreview(row);
+  let score = 0;
+
+  if (hints.caption) {
+    const captionMatches = [
+      pickText(row, ["caption_preview", "captionPreview", "caption", "caption_text", "content_text"]),
+      preview.captionPreview,
+      preview.contentText,
+      preview.cleanSummary,
+      preview.contentRecommendation,
+    ].some((candidate) => isSimilarG4Text(candidate, hints.caption));
+
+    if (captionMatches) {
+      score += 5;
+    }
+  }
+
+  if (hints.title) {
+    const titleMatches = [
+      pickText(row, ["headline", "title", "name", "display_title"]),
+      preview.headline,
+      preview.productName,
+      preview.captionPreview,
+    ].some((candidate) => isSimilarG4Text(candidate, hints.title));
+
+    if (titleMatches) {
+      score += 4;
+    }
+  }
+
+  if (hints.hook) {
+    const hookMatches = [
+      pickText(row, ["hook_angle", "hookAngle", "hook", "hook_text", "hookText"]),
+      preview.hookAngle,
+    ].some((candidate) => isSimilarG4Text(candidate, hints.hook));
+
+    if (hookMatches) {
+      score += 2;
+    }
+  }
+
+  if (hints.platform) {
+    const platformMatches = [
+      pickText(row, ["platform", "source_platform", "sourcePlatform"]),
+    ].some((candidate) => isSimilarG4Text(candidate, hints.platform));
+
+    if (platformMatches) {
+      score += 1;
+    }
+  }
+
+  if (hints.sourceUrl) {
+    const sourceUrlMatches = [
+      pickText(row, ["source_url", "sourceUrl", "content_url", "contentUrl", "post_url", "postUrl", "permalink"]),
+      preview.sourceUrl,
+    ].some((candidate) => isSimilarG4Text(candidate, hints.sourceUrl));
+
+    if (sourceUrlMatches) {
+      score += 2;
+    }
+  }
+
+  return score;
+};
+
+const resolveG4ReviewByContentHints = async (hints: G4ReviewSearchHints) => {
+  const client = getN8nSupabaseAdmin();
+  if (!client) {
+    return null;
+  }
+
+  const { data, error } = await client
+    .schema("public")
+    .from("g4_content_reviews")
+    .select(G5_G4_DETAIL_COLUMNS)
+    .or("status.eq.PASS,approval_state.in.(PENDING_HUMAN_APPROVAL,READY_FOR_APPROVAL,APPROVED)")
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  if (error) {
+    console.warn("[g5-asset-approval] failed to search G4 review by content hints", {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      hints,
+    });
+    return null;
+  }
+
+  const rows = (Array.isArray(data) ? data : [])
+    .map((row) => asRecord(row))
+    .filter((row): row is JsonRecord => Boolean(row));
+
+  let bestMatch: { row: JsonRecord; score: number } | null = null;
+  for (const row of rows) {
+    const score = scoreG4ReviewContentMatch(row, hints);
+    if (!bestMatch || score > bestMatch.score) {
+      bestMatch = { row, score };
+    }
+  }
+
+  if (!bestMatch || bestMatch.score < 4) {
+    return null;
+  }
+
+  return bestMatch.row;
+};
+
 const G5_G4_DETAIL_COLUMNS = "*" as const;
 
 const G5_G4_LANDING_COLUMNS = "*" as const;
 
-export async function loadG5SelectedG4Content(reviewId: string): Promise<G5SelectedG4ContentResponse> {
+export async function loadG5SelectedG4Content(
+  reviewId: string,
+  assetId?: string | null,
+  approvalId?: string | null,
+  searchHints: G4ReviewSearchHints = {},
+): Promise<G5SelectedG4ContentResponse> {
   const client = getN8nSupabaseAdmin();
   if (!client) {
     console.warn("[g5-asset-approval] n8n Supabase config missing", {
@@ -1643,34 +1883,39 @@ export async function loadG5SelectedG4Content(reviewId: string): Promise<G5Selec
   }
 
   const normalizedReviewId = reviewId.trim();
+  const normalizedAssetId = assetId?.trim() ?? "";
+  const normalizedApprovalId = approvalId?.trim() ?? "";
+  const normalizedHints: G4ReviewSearchHints = {
+    title: searchHints.title?.trim() || null,
+    caption: searchHints.caption?.trim() || null,
+    hook: searchHints.hook?.trim() || null,
+    platform: searchHints.platform?.trim() || null,
+    sourceUrl: searchHints.sourceUrl?.trim() || null,
+  };
   const supabaseTarget = describeN8nSupabaseTarget();
-  if (!normalizedReviewId) {
-    return {
-      status: "EMPTY",
-      source: "TABLE",
-      message: "Select a G4 review first.",
-      review: null,
-    };
-  }
+  const queryG4RowsByIdentifier = async (identifier: string) => {
+    if (!identifier.trim()) {
+      return { data: [], error: null };
+    }
 
-  console.info("[g5-asset-approval] loading selected G4 content from n8n Supabase", {
-    supabase: supabaseTarget,
-    review_id: normalizedReviewId,
-    table: "public.g4_content_reviews",
-  });
+    return client
+      .schema("public")
+      .from("g4_content_reviews")
+      .select(G5_G4_DETAIL_COLUMNS)
+      .or(`id.eq.${identifier},content_review_id.eq.${identifier},review_id.eq.${identifier}`)
+      .order("created_at", { ascending: false })
+      .limit(10);
+  };
 
-  const { data: g4Data, error: g4Error } = await client
-    .schema("public")
-    .from("g4_content_reviews")
-    .select(G5_G4_DETAIL_COLUMNS)
-    .or(`id.eq.${normalizedReviewId},content_review_id.eq.${normalizedReviewId},review_id.eq.${normalizedReviewId}`)
-    .order("created_at", { ascending: false })
-    .limit(10);
+  let selectedReviewIdentifier = normalizedReviewId;
+  let { data: g4Data, error: g4Error } = await queryG4RowsByIdentifier(selectedReviewIdentifier);
 
   if (g4Error) {
     console.error("[g5-asset-approval] failed to load selected G4 review", {
       supabase: supabaseTarget,
-      review_id: normalizedReviewId,
+      review_id: selectedReviewIdentifier,
+      asset_id: normalizedAssetId || null,
+      approval_id: normalizedApprovalId || null,
       table: "public.g4_content_reviews",
       code: g4Error.code,
       message: g4Error.message,
@@ -1686,9 +1931,67 @@ export async function loadG5SelectedG4Content(reviewId: string): Promise<G5Selec
     };
   }
 
-  const g4Rows = (Array.isArray(g4Data) ? g4Data : [])
+  let g4Rows = (Array.isArray(g4Data) ? g4Data : [])
     .map((row) => asRecord(row))
     .filter((row): row is JsonRecord => Boolean(row));
+
+  if (!g4Rows.length && (normalizedAssetId || normalizedApprovalId)) {
+    const resolvedReviewId = await resolveG4ReviewIdFromG5AssetIdentity(normalizedAssetId, normalizedApprovalId);
+    if (resolvedReviewId && resolvedReviewId !== selectedReviewIdentifier) {
+      console.info("[g5-asset-approval] resolved selected G4 review id from G5 asset audit trail", {
+        supabase: supabaseTarget,
+        review_id: normalizedReviewId || null,
+        asset_id: normalizedAssetId || null,
+        approval_id: normalizedApprovalId || null,
+        resolved_review_id: resolvedReviewId,
+      });
+      selectedReviewIdentifier = resolvedReviewId;
+      ({ data: g4Data, error: g4Error } = await queryG4RowsByIdentifier(selectedReviewIdentifier));
+
+      if (g4Error) {
+        console.error("[g5-asset-approval] failed to load fallback G4 review", {
+          supabase: supabaseTarget,
+          review_id: selectedReviewIdentifier,
+          asset_id: normalizedAssetId || null,
+          approval_id: normalizedApprovalId || null,
+          table: "public.g4_content_reviews",
+          code: g4Error.code,
+          message: g4Error.message,
+          details: g4Error.details,
+          hint: g4Error.hint,
+        });
+
+        return {
+          status: "ERROR",
+          source: "UNAVAILABLE",
+          message: `Unable to load selected G4 content: ${g4Error.message || "query failed."}`,
+          review: null,
+        };
+      }
+
+      g4Rows = (Array.isArray(g4Data) ? g4Data : [])
+        .map((row) => asRecord(row))
+        .filter((row): row is JsonRecord => Boolean(row));
+    }
+  }
+
+  if (!g4Rows.length && (normalizedHints.title || normalizedHints.caption || normalizedHints.hook || normalizedHints.platform || normalizedHints.sourceUrl)) {
+    const matchedRow = await resolveG4ReviewByContentHints(normalizedHints);
+    if (matchedRow) {
+      selectedReviewIdentifier =
+        pickText(matchedRow, ["content_review_id", "review_id", "id"]) ??
+        selectedReviewIdentifier;
+      g4Rows = [matchedRow];
+      console.info("[g5-asset-approval] resolved selected G4 review id from content hints", {
+        supabase: supabaseTarget,
+        review_id: normalizedReviewId || null,
+        asset_id: normalizedAssetId || null,
+        approval_id: normalizedApprovalId || null,
+        selected_review_id: selectedReviewIdentifier,
+        hints: normalizedHints,
+      });
+    }
+  }
 
   if (!g4Rows.length) {
     return {
@@ -1704,7 +2007,9 @@ export async function loadG5SelectedG4Content(reviewId: string): Promise<G5Selec
 
   console.info("[g5-asset-approval] selected G4 review query result", {
     supabase: supabaseTarget,
-    review_id: normalizedReviewId,
+    review_id: selectedReviewIdentifier,
+    asset_id: normalizedAssetId || null,
+    approval_id: normalizedApprovalId || null,
     row_count: g4Rows.length,
   });
 
@@ -1712,22 +2017,27 @@ export async function loadG5SelectedG4Content(reviewId: string): Promise<G5Selec
   const selectedSourcePreview = selectedSourceLookupKey ? sourcePreviewByLookupKey.get(selectedSourceLookupKey) ?? null : null;
   console.info("[g5-asset-approval] selected G4 review row keys", {
     supabase: supabaseTarget,
-    review_id: normalizedReviewId,
+    review_id: selectedReviewIdentifier,
+    asset_id: normalizedAssetId || null,
+    approval_id: normalizedApprovalId || null,
     keys: Object.keys(selectedG4Row),
   });
   console.info("[g5-asset-approval] selected G4 review row", {
     supabase: supabaseTarget,
-    review_id: normalizedReviewId,
+    review_id: selectedReviewIdentifier,
+    asset_id: normalizedAssetId || null,
+    approval_id: normalizedApprovalId || null,
     row: selectedG4Row,
   });
 
-  const selectedReviewKey = pickText(selectedG4Row, ["content_review_id", "review_id", "id"]) ?? normalizedReviewId;
-  const [contentAssetsResult, stateResult, publishResultsResult, dashboardViewResult, linkRowsResult] = await Promise.all([
+  const selectedReviewKey = pickText(selectedG4Row, ["content_review_id", "review_id", "id"]) ?? selectedReviewIdentifier;
+  const [contentAssetsResult, stateResult, publishResultsResult, dashboardViewResult, linkRowsResult, auditResult] = await Promise.all([
     queryPublicRows("content_assets", 250),
     queryPublicRows("g5_asset_publish_state", 250),
     queryPublicRows("g5_manual_publish_results", 250),
     queryPublicRows("g5_manual_publish_dashboard_view", 250),
     queryPublicRows(G5_G4_ASSET_LINKS_TABLE, 500),
+    queryPublicRows(G5_ASSET_AUDIT_TABLE, 500),
   ]);
   const registeredG4ReviewKeys = new Set(
     collectTextValuesFromCandidates(
@@ -1737,6 +2047,7 @@ export async function loadG5SelectedG4Content(reviewId: string): Promise<G5Selec
         ...publishResultsResult.rows,
         ...dashboardViewResult.rows,
         ...linkRowsResult.rows,
+        ...auditResult.rows.filter(isSuccessfulG5AssetRegisterAudit).map(expandRecordWithRawPayload),
       ],
       ["g4_review_uuid", "g4ReviewUuid", "content_review_id", "contentReviewId", "review_id", "reviewId"],
     )
@@ -1880,18 +2191,358 @@ const persistG5AssetLink = async (payload: G5AssetRegisterInput, response: G5Web
   }
 };
 
+const persistG5AssetAuditEntry = async (payload: G5AssetRegisterInput, response: G5WebhookResponse) => {
+  const client = getN8nSupabaseAdmin();
+  if (!client) {
+    console.warn("[g5-asset-approval] skipping G5 asset audit persistence because Supabase config is missing", {
+      asset_title: payload.asset_title,
+      g4_review_uuid: payload.g4_review_uuid,
+    });
+    return {
+      auditRow: null as JsonRecord | null,
+      skipped: true,
+    };
+  }
+
+  const assetId =
+    pickTextFromCandidates(response, ["asset_id", "assetId"]) ?? pickTextFromCandidates(response.raw, ["asset_id", "assetId"]) ?? null;
+  const approvalId =
+    pickTextFromCandidates(response, ["approval_id", "approvalId"]) ?? pickTextFromCandidates(response.raw, ["approval_id", "approvalId"]) ?? null;
+
+  if (!assetId || !approvalId) {
+    console.warn("[g5-asset-approval] skipping G5 asset audit insert because the webhook response was missing identifiers", {
+      asset_id: assetId,
+      approval_id: approvalId,
+      g4_review_uuid: payload.g4_review_uuid,
+    });
+    return {
+      auditRow: null as JsonRecord | null,
+      skipped: true,
+    };
+  }
+
+  const handledAt = response.handled_at ?? new Date().toISOString();
+  const auditPayload = {
+    ...payload,
+    asset_id: assetId,
+    approval_id: approvalId,
+    request_id: response.request_id,
+    response_status: response.status,
+    response_message: response.message,
+    response_type: response.response_type,
+    handled_at: handledAt,
+    http_status: response.http_status,
+    approval_status: "PENDING_APPROVAL",
+    asset_status: "PENDING_APPROVAL",
+    readiness_status: "PENDING_APPROVAL",
+    manual_publish_status: null,
+    state_updated_at: handledAt,
+  };
+
+  console.info("[g5-asset-approval] persisting G5 asset audit row", {
+    asset_id: assetId,
+    approval_id: approvalId,
+    hook_angle: payload.hook_angle ?? null,
+  });
+
+  const { data, error } = await client
+    .schema("public")
+    .from(G5_ASSET_AUDIT_TABLE)
+    .insert({
+      asset_id: assetId,
+      approval_id: approvalId,
+      operation: "ASSET_REGISTER",
+      status: response.status,
+      reason: null,
+      actor: payload.actor,
+      source_platform: payload.source_platform,
+      source_event: payload.source_event,
+      raw_payload: auditPayload,
+      created_at: handledAt,
+    })
+    .select("audit_id, asset_id, approval_id, operation, status, reason, actor, source_platform, source_event, created_at")
+    .maybeSingle();
+
+  if (error) {
+    const logPayload = {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      asset_id: assetId,
+      approval_id: approvalId,
+      g4_review_uuid: payload.g4_review_uuid,
+    };
+
+    if (isMissingRelationError(error)) {
+      console.info("[g5-asset-approval] G5 asset audit table is not available yet", logPayload);
+      return {
+        auditRow: null as JsonRecord | null,
+        skipped: true,
+      };
+    }
+
+    console.warn("[g5-asset-approval] failed to insert G5 asset audit row", logPayload);
+    return {
+      auditRow: null as JsonRecord | null,
+      skipped: false,
+    };
+  }
+
+  return {
+    auditRow: data ? asRecord(data) : null,
+    skipped: false,
+  };
+};
+
+const persistG5ApprovalDecision = async (payload: G5ApprovalDecisionInput, response: G5WebhookResponse) => {
+  const client = getN8nSupabaseAdmin();
+  if (!client) {
+    console.warn("[g5-asset-approval] skipping G5 approval persistence because Supabase config is missing", {
+      approval_id: payload.approval_id,
+      asset_id: payload.asset_id,
+    });
+    return {
+      approvalRow: null as JsonRecord | null,
+      assetStateRow: null as JsonRecord | null,
+    };
+  }
+
+  const approvalId = payload.approval_id.trim();
+  const assetId = payload.asset_id.trim();
+  const decision = payload.decision;
+  const reviewer = payload.reviewer_id.trim();
+  const handledAt = response.handled_at ?? new Date().toISOString();
+  const reason = decision === "APPROVED" ? payload.reviewer_note?.trim() ?? null : payload.rejection_reason?.trim() ?? payload.reviewer_note?.trim() ?? null;
+
+  console.info("[g5-asset-approval] persisting approval decision to Supabase", {
+    approval_id: approvalId,
+    asset_id: assetId,
+    decision,
+    reviewer,
+    handled_at: handledAt,
+  });
+
+  const approvalPatch = {
+    approval_id: approvalId,
+    asset_id: assetId || null,
+    workflow_group: G5_WORKFLOW_GROUP,
+    workflow_id: G5_WORKFLOW_ID,
+    decision,
+    reviewer,
+    reason,
+    evidence_url: null,
+    approved_at: decision === "APPROVED" ? handledAt : null,
+    expires_at: null,
+    locked: false,
+    created_at: handledAt,
+  };
+
+  const { data: existingApproval, error: approvalLookupError } = await client
+    .schema("public")
+    .from(G5_APPROVALS_TABLE)
+    .select("id, approval_id, asset_id, workflow_group, workflow_id, decision, reviewer, reason, evidence_url, approved_at, expires_at, locked, created_at")
+    .eq("approval_id", approvalId)
+    .maybeSingle();
+
+  if (approvalLookupError && !isMissingRelationError(approvalLookupError) && !isMissingColumnError(approvalLookupError)) {
+    console.warn("[g5-asset-approval] failed to read existing G5 approval row", {
+      approval_id: approvalId,
+      code: approvalLookupError.code,
+      message: approvalLookupError.message,
+      details: approvalLookupError.details,
+      hint: approvalLookupError.hint,
+    });
+  }
+
+  let approvalRow: JsonRecord | null = null;
+  if (existingApproval) {
+    const { data, error } = await client
+      .schema("public")
+      .from(G5_APPROVALS_TABLE)
+      .update(approvalPatch)
+      .eq("approval_id", approvalId)
+      .select("id, approval_id, asset_id, workflow_group, workflow_id, decision, reviewer, reason, evidence_url, approved_at, expires_at, locked, created_at")
+      .maybeSingle();
+
+    if (error) {
+      console.warn("[g5-asset-approval] failed to update G5 approval row", {
+        approval_id: approvalId,
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
+    } else {
+      approvalRow = data ? asRecord(data) : null;
+    }
+  } else {
+    const { data, error } = await client
+      .schema("public")
+      .from(G5_APPROVALS_TABLE)
+      .insert(approvalPatch)
+      .select("id, approval_id, asset_id, workflow_group, workflow_id, decision, reviewer, reason, evidence_url, approved_at, expires_at, locked, created_at")
+      .maybeSingle();
+
+    if (error) {
+      console.warn("[g5-asset-approval] failed to insert G5 approval row", {
+        approval_id: approvalId,
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
+    } else {
+      approvalRow = data ? asRecord(data) : null;
+    }
+  }
+
+  const assetStatePatch = {
+    approval_id: approvalId,
+    asset_id: assetId || null,
+    approval_status: decision,
+    approved_by: reviewer,
+    asset_status: decision === "APPROVED" ? "APPROVED_READY_TO_PUBLISH" : "REJECTED",
+    state_updated_at: handledAt,
+  };
+
+  const stateLookupCandidates = [approvalId, assetId].filter((value): value is string => Boolean(value && value.trim()));
+  let assetStateRow: JsonRecord | null = null;
+
+  for (const candidate of stateLookupCandidates) {
+    const { data, error } = await client
+      .schema("public")
+      .from(G5_ASSET_STATE_TABLE)
+      .update(assetStatePatch)
+      .eq(candidate === approvalId ? "approval_id" : "asset_id", candidate)
+      .select("asset_id, approval_id, approval_status, approved_by, asset_status, state_updated_at")
+      .maybeSingle();
+
+    if (error) {
+      if (isMissingRelationError(error) || isMissingColumnError(error)) {
+        console.warn("[g5-asset-approval] failed to update G5 asset publish state", {
+          approval_id: approvalId,
+          asset_id: assetId,
+          filter: candidate === approvalId ? "approval_id" : "asset_id",
+          code: error.code,
+          message: error.message,
+          details: error.details,
+          hint: error.hint,
+        });
+      }
+      continue;
+    }
+
+    if (data) {
+      assetStateRow = asRecord(data);
+      break;
+    }
+  }
+
+  if (!assetStateRow) {
+    const { data, error } = await client
+      .schema("public")
+      .from(G5_ASSET_STATE_TABLE)
+      .insert(assetStatePatch)
+      .select("asset_id, approval_id, approval_status, approved_by, asset_status, state_updated_at")
+      .maybeSingle();
+
+    if (error) {
+      console.warn("[g5-asset-approval] failed to insert G5 asset publish state", {
+        approval_id: approvalId,
+        asset_id: assetId,
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+      });
+    } else {
+      assetStateRow = data ? asRecord(data) : null;
+    }
+  }
+
+  console.info("[g5-asset-approval] approval persistence finished", {
+    approval_id: approvalId,
+    asset_id: assetId,
+    approval_row_persisted: Boolean(approvalRow),
+    asset_state_persisted: Boolean(assetStateRow),
+  });
+
+  return {
+    approvalRow,
+    assetStateRow,
+  };
+};
+
 export async function registerG5Asset(payload: G5AssetRegisterInput): Promise<G5WebhookResponse> {
   const response = await postG5Webhook(env.n8nG5AssetRegisterPath, payload);
 
   if (response.status !== "ERROR") {
+    const persistedAudit = await persistG5AssetAuditEntry(payload, response);
     await persistG5AssetLink(payload, response);
+
+    if (!persistedAudit.auditRow && !persistedAudit.skipped) {
+      console.error("[g5-asset-approval] asset registration webhook succeeded but audit persistence failed", {
+        asset_title: payload.asset_title,
+        g4_review_uuid: payload.g4_review_uuid,
+        hook_angle: payload.hook_angle ?? null,
+      });
+
+      return {
+        ...response,
+        status: "ERROR",
+        message: "Unable to persist the G5 asset registration right now.",
+        raw: response.raw ?? null,
+      };
+    }
   }
 
   return response;
 }
 
 export async function submitG5ApprovalDecision(payload: G5ApprovalDecisionInput): Promise<G5WebhookResponse> {
-  return postG5Webhook(env.n8nG5ApprovalDecisionPath, payload);
+  console.info("[g5-asset-approval] sending approval decision webhook", {
+    approval_id: payload.approval_id,
+    asset_id: payload.asset_id,
+    decision: payload.decision,
+    reviewer_id: payload.reviewer_id,
+  });
+
+  const response = await postG5Webhook(env.n8nG5ApprovalDecisionPath, payload);
+
+  console.info("[g5-asset-approval] approval decision webhook response", {
+    approval_id: payload.approval_id,
+    asset_id: payload.asset_id,
+    decision: payload.decision,
+    status: response.status,
+    message: response.message,
+    http_status: response.http_status,
+    response_type: response.response_type,
+    handled_at: response.handled_at,
+  });
+
+  if (response.status !== "ERROR") {
+    const persisted = await persistG5ApprovalDecision(payload, response);
+    if (!persisted.approvalRow || !persisted.assetStateRow) {
+      console.error("[g5-asset-approval] approval decision webhook succeeded but database persistence failed", {
+        approval_id: payload.approval_id,
+        asset_id: payload.asset_id,
+        decision: payload.decision,
+        webhook_status: response.status,
+        approval_row_persisted: Boolean(persisted.approvalRow),
+        asset_state_persisted: Boolean(persisted.assetStateRow),
+      });
+
+      return {
+        ...response,
+        status: "ERROR",
+        message: "Unable to persist the G5 approval handoff right now.",
+        raw: response.raw ?? null,
+      };
+    }
+  }
+
+  return response;
 }
 
 export async function runG5ReadinessCheck(payload: G5ReadinessCheckInput): Promise<G5WebhookResponse> {

@@ -257,13 +257,9 @@ type G5UploadedMedia = {
   size: number;
 };
 
-type BusyAction = "upload" | "register" | "approve" | "reject" | "readiness" | "publish" | null;
+type BusyAction = "upload" | "register" | "save" | "approve" | "reject" | "readiness" | "publish" | null;
 
-type AssetEditDraft = {
-  assetId: string;
-  caption: string;
-  hook: string;
-};
+type ComposerMode = "register" | "edit";
 
 type MetricCardProps = {
   label: string;
@@ -710,6 +706,104 @@ const getPlatformLabel = (asset: G5DashboardAssetRecord | null) =>
 
 const getPlatformDisplayLabel = (asset: G5DashboardAssetRecord | null) => formatPlatformLabel(getPlatformLabel(asset));
 
+const createAssetComposerDraftPlaceholder = (
+  asset: G5DashboardAssetRecord,
+  caption: string,
+  hook: string,
+): G5SelectedG4ContentRecord => {
+  const displayTitle = asset.asset_title?.trim() || asset.content_text?.trim() || "Untitled asset";
+  const displaySummary = caption.trim() || asset.content_text?.trim() || displayTitle;
+  const platform = asset.platform?.trim() || asset.intended_platform?.trim() || "INSTAGRAM";
+  const reviewId = asset.review_id?.trim() || asset.content_review_id?.trim() || asset.g4_review_id?.trim() || asset.g4_review_uuid?.trim() || asset.asset_id;
+  const contentReviewId = asset.content_review_id?.trim() || asset.review_id?.trim() || reviewId;
+  const g4ReviewId = asset.g4_review_id?.trim() || asset.g4_review_uuid?.trim() || contentReviewId;
+  const captionText = caption.trim() || asset.content_text?.trim() || displayTitle;
+  const hookText = hook.trim();
+  const captionOptionId = `${asset.asset_id}:caption:current`;
+  const hookOptionId = `${asset.asset_id}:hook:current`;
+
+  return {
+    id: reviewId,
+    g4_review_uuid: asset.g4_review_uuid?.trim() || g4ReviewId,
+    g4_review_id: g4ReviewId,
+    content_review_id: contentReviewId,
+    review_id: reviewId,
+    status: asset.approval_status,
+    approval_state: asset.approval_status,
+    display_status: asset.client_status || asset.approval_status || "Ready for G5",
+    created_at: asset.asset_created_at || asset.state_updated_at,
+    display_title: displayTitle,
+    display_summary: displaySummary,
+    platform_label: formatPlatformLabel(platform),
+    caption_preview: captionText,
+    views: null,
+    likes: null,
+    comments: null,
+    shares: null,
+    profile_username: null,
+    audio_sound: null,
+    trend_strength: null,
+    brand_fit_score: null,
+    risk_score: null,
+    source_url: asset.post_url?.trim() || null,
+    ai_safe_rewrite: null,
+    hook_angle: hookText || null,
+    ai_risk_summary: null,
+    ai_compliance_note: null,
+    content_summary: displaySummary,
+    ai_insight: displaySummary,
+    original_post_data: null,
+    engagement_rate: null,
+    content: {
+      title: displayTitle,
+      summary: displaySummary,
+      platform,
+      created_at: asset.asset_created_at || asset.state_updated_at,
+    },
+    original_post: {
+      platform,
+      handle: null,
+      caption: captionText,
+      post_url: asset.post_url?.trim() || null,
+      views: null,
+      likes: null,
+      comments: null,
+      shares: null,
+      audio: asset.asset_type?.trim() || null,
+      engagement_rate: null,
+    },
+    ai_direction: {
+      content_angle: null,
+      safe_rewrite: null,
+      hook_angle: hookText || null,
+      risk_summary: null,
+      compliance_note: null,
+    },
+    caption_options: captionText
+      ? [
+          {
+            id: captionOptionId,
+            label: "Current caption",
+            text: captionText,
+            source: "G4" as const,
+          },
+        ]
+      : [],
+    hook_options: hookText
+      ? [
+          {
+            id: hookOptionId,
+            label: "Current hook",
+            text: hookText,
+            source: "G4" as const,
+          },
+        ]
+      : [],
+    recommended_caption: captionText || null,
+    recommended_hook: hookText || null,
+  };
+};
+
 const isAssetPublishedManually = (asset: G5DashboardAssetRecord | null) => {
   if (!asset) {
     return false;
@@ -927,11 +1021,11 @@ const G4PickerDialog = ({ open, onOpenChange, reviews, message, busy, onSelect, 
               </p>
             </div>
             <div className="flex-1 px-5 py-5 sm:px-6">
-              <div className="space-y-3 rounded-[24px] border border-dashed border-border/70 bg-white p-5">
-                <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Selection guide</p>
-                <ul className="space-y-2 text-sm leading-6 text-foreground/80">
-                  <li>• Content already passed the G4 check</li>
-                  <li>• Caption and hook suggestions load after you choose one</li>
+    <div className="space-y-3 rounded-[24px] border border-dashed border-border/70 bg-white p-5">
+      <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Selection guide</p>
+      <ul className="space-y-2 text-sm leading-6 text-foreground/80">
+        <li>• Content already passed the G4 check</li>
+        <li>• Caption and hook suggestions load after you choose one</li>
                   <li>• Media upload and final review happen in the next step</li>
                 </ul>
               </div>
@@ -958,6 +1052,14 @@ const AssetInspectorPanel = ({
   onRunReadinessCheck,
   busyAction,
 }: AssetInspectorPanelProps) => {
+  const approvalComplete = Boolean(asset && isAssetApproved(asset));
+  const approvalButtonLabel =
+    asset && asset.client_status === "Ready to publish"
+      ? "Ready to publish"
+      : asset && asset.client_status === "Approved"
+        ? "Approved"
+        : "Approve for publishing";
+
   const body = asset ? (
     <>
       <div className="space-y-5 p-5 sm:p-6">
@@ -1036,11 +1138,11 @@ const AssetInspectorPanel = ({
             <Button
               type="button"
               onClick={onApprove}
-              disabled={busyAction !== null}
+              disabled={busyAction !== null || approvalComplete}
               className="h-10 rounded-full bg-primary px-4 text-sm"
             >
               {busyAction === "approve" ? <Loader2 className="size-4 animate-spin" /> : <CheckCircle2 className="size-4" />}
-              Approve for publishing
+              {approvalButtonLabel}
             </Button>
             <Button
               type="button"
@@ -1153,6 +1255,7 @@ export default function G5AssetApprovalPage() {
   const [draftCaption, setDraftCaption] = useState("");
   const [selectedCaptionId, setSelectedCaptionId] = useState<string | null>(null);
   const [selectedHookId, setSelectedHookId] = useState<string | null>(null);
+  const [draftHookOverride, setDraftHookOverride] = useState("");
   const [captionDraftManuallyEdited, setCaptionDraftManuallyEdited] = useState(false);
   const [g4SelectionBusy, setG4SelectionBusy] = useState(false);
   const [draftMediaItems, setDraftMediaItems] = useState<G5UploadedMedia[]>([]);
@@ -1161,9 +1264,8 @@ export default function G5AssetApprovalPage() {
   const [pageError, setPageError] = useState<string | null>(null);
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [detailSheetOpen, setDetailSheetOpen] = useState(false);
-  const [postEditOpen, setPostEditOpen] = useState(false);
-  const [postEditDraft, setPostEditDraft] = useState<AssetEditDraft | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
+  const [composerMode, setComposerMode] = useState<ComposerMode | null>(null);
   const [composerLoading, setComposerLoading] = useState(false);
   const [originalPostModalOpen, setOriginalPostModalOpen] = useState(false);
   const [g4DialogOpen, setG4DialogOpen] = useState(false);
@@ -1320,7 +1422,9 @@ export default function G5AssetApprovalPage() {
 
     return hookOptions.find((option) => option.id === selectedHookId) ?? null;
   }, [draftContent, hookOptions, selectedHookId]);
-  const draftHookText = selectedHookOption?.text?.trim() || null;
+  const draftHookText = composerMode === "edit"
+    ? draftHookOverride.trim() || selectedHookOption?.text?.trim() || null
+    : selectedHookOption?.text?.trim() || null;
   const draftMedia = useMemo(() => {
     if (!draftMediaItems.length) {
       return null;
@@ -1481,6 +1585,46 @@ export default function G5AssetApprovalPage() {
     selectedAsset?.asset_title?.trim() ||
     "";
   const selectedAssetHookValue = selectedAssetEdit?.hook?.trim() || selectedAsset?.hook_angle?.trim() || "";
+  const selectedAssetMatchedG4Review = useMemo(() => {
+    if (!selectedAsset) {
+      return null;
+    }
+
+    const caption = selectedAssetCaptionValue.trim();
+    const syntheticReview = {
+      id: selectedAsset.g4_review_id?.trim() || selectedAsset.g4_review_uuid?.trim() || selectedAsset.content_review_id?.trim() || selectedAsset.review_id?.trim() || selectedAsset.asset_id,
+      g4_review_id: selectedAsset.g4_review_id?.trim() || null,
+      g4_review_uuid: selectedAsset.g4_review_uuid?.trim() || null,
+      content_review_id: selectedAsset.content_review_id?.trim() || null,
+      review_id: selectedAsset.review_id?.trim() || null,
+      display_title: selectedAsset.asset_title?.trim() || caption || selectedAsset.content_text?.trim() || null,
+      display_summary: caption || selectedAsset.content_text?.trim() || selectedAsset.asset_title?.trim() || null,
+      caption_preview: caption || selectedAsset.content_text?.trim() || null,
+      content_text: caption || selectedAsset.content_text?.trim() || null,
+      platform_label: getPlatformDisplayLabel(selectedAsset),
+      created_at: selectedAsset.asset_created_at || selectedAsset.state_updated_at || null,
+    };
+
+    const candidateKeys = new Set(buildApprovedContentCandidateKeys(syntheticReview));
+    return g4ReadyReviews.find((review) => buildApprovedContentCandidateKeys(review).some((key) => candidateKeys.has(key))) ?? null;
+  }, [g4ReadyReviews, selectedAsset, selectedAssetCaptionValue]);
+
+  const clearDraftSelection = useCallback(() => {
+    setDraftContent(null);
+    setDraftCaption("");
+    setSelectedCaptionId(null);
+    setSelectedHookId(null);
+    setDraftHookOverride("");
+    setCaptionDraftManuallyEdited(false);
+    setG4SelectionBusy(false);
+    setComposerLoading(false);
+    setDraftMediaItems([]);
+    setSelectedDraftMediaKey(null);
+    setOriginalPostModalOpen(false);
+    setComposerMode(null);
+    setComposerOpen(false);
+    composerOpenStartedAtRef.current = null;
+  }, []);
 
   const summary = dashboard?.summary ?? {
     total: 0,
@@ -1513,35 +1657,96 @@ export default function G5AssetApprovalPage() {
     [isDesktop]
   );
 
-  const handleOpenPostEditor = useCallback(() => {
+  const handleOpenPostEditor = useCallback(async () => {
     if (!selectedAsset) {
       return;
     }
 
-    setPostEditDraft({
-      assetId: selectedAsset.asset_id,
-      caption: selectedAssetCaptionValue,
-      hook: selectedAssetHookValue,
-    });
-    setPostEditOpen(true);
-  }, [selectedAsset, selectedAssetCaptionValue, selectedAssetHookValue]);
+    const caption = selectedAssetCaptionValue.trim();
+    const hook = selectedAssetHookValue.trim();
+    const syntheticMediaUrl = selectedAsset.media_url?.trim() || selectedAsset.storage_url?.trim() || null;
+    const reviewId =
+      selectedAsset.g4_review_id?.trim() ||
+      selectedAsset.g4_review_uuid?.trim() ||
+      selectedAsset.content_review_id?.trim() ||
+      selectedAsset.review_id?.trim() ||
+      selectedAssetMatchedG4Review?.content_review_id?.trim() ||
+      selectedAssetMatchedG4Review?.review_id?.trim() ||
+      selectedAssetMatchedG4Review?.id?.trim() ||
+      null;
 
-  const handleSavePostEdit = useCallback(() => {
-    if (!postEditDraft) {
-      return;
+    setComposerMode("edit");
+    setComposerLoading(Boolean(reviewId || selectedAsset.asset_id || selectedAsset.approval_id));
+    setG4SelectionBusy(false);
+    setInlineError(null);
+    setDraftCaption(caption);
+    setDraftHookOverride(hook);
+    setCaptionDraftManuallyEdited(Boolean(caption));
+    setDraftMediaItems(
+      syntheticMediaUrl
+        ? [
+            {
+              status: "PASS",
+              message: "Existing media loaded.",
+              media_url: syntheticMediaUrl,
+              storage_url: selectedAsset.storage_url?.trim() || syntheticMediaUrl,
+              storage_key: selectedAsset.storage_url?.trim() || syntheticMediaUrl,
+              filename: selectedAsset.asset_title?.trim() || `asset-${selectedAsset.asset_id}`,
+              content_type:
+                upperText(selectedAsset.asset_type).includes("VIDEO") ||
+                /\.(mp4|webm|mov|m4v)$/i.test(syntheticMediaUrl)
+                  ? "video/mp4"
+                  : "image/*",
+              kind: upperText(selectedAsset.asset_type).includes("VIDEO") ? "VIDEO" : "IMAGE",
+              size: 0,
+            },
+          ]
+        : []
+    );
+    setSelectedDraftMediaKey(syntheticMediaUrl);
+    setOriginalPostModalOpen(false);
+    setG4DialogOpen(false);
+    setComposerOpen(true);
+
+    try {
+      const query = new URLSearchParams({
+        reviewId: reviewId || "",
+        assetId: selectedAsset.asset_id,
+        approvalId: selectedAsset.approval_id?.trim() || selectedAsset.asset_id,
+        title: selectedAsset.asset_title?.trim() || selectedAsset.content_text?.trim() || "",
+        caption: caption,
+        hook: hook,
+        platform: selectedAsset.platform?.trim() || selectedAsset.intended_platform?.trim() || "",
+        sourceUrl: selectedAsset.post_url?.trim() || "",
+      });
+
+      const response = await authFetch(buildRouteUrl(`/api/admin/g5/g4-content-options?${query.toString()}`), {
+        cache: "no-store",
+        silent: true,
+      });
+
+      const body = await parseJson<G5SelectedG4ContentResponse>(response);
+      if (!response.ok || !body?.review) {
+        const message = body?.message || "Unable to load selected G4 content.";
+        throw new Error(message);
+      }
+
+      const selected = body.review;
+      setDraftContent(selected);
+      setSelectedCaptionId(getMatchingOption(selected.caption_options, caption)?.id ?? null);
+      setSelectedHookId(getMatchingOption(selected.hook_options, hook)?.id ?? null);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to load selected G4 content.";
+      setInlineError(message);
+      toast.error(message);
+      const placeholder = createAssetComposerDraftPlaceholder(selectedAsset, caption, hook);
+      setDraftContent(placeholder);
+      setSelectedCaptionId(placeholder.caption_options[0]?.id ?? null);
+      setSelectedHookId(placeholder.hook_options[0]?.id ?? null);
+    } finally {
+      setComposerLoading(false);
     }
-
-    setAssetEdits((current) => ({
-      ...current,
-      [postEditDraft.assetId]: {
-        caption: postEditDraft.caption,
-        hook: postEditDraft.hook,
-      },
-    }));
-    setPostEditOpen(false);
-    setPostEditDraft(null);
-    toast.success("Post updated.");
-  }, [postEditDraft]);
+  }, [authFetch, selectedAsset, selectedAssetCaptionValue, selectedAssetHookValue, selectedAssetMatchedG4Review]);
 
   const refreshData = useCallback(async () => {
     await loadData("refresh");
@@ -1629,9 +1834,11 @@ export default function G5AssetApprovalPage() {
       setG4SelectionBusy(true);
       setInlineError(null);
       setComposerLoading(true);
+      setComposerMode("register");
       setCaptionDraftManuallyEdited(false);
       setSelectedCaptionId(null);
       setSelectedHookId(null);
+      setDraftHookOverride("");
       setDraftCaption("");
       setDraftMediaItems([]);
       setSelectedDraftMediaKey(null);
@@ -1672,14 +1879,13 @@ export default function G5AssetApprovalPage() {
         const message = error instanceof Error ? error.message : "Unable to load selected G4 content.";
         setInlineError(message);
         toast.error(message);
-        setDraftContent(null);
-        setComposerOpen(false);
+        clearDraftSelection();
       } finally {
         setG4SelectionBusy(false);
         setComposerLoading(false);
       }
     },
-    [authFetch, isDevelopment]
+    [authFetch, clearDraftSelection, isDevelopment]
   );
 
   const handleSelectCaptionOption = useCallback(
@@ -1697,6 +1903,7 @@ export default function G5AssetApprovalPage() {
   const handleSelectHookOption = useCallback(
     (option: G5G4HookOption) => {
       setSelectedHookId(option.id);
+      setDraftHookOverride(option.text);
     },
     []
   );
@@ -1837,9 +2044,11 @@ export default function G5AssetApprovalPage() {
       setDraftCaption("");
       setSelectedCaptionId(null);
       setSelectedHookId(null);
+      setDraftHookOverride("");
       setCaptionDraftManuallyEdited(false);
       setDraftMediaItems([]);
       setSelectedDraftMediaKey(null);
+      setComposerMode(null);
       setComposerOpen(false);
       composerOpenStartedAtRef.current = null;
       setActiveTab("pending-approval");
@@ -1854,6 +2063,29 @@ export default function G5AssetApprovalPage() {
       setBusyAction(null);
     }
   }, [authFetch, captionOptions.length, composerLoading, draftCaption, draftContent, draftHookText, draftMedia, g4ReadyReviews.length, refreshData, user?.email, user?.id, user?.name]);
+
+  const handleSaveComposerEdit = useCallback(() => {
+    if (!selectedAsset) {
+      return;
+    }
+
+    const caption = draftCaption.trim();
+    if (!caption) {
+      toast.error("Enter a caption before saving changes.");
+      return;
+    }
+
+    const hook = draftHookText?.trim() || "";
+    setAssetEdits((current) => ({
+      ...current,
+      [selectedAsset.asset_id]: {
+        caption,
+        hook,
+      },
+    }));
+    toast.success("Post updated.");
+    clearDraftSelection();
+  }, [clearDraftSelection, draftCaption, draftHookText, selectedAsset]);
 
   const handleApprovalDecision = useCallback(
     async (decision: "APPROVED" | "REJECTED") => {
@@ -1873,6 +2105,7 @@ export default function G5AssetApprovalPage() {
           method: "POST",
           body: JSON.stringify({
             approval_id: approvalId,
+            asset_id: selectedAsset.asset_id,
             decision,
             reviewer_id: actor,
             reviewer_note: decision === "APPROVED" ? "Approved from the G5 dashboard." : "Rejected from the G5 dashboard.",
@@ -1888,6 +2121,7 @@ export default function G5AssetApprovalPage() {
         }
 
         toast.success(body.message || (decision === "APPROVED" ? "Asset approved." : "Asset rejected."));
+        setActiveTab(decision === "APPROVED" ? "ready-to-publish" : "blocked");
         await refreshData();
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unable to save G5 decision.";
@@ -1989,20 +2223,6 @@ export default function G5AssetApprovalPage() {
       pending: firstIncomplete === -1 ? false : index > firstIncomplete,
     }));
   }, [draftContent, draftMedia, selectedAsset]);
-
-  const clearDraftSelection = useCallback(() => {
-    setDraftContent(null);
-    setDraftCaption("");
-    setSelectedCaptionId(null);
-    setSelectedHookId(null);
-    setCaptionDraftManuallyEdited(false);
-    setComposerLoading(false);
-    setDraftMediaItems([]);
-    setSelectedDraftMediaKey(null);
-    setOriginalPostModalOpen(false);
-    setComposerOpen(false);
-    composerOpenStartedAtRef.current = null;
-  }, []);
 
   const originalPost = draftContent?.original_post ?? {
     platform: draftContent?.original_post?.platform?.trim() || draftContent?.content?.platform?.trim() || draftContent?.platform_label?.trim() || null,
@@ -2139,15 +2359,39 @@ export default function G5AssetApprovalPage() {
                   setDraftCaption(event.target.value);
                   setCaptionDraftManuallyEdited(true);
                 }}
-                placeholder={captionOptions.length ? "Edit the final caption before saving the queue item." : "Enter the final caption for this post."}
+                placeholder={
+                  composerMode === "edit"
+                    ? "Edit the final caption before saving changes."
+                    : captionOptions.length
+                      ? "Edit the final caption before saving the queue item."
+                      : "Enter the final caption for this post."
+                }
                 className="min-h-14 rounded-[20px] border-border/70 bg-white px-3.5 py-2.5 text-[13px] leading-5 shadow-sm"
               />
             </div>
 
-            <div className="rounded-[20px] border border-violet-200/70 bg-violet-50/60 p-3">
-              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Selected hook</p>
-              <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-5 text-foreground/85">{draftHookText || "No hook selected"}</p>
-            </div>
+            {composerMode === "edit" ? (
+              <div className="space-y-1.5 rounded-[20px] border border-violet-200/70 bg-violet-50/60 p-3">
+                <Label htmlFor="g5-edit-hook" className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
+                  Hook
+                </Label>
+                <Input
+                  id="g5-edit-hook"
+                  value={draftHookOverride}
+                  onChange={(event) => {
+                    setDraftHookOverride(event.target.value);
+                    setSelectedHookId(null);
+                  }}
+                  placeholder="Edit the hook before saving changes."
+                  className="h-10 rounded-[16px] border-border/70 bg-white px-3.5 text-[13px] shadow-sm"
+                />
+              </div>
+            ) : (
+              <div className="rounded-[20px] border border-violet-200/70 bg-violet-50/60 p-3">
+                <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Selected hook</p>
+                <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-5 text-foreground/85">{draftHookText || "No hook selected"}</p>
+              </div>
+            )}
 
             {draftMediaItems.length > 0 ? (
               <Carousel
@@ -2219,20 +2463,36 @@ export default function G5AssetApprovalPage() {
               </Carousel>
             ) : (
               <div className="flex h-[300px] flex-none items-center justify-center rounded-[20px] border border-dashed border-border/70 bg-[#fbf8f6] p-4 text-sm text-muted-foreground sm:h-[320px]">
-                Upload media after choosing the final caption.
+                {composerMode === "edit" ? "No media preview available for this post." : "Upload media after choosing the final caption."}
               </div>
             )}
 
-            <div className="grid gap-2 pt-1 sm:grid-cols-2">
-              <Button type="button" variant="outline" onClick={openFilePicker} disabled={busyAction === "upload"} className="h-9 rounded-full px-4 text-sm">
-                {busyAction === "upload" ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
-                Add media
-              </Button>
-              <Button type="button" onClick={handleRegisterAsset} disabled={busyAction === "register" || composerLoading} className="h-9 rounded-full bg-primary px-4 text-sm">
-                {busyAction === "register" ? <Loader2 className="size-4 animate-spin" /> : <BadgeCheck className="size-4" />}
-                Register asset
-              </Button>
-            </div>
+            {composerMode === "edit" ? (
+              <div className="grid gap-2 pt-1 sm:grid-cols-2">
+                <Button type="button" variant="outline" onClick={clearDraftSelection} className="h-9 rounded-full px-4 text-sm">
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleSaveComposerEdit}
+                  disabled={!draftCaption.trim()}
+                  className="h-9 rounded-full bg-primary px-4 text-sm"
+                >
+                  Save changes
+                </Button>
+              </div>
+            ) : (
+              <div className="grid gap-2 pt-1 sm:grid-cols-2">
+                <Button type="button" variant="outline" onClick={openFilePicker} disabled={busyAction === "upload"} className="h-9 rounded-full px-4 text-sm">
+                  {busyAction === "upload" ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+                  Add media
+                </Button>
+                <Button type="button" onClick={handleRegisterAsset} disabled={busyAction === "register" || composerLoading} className="h-9 rounded-full bg-primary px-4 text-sm">
+                  {busyAction === "register" ? <Loader2 className="size-4 animate-spin" /> : <BadgeCheck className="size-4" />}
+                  Register asset
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -2319,80 +2579,18 @@ export default function G5AssetApprovalPage() {
     </Dialog>
   ) : null;
 
-  const editPostModal = postEditDraft ? (
+  const composerModal = draftContent ? (
     <Dialog
-      open={postEditOpen}
+      open={composerOpen}
       onOpenChange={(open) => {
-        setPostEditOpen(open);
-        if (!open) {
-          setPostEditDraft(null);
+        if (open) {
+          setComposerOpen(true);
+          return;
         }
+
+        clearDraftSelection();
       }}
     >
-      <DialogContent className="h-[100dvh] !w-[100vw] !max-w-none overflow-hidden rounded-none border-0 bg-background p-0 shadow-none sm:h-auto sm:max-h-[80vh] sm:!w-[min(92vw,720px)] sm:!max-w-[min(92vw,720px)] sm:rounded-[28px] sm:border sm:border-border/70 sm:bg-background sm:shadow-xl">
-        <DialogHeader className="border-b border-border/60 px-5 py-4 sm:px-6">
-          <DialogTitle className="font-serif text-2xl leading-tight text-primary">Edit post</DialogTitle>
-          <DialogDescription className="text-sm leading-6 text-muted-foreground">
-            Update the caption and hook shown in the inspector before publishing.
-          </DialogDescription>
-        </DialogHeader>
-
-        <div className="space-y-4 px-5 py-5 sm:px-6">
-          <div className="space-y-2">
-            <Label htmlFor="g5-edit-caption" className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
-              Caption
-            </Label>
-            <Textarea
-              id="g5-edit-caption"
-              value={postEditDraft.caption}
-              onChange={(event) =>
-                setPostEditDraft((current) => (current ? { ...current, caption: event.target.value } : current))
-              }
-              className="min-h-24 rounded-[20px] border-border/70 bg-white px-3.5 py-2.5 text-[13px] leading-6 shadow-sm"
-              placeholder="Write the caption for this post."
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="g5-edit-hook" className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">
-              Hook
-            </Label>
-            <Input
-              id="g5-edit-hook"
-              value={postEditDraft.hook}
-              onChange={(event) => setPostEditDraft((current) => (current ? { ...current, hook: event.target.value } : current))}
-              className="h-11 rounded-[20px] border-border/70 bg-white px-3.5 text-[13px] shadow-sm"
-              placeholder="Add the hook text for this post."
-            />
-          </div>
-
-          <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
-            <Button
-              type="button"
-              variant="outline"
-              className="h-10 rounded-full px-4 text-sm"
-              onClick={() => {
-                setPostEditOpen(false);
-                setPostEditDraft(null);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              className="h-10 rounded-full bg-primary px-4 text-sm"
-              onClick={handleSavePostEdit}
-            >
-              Save changes
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  ) : null;
-
-  const composerModal = draftContent ? (
-    <Dialog open={composerOpen} onOpenChange={setComposerOpen}>
       <DialogContent className="h-[100dvh] !w-[100vw] !max-w-none overflow-hidden rounded-none border-0 bg-background p-0 shadow-none sm:h-auto sm:max-h-[calc(100dvh-2rem)] sm:overflow-y-auto sm:!w-[min(94vw,1400px)] sm:!max-w-[min(94vw,1400px)] sm:rounded-[28px] sm:border sm:border-border/70 sm:bg-background sm:shadow-xl">
         <DialogHeader className="sr-only">
           <DialogTitle>Prepare content for publishing</DialogTitle>
@@ -2642,7 +2840,7 @@ export default function G5AssetApprovalPage() {
                                     </div>
 
                                     <div className="space-y-3">
-                                      <p className="max-w-5xl font-serif text-[clamp(1.1rem,1.4vw,1.75rem)] leading-[1] tracking-tight text-primary text-pretty">
+                                      <p className="max-w-5xl font-serif text-[clamp(0.95rem,1.15vw,1.45rem)] leading-[1.05] tracking-tight text-primary text-pretty">
                                         {review.display_title}
                                       </p>
                                       <div className="flex min-w-0 items-center gap-2 text-[10px] leading-5">
@@ -2693,10 +2891,6 @@ export default function G5AssetApprovalPage() {
                                           Use this content
                                         </Button>
                                       )}
-                                      <div className="inline-flex h-9 items-center gap-2 rounded-full border border-emerald-200 bg-white px-4 text-sm font-semibold leading-none text-emerald-700 shadow-none">
-                                        <BadgeCheck className="size-3.5" aria-hidden="true" />
-                                        Ready for G5
-                                      </div>
                                     </div>
                                   </div>
                                 </div>
@@ -2817,7 +3011,6 @@ export default function G5AssetApprovalPage() {
         </SheetContent>
       </Sheet>
 
-      {editPostModal}
       {composerModal}
       {originalPostModal}
 

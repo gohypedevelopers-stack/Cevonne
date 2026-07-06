@@ -9,7 +9,18 @@ import {
 } from "@/lib/cevonne/response";
 import { env } from "@/server/config";
 
-export type N8nWebhookStatus = "PASS" | "BLOCK" | "MANUAL_ONLY" | "PENDING_APPROVAL" | "NEEDS_EVIDENCE" | "ERROR";
+export type N8nWebhookStatus =
+  | "PASS"
+  | "BLOCK"
+  | "MANUAL_ONLY"
+  | "PENDING_APPROVAL"
+  | "DRY_RUN"
+  | "RECOMMENDATION_ONLY"
+  | "DO_NOT_SCALE"
+  | "FIX_FIRST"
+  | "NEEDS_EVIDENCE"
+  | "NOT_RUN_YET"
+  | "ERROR";
 
 export type N8nWebhookResult = {
   status: N8nWebhookStatus;
@@ -72,7 +83,12 @@ const normalizeStatus = (value: unknown): N8nWebhookStatus => {
     value === "BLOCK" ||
     value === "MANUAL_ONLY" ||
     value === "PENDING_APPROVAL" ||
+    value === "DRY_RUN" ||
+    value === "RECOMMENDATION_ONLY" ||
+    value === "DO_NOT_SCALE" ||
+    value === "FIX_FIRST" ||
     value === "NEEDS_EVIDENCE" ||
+    value === "NOT_RUN_YET" ||
     value === "ERROR"
   ) {
     return value;
@@ -95,8 +111,15 @@ const normalizeMessage = (status: N8nWebhookStatus, value: unknown) => {
       return CEVONNE_MANUAL_REVIEW_MESSAGE;
     case "PENDING_APPROVAL":
       return "Waiting for human approval.";
+    case "DRY_RUN":
+    case "RECOMMENDATION_ONLY":
+    case "DO_NOT_SCALE":
+    case "FIX_FIRST":
+      return "Recommendation created. Nothing was executed.";
     case "NEEDS_EVIDENCE":
       return "More evidence is required before this can continue.";
+    case "NOT_RUN_YET":
+      return "Workflow has not run yet.";
     case "ERROR":
     default:
       return CEVONNE_TEMPORARY_FAILURE_MESSAGE;
