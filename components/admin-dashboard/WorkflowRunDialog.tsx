@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useLayoutEffect, useMemo, useRef, useState, type FormEvent } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +18,8 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import {
   getWorkflowCatalogEntry,
+  getG11RecommendationTypeConfig,
+  getG11ReviewAreaConfig,
   type AdminWorkflowId,
   type WorkflowDetailView,
   type WorkflowPrimaryActionConfig,
@@ -25,6 +27,7 @@ import {
   type WorkflowRunValues,
 } from "@/lib/admin/workflows";
 import { cn } from "@/lib/utils";
+import { toast } from "sonner";
 
 type WorkflowDashboardRunResponse = {
   status: "PASS" | "BLOCK" | "MANUAL_ONLY" | "PENDING_APPROVAL" | "DRY_RUN" | "RECOMMENDATION_ONLY" | "DO_NOT_SCALE" | "FIX_FIRST" | "NEEDS_EVIDENCE" | "NOT_RUN_YET" | "ERROR";
@@ -61,7 +64,7 @@ type WorkflowRunDialogProps = {
   primaryAction: WorkflowPrimaryActionConfig;
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onSubmit: (values: WorkflowRunValues) => Promise<WorkflowDashboardRunResponse>;
+  onSubmit: (values: Record<string, unknown>) => Promise<WorkflowDashboardRunResponse>;
   onSuccess: (response: WorkflowDashboardRunResponse) => void;
 };
 
@@ -105,6 +108,30 @@ const toWorkflowValues = (values: FieldState, fields: WorkflowRunField[]) =>
     return accumulator;
   }, {});
 
+const buildG11SubmissionPayload = (values: FieldState) => {
+  const reviewArea = getG11ReviewAreaConfig(typeof values.focus_area === "string" ? values.focus_area : null);
+  const recommendationType = getG11RecommendationTypeConfig(typeof values.recommendation_type === "string" ? values.recommendation_type : null);
+  const note = typeof values.note === "string" && values.note.trim() ? values.note.trim() : null;
+
+  if (recommendationType?.usesWeeklyDigest) {
+    return {
+      actor: "website_admin",
+      target_workflow_group: "ALL",
+      platform: "ALL",
+      input_summary: { note },
+    };
+  }
+
+  return {
+    actor: "website_admin",
+    target_workflow_group: reviewArea?.targetWorkflowGroup ?? "ALL",
+    platform: reviewArea?.platform ?? "ALL",
+    requested_decision: recommendationType?.requestedDecision ?? "INVESTIGATE",
+    focus_area: reviewArea?.label ?? "Overall business summary",
+    input_summary: { note },
+  };
+};
+
 const visibleFields = (fields: WorkflowRunField[], values: FieldState) =>
   fields.filter((field) => !field.visibleWhen || field.visibleWhen(values as WorkflowRunValues));
 
@@ -117,6 +144,8 @@ export default function WorkflowRunDialog({
   onSuccess,
 }: WorkflowRunDialogProps) {
   const catalogEntry = getWorkflowCatalogEntry(workflow.workflowId);
+  const g11ErrorToastId = "g11-generate-error";
+  const g11ModalSessionRef = useRef(0);
   const hiddenFieldKeySignature = primaryAction.hiddenFieldKeys.join("|");
   const runFields = useMemo(
     () => {
@@ -129,15 +158,37 @@ export default function WorkflowRunDialog({
   const [values, setValues] = useState<FieldState>(() => buildDefaultFieldValues(runFields));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [hasSubmitted, setHasSubmitted] = useState(false);
   const isG11RecommendationFlow = workflow.workflowId === "G11" && primaryAction.kind === "generate_recommendation";
 
-  useEffect(() => {
+  const clearG11ErrorFeedback = () => {
+    setError(null);
+    toast.dismiss(g11ErrorToastId);
+  };
+
+  const resetG11GenerateStateOnOpen = () => {
+    g11ModalSessionRef.current += 1;
+    clearG11ErrorFeedback();
+    setHasSubmitted(false);
+    setSubmitting(false);
+  };
+
+  const resetG11GenerateStateOnClose = () => {
+    g11ModalSessionRef.current += 1;
+    setError(null);
+    setHasSubmitted(false);
+    setSubmitting(false);
+    clearG11ErrorFeedback();
+  };
+
+  useLayoutEffect(() => {
     if (!open) {
+      resetG11GenerateStateOnClose();
       return;
     }
 
     setValues(buildDefaultFieldValues(runFields));
-    setError(null);
+    resetG11GenerateStateOnOpen();
   }, [open, runFields, workflow.workflowId]);
 
   const currentFields = visibleFields(runFields, values);
@@ -146,8 +197,18 @@ export default function WorkflowRunDialog({
     ? "flex max-h-[90vh] w-full flex-col overflow-hidden p-0 sm:max-w-2xl"
     : "flex max-h-[90vh] w-full flex-col overflow-hidden p-0 sm:max-w-xl";
 
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) {
+      resetG11GenerateStateOnClose();
+    }
+
+    onOpenChange(nextOpen);
+  };
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    const submitSession = g11ModalSessionRef.current;
+    console.log("G11 GENERATE BUTTON CLICKED");
 
     if (primaryAction.kind === "none" || primaryAction.kind === "open_checks" || primaryAction.kind === "refresh_status") {
       setError("This action does not accept submissions.");
@@ -168,29 +229,69 @@ export default function WorkflowRunDialog({
     });
 
     if (requiredField) {
+      setHasSubmitted(true);
       setError(`${requiredField.label} is required.`);
       return;
     }
 
+    setHasSubmitted(true);
     setSubmitting(true);
-    setError(null);
+    clearG11ErrorFeedback();
 
     try {
-      const response = await onSubmit(toWorkflowValues(values, currentFields));
-      onSuccess(response);
+      const payload = isG11RecommendationFlow ? buildG11SubmissionPayload(values) : toWorkflowValues(values, currentFields);
+
+      if (isG11RecommendationFlow && process.env.NODE_ENV !== "production") {
+        console.log("G11 FINAL PAYLOAD:", payload);
+      }
+
+      const response = await onSubmit(payload);
+      if (g11ModalSessionRef.current !== submitSession) {
+        return;
+      }
+      clearG11ErrorFeedback();
+      setHasSubmitted(false);
+
+      try {
+        onSuccess(response);
+      } catch (successError) {
+        if (workflow.workflowId === "G11") {
+          if (process.env.NODE_ENV !== "production") {
+            console.error("G11 success handler failed:", successError);
+          }
+
+          clearG11ErrorFeedback();
+          return;
+        }
+
+        throw successError;
+      }
     } catch (submitError) {
       if (workflow.workflowId === "G11") {
-        setError("G11 could not create a recommendation. Please try again.");
+        if (g11ModalSessionRef.current !== submitSession) {
+          return;
+        }
+
+        const message = "G11 could not create a recommendation. Please try again.";
+        setError(message);
+        toast.error(message, { id: g11ErrorToastId });
       } else {
         const message = submitError instanceof Error ? submitError.message : "Unable to submit workflow action.";
         setError(message);
       }
     } finally {
-      setSubmitting(false);
+      if (g11ModalSessionRef.current === submitSession) {
+        setSubmitting(false);
+      }
     }
   };
 
   const updateValue = (key: string, value: string | boolean) => {
+    if (isG11RecommendationFlow) {
+      clearG11ErrorFeedback();
+      setHasSubmitted(false);
+    }
+
     setValues((current) => ({
       ...current,
       [key]: value,
@@ -198,7 +299,7 @@ export default function WorkflowRunDialog({
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         showCloseButton
         className={dialogClassName}
@@ -311,9 +412,15 @@ export default function WorkflowRunDialog({
               })}
             </FieldSet>
 
-            {error ? (
+            {hasSubmitted && error ? (
               <p className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm leading-6 text-rose-900">
                 {error}
+              </p>
+            ) : null}
+
+            {isG11RecommendationFlow && submitting ? (
+              <p className="mt-4 rounded-2xl border border-border/60 bg-muted/20 px-3 py-2 text-xs leading-5 text-muted-foreground">
+                This can take up to 1–2 minutes because G11 reviews data and uses AI.
               </p>
             ) : null}
           </div>

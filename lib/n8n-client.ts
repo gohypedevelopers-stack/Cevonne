@@ -270,12 +270,18 @@ export const postN8nWebhook = async (input: PostN8nWebhookInput): Promise<N8nWeb
     };
   } catch (error: any) {
     if (error?.name === "AbortError") {
-      return createErrorResult("n8n request timed out.", input, {
+      return createErrorResult(
+        input.source === "g11"
+          ? "G11 took longer than expected. Please check n8n executions or try again."
+          : "n8n request timed out.",
+        input,
+        {
         request_id: requestId,
         sent_at: sentAt,
         webhook_url: webhookUrl,
         http_status: null,
-      });
+        },
+      );
     }
 
     return createErrorResult("Failed to call n8n webhook.", input, {

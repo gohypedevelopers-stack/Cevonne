@@ -28,7 +28,6 @@ import {
   type AdminWorkflowId,
   type WorkflowDetailView,
   type WorkflowOutcomeSummary,
-  type WorkflowRunValues,
   type WorkflowUiStatus,
 } from "@/lib/admin/workflows";
 
@@ -277,6 +276,7 @@ const G11_PLATFORM_FRIENDLY_NAMES: Record<string, string> = {
   ALL: "All platforms",
 };
 
+const normalizeG11Label = (value?: string | null) => (typeof value === "string" ? value.trim() : "");
 const normalizeG11Text = (value?: string | null) => (typeof value === "string" ? value.trim() : "");
 const normalizeG11EnumValue = (value?: string | null) => normalizeG11Text(value).toUpperCase().replace(/[\s-]+/g, "_");
 
@@ -299,6 +299,56 @@ const getG11FriendlyPlatformName = (value?: string | null) => {
   const sanitized = normalizeG11Text(value);
   return sanitized || null;
 };
+
+const getG11TargetWorkflowId = (value?: string | null): AdminWorkflowId | null => {
+  const normalized = normalizeG11Label(value).toUpperCase();
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized in G11_WORKFLOW_FRIENDLY_NAMES) {
+    return normalized as AdminWorkflowId;
+  }
+
+  const matchedEntry = Object.entries(G11_WORKFLOW_FRIENDLY_NAMES).find(([workflowId, label]) => workflowId === normalized || label.toUpperCase() === normalized);
+  return (matchedEntry?.[0] as AdminWorkflowId | undefined) ?? null;
+};
+
+const getG11NextStepCopy = (decision?: string | null, targetWorkflow?: string | null) => {
+  const normalizedDecision = normalizeG11EnumValue(decision);
+
+  switch (normalizedDecision) {
+    case "SCALE":
+      return getG11TargetWorkflowId(targetWorkflow) === "G9" ? "Send to G9 approval" : "Review and approve before taking action";
+    case "FIX_FIRST":
+      return "Fix the issue first";
+    case "DO_NOT_SCALE":
+      return "Do not scale";
+    case "TEST":
+      return "Review test recommendation";
+    case "PAUSE":
+      return "Send to approval before pausing";
+    case "INVESTIGATE":
+      return "Review the data before deciding";
+    case "NO_ACTION":
+      return "No action needed";
+    default:
+      return null;
+  }
+};
+
+const getG11RiskNoteCopy = (riskLevel?: string | null, riskNote?: string | null) => {
+  if (normalizeG11EnumValue(riskLevel) === "HIGH") {
+    return "This needs human review before any action.";
+  }
+
+  return riskNote ?? null;
+};
+
+const getG11OutcomeNextStepCopy = (outcome: WorkflowOutcomeSummary) =>
+  getG11NextStepCopy(getG11RecommendationValue(outcome), outcome.details?.targetWorkflow ?? outcome.details?.target) ??
+  outcome.details?.nextStep ??
+  outcome.actionNeeded;
 
 const getG11DisplayStatus = (value?: string | null) => {
   const normalized = normalizeG11EnumValue(value);
@@ -442,7 +492,7 @@ const isG11RecommendationSuccess = (response: WorkflowDashboardRunResponse) => {
 
 const isG11RecommendationBlocked = (response: WorkflowDashboardRunResponse) => {
   const responseType = normalizeG11ResponseType(response.response_type);
-  return response.status === "BLOCK" || response.outcome.result === "BLOCK" || responseType.includes("BLOCK");
+  return response.status === "BLOCK" || response.outcome?.result === "BLOCK" || responseType.includes("BLOCK");
 };
 
 function LoadingSkeleton() {
@@ -506,7 +556,10 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
   const [g2HealthStatus, setG2HealthStatus] = useState("UNKNOWN");
   const [g2Notes, setG2Notes] = useState("");
   const [refreshNonce, setRefreshNonce] = useState(0);
+  const [runDialogSession, setRunDialogSession] = useState(0);
   const hasLoadedRef = useRef(false);
+  const g11ToastIdRef = useRef<string | number | null>(null);
+  const g11RefreshPendingRef = useRef(false);
 
   useEffect(() => {
     hasLoadedRef.current = Boolean(snapshot);
@@ -538,6 +591,7 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
         if (response.ok && body?.workflow) {
           const workflowRecentOutcomes = Array.isArray(body.workflow.recentOutcomes) ? body.workflow.recentOutcomes : [];
           const topLevelRecentOutcomes = Array.isArray(body.recentOutcomes) ? body.recentOutcomes : [];
+          g11RefreshPendingRef.current = false;
           setSnapshot({
             status: body.status ?? "EMPTY",
             message: body.message ?? "Workflow detail loaded.",
@@ -555,7 +609,13 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
           return;
         }
 
-        setError(loadError instanceof Error ? loadError.message : "Unable to load workflow detail.");
+        if (workflowId === "G11" && g11RefreshPendingRef.current) {
+          g11RefreshPendingRef.current = false;
+          setError(null);
+          toast.warning("Recommendation was created, but the page could not refresh. Please reload.");
+        } else {
+          setError(loadError instanceof Error ? loadError.message : "Unable to load workflow detail.");
+        }
       } finally {
         if (active) {
           setLoading(false);
@@ -588,6 +648,8 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
   const g11TargetWorkflow = isG11Workflow ? getG11FriendlyWorkflowName(g11Details?.targetWorkflow ?? g11Details?.target) : null;
   const g11TargetPlatform = isG11Workflow ? getG11FriendlyPlatformName(g11Details?.targetPlatform) : null;
   const g11ExecutionDisplay = isG11Workflow ? getG11DisplayStatus(g11Details?.executionStatus ?? (g11Details?.notExecuted ? "NOT_EXECUTED" : null)) : null;
+  const g11NextStep = isG11Workflow && latestOutcome ? getG11OutcomeNextStepCopy(latestOutcome) : null;
+  const g11RiskNote = isG11Workflow && latestOutcome ? getG11RiskNoteCopy(g11Details?.riskLevel, g11Details?.riskNote) : null;
   const savedOutput = workflow ? getSavedOutputBlock(workflow.workflowId, latestOutcome) : null;
   const hideActionPanels = isG11Workflow;
 
@@ -637,7 +699,42 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
     setG2UpdateOpen(true);
   };
 
-  const handleRunSubmit = async (values: WorkflowRunValues) => {
+  const openRunDialog = () => {
+    setRunDialogSession((value) => value + 1);
+    setRunOpen(true);
+  };
+
+  const clearG11Toast = () => {
+    if (g11ToastIdRef.current !== null) {
+      toast.dismiss(g11ToastIdRef.current);
+      g11ToastIdRef.current = null;
+    }
+  };
+
+  const dismissStaleG11ErrorToast = () => {
+    const staleMessage = "G11 could not create a recommendation. Please try again.";
+
+    for (const entry of toast.getToasts()) {
+      if (!entry || typeof entry !== "object" || !("id" in entry)) {
+        continue;
+      }
+
+      const title = "title" in entry && typeof entry.title === "string" ? entry.title : "";
+      const description = "description" in entry && typeof entry.description === "string" ? entry.description : "";
+
+      if (title === staleMessage || description === staleMessage) {
+        toast.dismiss(entry.id);
+      }
+    }
+
+    clearG11Toast();
+  };
+
+  const handleRunSubmit = async (values: Record<string, unknown>) => {
+    if (workflowId === "G11") {
+      dismissStaleG11ErrorToast();
+    }
+
     const response = await request(buildRouteUrl(`/api/admin/workflow-dashboard/${workflowId}/run`), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -651,8 +748,17 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
       throw new Error(`Unable to submit workflow action (${response.status}).`);
     }
 
-    if (!response.ok && workflowId === "G11" && (isG11RecommendationSuccess(body) || isG11RecommendationBlocked(body))) {
-      return body;
+    if (workflowId === "G11" && process.env.NODE_ENV !== "production") {
+      console.log("G11 HTTP status:", response.status);
+      console.log("G11 create response:", body);
+    }
+
+    if (workflowId === "G11") {
+      if (isG11RecommendationSuccess(body) || isG11RecommendationBlocked(body)) {
+        return body;
+      }
+
+      throw new Error(body.message ?? `Unable to submit workflow action (${response.status}).`);
     }
 
     if (!response.ok) {
@@ -665,19 +771,22 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
   const handleRunSuccess = (response: WorkflowDashboardRunResponse) => {
     if (workflow?.workflowId === "G11") {
       if (isG11RecommendationSuccess(response)) {
+        clearG11Toast();
         setRunOpen(false);
-        toast.success("Recommendation created. Nothing was executed.");
+        g11RefreshPendingRef.current = true;
+        const toastId = toast.success("Recommendation created. Nothing was executed.");
+        g11ToastIdRef.current = toastId;
         setRefreshNonce((value) => value + 1);
         return;
       }
 
       if (isG11RecommendationBlocked(response)) {
-        toast.warning("G11 blocked this recommendation safely. Review the issue before continuing.");
+        clearG11Toast();
+        const toastId = toast.warning("G11 blocked this recommendation safely. Review the issue before continuing.");
+        g11ToastIdRef.current = toastId;
         setRefreshNonce((value) => value + 1);
         return;
       }
-
-      toast.error("G11 could not create a recommendation. Please try again.");
       return;
     }
 
@@ -792,17 +901,17 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
             {refreshing ? "Refreshing..." : primaryAction.label ?? "Refresh Status"}
           </Button>
         ) : primaryAction?.kind === "generate_recommendation" ? (
-          <Button type="button" className="h-10 min-w-[152px] justify-center rounded-full px-4" onClick={() => setRunOpen(true)}>
+          <Button type="button" className="h-10 min-w-[152px] justify-center rounded-full px-4" onClick={openRunDialog}>
             <Sparkles data-icon="inline-start" />
             {primaryAction.label ?? "Generate Recommendation"}
           </Button>
         ) : primaryAction?.kind === "run_dry_run" ? (
-          <Button type="button" className="h-10 min-w-[152px] justify-center rounded-full px-4" onClick={() => setRunOpen(true)}>
+          <Button type="button" className="h-10 min-w-[152px] justify-center rounded-full px-4" onClick={openRunDialog}>
             <Play data-icon="inline-start" />
             {primaryAction.label ?? "Run Dry Run"}
           </Button>
         ) : primaryAction?.kind === "run" ? (
-          <Button type="button" className="h-10 min-w-[152px] justify-center rounded-full px-4" onClick={() => setRunOpen(true)} disabled={!workflow.runEnabled}>
+          <Button type="button" className="h-10 min-w-[152px] justify-center rounded-full px-4" onClick={openRunDialog} disabled={!workflow.runEnabled}>
             <Play data-icon="inline-start" />
             {primaryAction.label ?? "Run Workflow"}
           </Button>
@@ -882,17 +991,17 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
           </a>
         </Button>
       ) : primaryAction?.kind === "generate_recommendation" ? (
-        <Button type="button" className="h-10 rounded-full px-5" onClick={() => setRunOpen(true)}>
+        <Button type="button" className="h-10 rounded-full px-5" onClick={openRunDialog}>
           <Sparkles data-icon="inline-start" />
           {primaryAction.label ?? "Generate Recommendation"}
         </Button>
       ) : primaryAction?.kind === "run_dry_run" ? (
-        <Button type="button" className="h-10 rounded-full px-5" onClick={() => setRunOpen(true)}>
+        <Button type="button" className="h-10 rounded-full px-5" onClick={openRunDialog}>
           <Play data-icon="inline-start" />
           {primaryAction.label ?? "Run Dry Run"}
         </Button>
       ) : primaryAction?.kind === "run" ? (
-        <Button type="button" className="h-10 rounded-full px-5" onClick={() => setRunOpen(true)} disabled={!workflow.runEnabled}>
+        <Button type="button" className="h-10 rounded-full px-5" onClick={openRunDialog} disabled={!workflow.runEnabled}>
           <Play data-icon="inline-start" />
           {primaryAction.label ?? "Run Workflow"}
         </Button>
@@ -1016,8 +1125,8 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
                           />
                           <DetailField
                             label="Next step"
-                            value={g11Details?.nextStep ?? latestOutcome.actionNeeded}
-                            helper={latestOutcome.result === "ERROR" ? "Recommendation output needs review." : g11Details?.riskNote ?? undefined}
+                            value={g11NextStep ?? latestOutcome.actionNeeded}
+                            helper={latestOutcome.result === "ERROR" ? "Recommendation output needs review." : g11RiskNote ?? undefined}
                           />
                           <DetailField
                             label="Execution"
@@ -1060,11 +1169,11 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
                             <Badge
                               variant="outline"
                               className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", getG11RiskTone(g11Details?.riskLevel))}
-                            >
-                              {g11Details?.riskLevel ?? "UNKNOWN"}
-                            </Badge>
-                          }
-                          helper={g11Details?.riskNote ?? (latestOutcome.result === "BLOCK" ? "This needs human review before any action." : undefined)}
+                              >
+                                {g11Details?.riskLevel ?? "UNKNOWN"}
+                              </Badge>
+                            }
+                          helper={g11RiskNote ?? (latestOutcome.result === "BLOCK" ? "This needs human review before any action." : undefined)}
                         />
                         <DetailField label="Target workflow" value={g11TargetWorkflow ?? "Not available"} />
                         <DetailField label="Platform" value={g11TargetPlatform ?? "Not available"} />
@@ -1138,7 +1247,9 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
                                   >
                                     {details?.riskLevel ?? "UNKNOWN"}
                                   </Badge>
-                                  {details?.riskNote ? <p className="text-xs leading-5 text-muted-foreground">{details.riskNote}</p> : null}
+                                  {getG11RiskNoteCopy(details?.riskLevel, details?.riskNote) ? (
+                                    <p className="text-xs leading-5 text-muted-foreground">{getG11RiskNoteCopy(details?.riskLevel, details?.riskNote)}</p>
+                                  ) : null}
                                 </div>
                               </TableCell>
                               <TableCell className="align-top whitespace-normal">
@@ -1150,7 +1261,7 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
                                 </Badge>
                               </TableCell>
                               <TableCell className="align-top whitespace-normal text-sm leading-6 text-foreground text-pretty">
-                                {details?.nextStep ?? outcome.actionNeeded}
+                                {getG11OutcomeNextStepCopy(outcome)}
                               </TableCell>
                               <TableCell className="align-top">
                                 <Button
@@ -1365,6 +1476,7 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
 
       {workflow && primaryAction && ["run", "run_dry_run", "generate_recommendation"].includes(primaryAction.kind) ? (
         <WorkflowRunDialog
+          key={`${workflow.workflowId}-${primaryAction.kind}-${runDialogSession}`}
           workflow={workflow}
           primaryAction={primaryAction}
           open={runOpen}
@@ -1481,7 +1593,7 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
                           {selectedOutcome.details?.riskLevel ?? "UNKNOWN"}
                         </Badge>
                       }
-                      helper={selectedOutcome.details?.riskNote ?? undefined}
+                      helper={getG11RiskNoteCopy(selectedOutcome.details?.riskLevel, selectedOutcome.details?.riskNote) ?? undefined}
                     />
                   </div>
 
@@ -1526,8 +1638,8 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
 
                   <DetailField
                     label="Next step"
-                    value={selectedOutcome.details?.nextStep ?? selectedOutcome.actionNeeded}
-                    helper={selectedOutcome.result === "BLOCK" ? "Fix missing or blocked data first." : undefined}
+                    value={getG11OutcomeNextStepCopy(selectedOutcome)}
+                    helper={getG11RiskNoteCopy(selectedOutcome.details?.riskLevel, selectedOutcome.details?.riskNote) ?? (selectedOutcome.result === "BLOCK" ? "Fix missing or blocked data first." : undefined)}
                   />
 
                   <div className="grid gap-3 md:grid-cols-2">
