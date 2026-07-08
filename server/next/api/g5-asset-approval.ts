@@ -71,6 +71,24 @@ export type G5DashboardAssetRecord = {
   hook_angle: string | null;
   media_url: string | null;
   storage_url: string | null;
+  metadata: JsonRecord | null;
+  original_post: G5OriginalPostDetails | null;
+  selected_caption: string | null;
+  selected_caption_index: number | null;
+  selected_hook: string | null;
+  selected_hook_index: number | null;
+  caption_options: G5G4CaptionOption[];
+  hook_options: G5G4HookOption[];
+  media_assets: JsonRecord[];
+  source_content_id: string | null;
+  source_g4_review_id: string | null;
+  source_handoff_id: string | null;
+  source_status: string | null;
+  registration_status: string | null;
+  g5_status: string | null;
+  used_in_g5: boolean | null;
+  registered_asset_id: string | null;
+  registered_at: string | null;
   compliance_status: string | null;
   approval_status: string | null;
   approved_by: string | null;
@@ -242,9 +260,62 @@ export type G5AssetRegisterInput = {
   g4_review_uuid: string;
   content_review_id: string;
   review_id: string;
+  source_content_id?: string | null;
+  source_g4_review_id?: string | null;
+  source_handoff_id?: string | null;
+  selected_caption?: string | null;
+  selected_caption_index?: number | null;
+  selected_hook?: string | null;
+  selected_hook_index?: number | null;
+  caption_options?: G5G4CaptionOption[];
+  hook_options?: G5G4HookOption[];
+  media_assets?: JsonRecord[];
+  original_post_data?: JsonRecord | string | null;
+  original_post_url?: string | null;
+  status?: string | null;
+  source_status?: string | null;
+  registration_status?: string | null;
+  approval_status?: string | null;
+  readiness_status?: string | null;
+  metadata?: JsonRecord | null;
+  used_in_g5?: boolean | null;
   source_platform: "WEBSITE";
   source_event: "CLIENT_UPLOAD";
   rights_status: "OWNED_OR_INTERNAL";
+  actor: string;
+};
+
+export type G5AssetComposerUpdateInput = {
+  asset_id: string;
+  approval_id?: string | null;
+  platform: "INSTAGRAM";
+  asset_title: string;
+  content_text: string;
+  hook_angle?: string | null;
+  selected_caption?: string | null;
+  selected_caption_index?: number | null;
+  selected_hook?: string | null;
+  selected_hook_index?: number | null;
+  caption_options?: G5G4CaptionOption[];
+  hook_options?: G5G4HookOption[];
+  media_url?: string | null;
+  storage_url?: string | null;
+  media_assets?: JsonRecord[];
+  original_post_data?: JsonRecord | string | null;
+  original_post_url?: string | null;
+  source_content_id?: string | null;
+  source_g4_review_id?: string | null;
+  source_handoff_id?: string | null;
+  source_platform?: string | null;
+  source_event?: string | null;
+  status?: string | null;
+  source_status?: string | null;
+  registration_status?: string | null;
+  approval_status?: string | null;
+  readiness_status?: string | null;
+  g5_status?: string | null;
+  used_in_g5?: boolean | null;
+  metadata?: JsonRecord | null;
   actor: string;
 };
 
@@ -272,6 +343,25 @@ export type G5ReadinessCheckInput = {
   asset_type: string;
   media_url: string;
   caption: string;
+  hook_angle?: string | null;
+  selected_caption?: string | null;
+  selected_caption_index?: number | null;
+  selected_hook?: string | null;
+  selected_hook_index?: number | null;
+  caption_options?: G5G4CaptionOption[];
+  hook_options?: G5G4HookOption[];
+  media_assets?: JsonRecord[];
+  original_post_data?: JsonRecord | string | null;
+  original_post_url?: string | null;
+  source_content_id?: string | null;
+  source_g4_review_id?: string | null;
+  source_handoff_id?: string | null;
+  source_status?: string | null;
+  registration_status?: string | null;
+  approval_status?: string | null;
+  readiness_status?: string | null;
+  g5_status?: string | null;
+  metadata?: JsonRecord | null;
   actor: string;
 };
 
@@ -372,8 +462,24 @@ const getJsonRecordCandidates = (record: JsonRecord | null | undefined) => {
   const direct = asRecord(record);
   const payload = asRecord(direct?.raw_payload);
   const nestedPayload = asRecord(payload?.raw_payload);
+  const directMetadata = asRecord(direct?.metadata);
+  const payloadMetadata = asRecord(payload?.metadata);
+  const nestedMetadata = asRecord(nestedPayload?.metadata);
+  const directSourceG4 = asRecord(direct?.source_g4 ?? direct?.sourceG4 ?? directMetadata?.source_g4 ?? directMetadata?.sourceG4);
+  const payloadSourceG4 = asRecord(payload?.source_g4 ?? payload?.sourceG4 ?? payloadMetadata?.source_g4 ?? payloadMetadata?.sourceG4);
+  const nestedSourceG4 = asRecord(nestedPayload?.source_g4 ?? nestedPayload?.sourceG4 ?? nestedMetadata?.source_g4 ?? nestedMetadata?.sourceG4);
 
-  return [direct, payload, nestedPayload].filter((value): value is JsonRecord => Boolean(value));
+  return [
+    direct,
+    payload,
+    nestedPayload,
+    directMetadata,
+    payloadMetadata,
+    nestedMetadata,
+    directSourceG4,
+    payloadSourceG4,
+    nestedSourceG4,
+  ].filter((value): value is JsonRecord => Boolean(value));
 };
 
 const readJsonRecordText = (record: JsonRecord | null | undefined, keys: string[]) => {
@@ -386,6 +492,40 @@ const readJsonRecordText = (record: JsonRecord | null | undefined, keys: string[
     if (value) {
       return value;
     }
+  }
+
+  return null;
+};
+
+const readJsonRecordValue = (record: JsonRecord | null | undefined, keys: string[]) => {
+  if (!record) {
+    return null;
+  }
+
+  for (const key of keys) {
+    if (!(key in record)) {
+      continue;
+    }
+
+    const value = record[key];
+    if (value === null || value === undefined) {
+      continue;
+    }
+
+    if (typeof value === "string") {
+      const text = value.trim();
+      if (!text) {
+        continue;
+      }
+
+      try {
+        return JSON.parse(text) as unknown;
+      } catch {
+        return text;
+      }
+    }
+
+    return value;
   }
 
   return null;
@@ -422,6 +562,133 @@ const getG4SourceLookupKey = (row: JsonRecord | null | undefined) =>
       "assetId",
     ],
   );
+
+type NormalizedG5MediaAsset = JsonRecord & {
+  media_url: string | null;
+  storage_url: string | null;
+  storage_key: string | null;
+  filename: string;
+  content_type: string | null;
+  kind: string;
+  size: number | null;
+};
+
+const normalizeG5MediaAssets = (value: unknown) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry, index) => {
+      if (typeof entry === "string") {
+        const mediaUrl = entry.trim();
+        if (!mediaUrl) {
+          return null;
+        }
+
+        return {
+          media_url: mediaUrl,
+          storage_url: mediaUrl,
+          storage_key: mediaUrl,
+          filename: `media-${index + 1}`,
+          content_type: null,
+          kind: "IMAGE",
+          size: null,
+        };
+      }
+
+      const record = asRecord(entry);
+      if (!record) {
+        return null;
+      }
+
+      const mediaUrl = pickTextFromCandidates(record, ["media_url", "mediaUrl", "url", "public_url", "publicUrl"]);
+      const storageUrl = pickTextFromCandidates(record, ["storage_url", "storageUrl", "storage_key", "storageKey"]) ?? mediaUrl;
+      const contentType = pickTextFromCandidates(record, ["content_type", "contentType", "mime_type", "mimeType"]);
+      const kind = pickTextFromCandidates(record, ["kind", "asset_kind", "assetKind"]);
+      const filename = pickTextFromCandidates(record, ["filename", "name", "file_name", "fileName"]);
+      const size = readJsonRecordNumberFromCandidates([record], ["size", "file_size", "fileSize"]);
+
+      return {
+        ...record,
+        media_url: mediaUrl,
+        storage_url: storageUrl,
+        storage_key: pickTextFromCandidates(record, ["storage_key", "storageKey"]) ?? storageUrl ?? mediaUrl,
+        filename: filename ?? mediaUrl ?? `media-${index + 1}`,
+        content_type: contentType,
+        kind: kind ?? (contentType?.toLowerCase().startsWith("video/") ? "VIDEO" : "IMAGE"),
+        size,
+      };
+    })
+    .filter((entry): entry is NormalizedG5MediaAsset => Boolean(entry));
+};
+
+const normalizeG5OptionArray = (value: unknown, kind: "caption" | "hook") => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry, index) => {
+      if (typeof entry === "string") {
+        const text = normalizeG4Text(entry);
+        if (!text) {
+          return null;
+        }
+
+        return {
+          id: `${kind}-${index + 1}`,
+          label: `${kind === "caption" ? "Caption" : "Hook"} ${index + 1}`,
+          text,
+          source: "G4" as const,
+        };
+      }
+
+      const record = asRecord(entry);
+      if (!record) {
+        return null;
+      }
+
+      const text =
+        pickTextFromCandidates(record, ["text", "caption", "caption_text", "captionText", "hook", "hook_text", "hookText", "value"]) ??
+        normalizeG4Text(record.text) ??
+        null;
+      if (!text) {
+        return null;
+      }
+
+      const label =
+        pickTextFromCandidates(record, ["label", "name", "title"]) ??
+        `${kind === "caption" ? "Caption" : "Hook"} ${index + 1}`;
+
+      return {
+        id: pickTextFromCandidates(record, ["id", "option_id", "optionId", "key", "value"]) ?? `${kind}-${index + 1}`,
+        label,
+        text,
+        source: "G4" as const,
+      };
+    })
+    .filter((entry): entry is G5G4CaptionOption | G5G4HookOption => Boolean(entry));
+};
+
+const normalizeG5OriginalPost = (records: Array<JsonRecord | null | undefined>) => {
+  const originalPostObject = readJsonRecordObjectFromCandidates(records, ["original_post", "originalPost"]);
+  const originalPostDataObject = readJsonRecordObjectFromCandidates(records, ["original_post_data", "originalPostData"]);
+  const sourceRecords = [...records, originalPostObject, originalPostDataObject];
+
+  return {
+    platform: readJsonRecordTextFromCandidates(sourceRecords, ["platform", "source_platform", "sourcePlatform"]),
+    handle: readJsonRecordTextFromCandidates(sourceRecords, ["handle", "username", "profile_username", "profileUsername", "creator_handle", "creatorHandle"]),
+    caption: readJsonRecordTextFromCandidates(sourceRecords, ["caption", "caption_text", "captionText", "content_text", "contentText"]),
+    post_url: readJsonRecordTextFromCandidates(sourceRecords, ["post_url", "postUrl", "source_url", "sourceUrl", "landing_page_url", "landingPageUrl", "permalink"]),
+    views: readJsonRecordTextFromCandidates(sourceRecords, ["views"]),
+    likes: readJsonRecordTextFromCandidates(sourceRecords, ["likes"]),
+    comments: readJsonRecordTextFromCandidates(sourceRecords, ["comments", "comments_count", "commentsCount"]),
+    shares: readJsonRecordTextFromCandidates(sourceRecords, ["shares"]),
+    audio: readJsonRecordTextFromCandidates(sourceRecords, ["audio", "audio_sound", "audioSound", "sound", "music"]),
+    engagement_rate: readJsonRecordTextFromCandidates(sourceRecords, ["engagement_rate", "engagementRate"]),
+  };
+};
 
 const loadG4SourcePreviewMap = async (rows: JsonRecord[]) => {
   const client = getN8nSupabaseAdmin();
@@ -623,7 +890,15 @@ const isSuccessfulG5AssetRegisterAudit = (row: JsonRecord) => {
   const operation = normalizeStateKey(row.operation);
   const status = normalizeStateKey(row.status);
 
-  return operation === "ASSET_REGISTER" && (status === "PASS" || status === "SUCCESS" || status === "OK");
+  if (operation !== "ASSET_REGISTER" && operation !== "ASSET_EDIT") {
+    return false;
+  }
+
+  if (!status) {
+    return false;
+  }
+
+  return !["BLOCK", "ERROR", "FAIL", "FAILED", "REJECTED", "DENIED", "CANCELLED", "CANCELED"].includes(status);
 };
 
 const G5_G4_ASSET_LINKS_TABLE = "g5_g4_asset_links" as const;
@@ -635,6 +910,39 @@ const G5_WORKFLOW_ID = "WF1" as const;
 
 const normalizeG4ApprovedContentKeyText = (value: string | null | undefined) => value?.trim().toLowerCase().replace(/\s+/g, " ") ?? "";
 
+const buildG5CaptionHash = (value: string | null | undefined) => {
+  const normalized = normalizeG4ApprovedContentKeyText(value);
+  if (!normalized) {
+    return null;
+  }
+
+  return createHash("sha256").update(normalized).digest("hex");
+};
+
+const formatCompactUuid = (value: string) =>
+  `${value.slice(0, 8)}-${value.slice(8, 12)}-${value.slice(12, 16)}-${value.slice(16, 20)}-${value.slice(20, 32)}`;
+
+const normalizeG5ApprovalIdText = (value: string | null | undefined) => {
+  const normalized = value?.trim().toLowerCase() ?? "";
+  if (!normalized) {
+    return null;
+  }
+
+  const stripped = normalized.replace(/^g5_approval_/, "");
+  const compact = stripped.replace(/-/g, "");
+
+  if (/^[0-9a-f]{32}$/.test(compact)) {
+    return formatCompactUuid(compact);
+  }
+
+  const uuidMatch = stripped.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/);
+  if (uuidMatch) {
+    return uuidMatch[0];
+  }
+
+  return null;
+};
+
 const getG4ApprovedContentCreatedAtValue = (row: JsonRecord) => {
   const createdAt = pickDateFromCandidates(row, ["created_at", "createdAt", "updated_at", "updatedAt"]);
   return createdAt ? Date.parse(createdAt) || 0 : 0;
@@ -643,6 +951,9 @@ const getG4ApprovedContentCreatedAtValue = (row: JsonRecord) => {
 const buildG4ApprovedContentIdentity = (row: JsonRecord) => {
   const preview = extractG4ContentPreview(row);
 
+  const sourceHandoffId = pickTextFromCandidates(row, ["source_handoff_id", "sourceHandoffId", "handoff_id", "handoffId", "approval_id", "approvalId"]);
+  const sourceG4ReviewId = pickTextFromCandidates(row, ["source_g4_review_id", "sourceG4ReviewId", "g4_review_id", "g4ReviewId", "g4_review_uuid", "g4ReviewUuid"]);
+  const sourceContentId = pickTextFromCandidates(row, ["source_content_id", "sourceContentId", "content_review_id", "contentReviewId", "review_id", "reviewId"]);
   const contentReviewId = pickTextFromCandidates(row, ["content_review_id", "contentReviewId"]);
   const reviewId = pickTextFromCandidates(row, ["review_id", "reviewId"]);
   const sourceUrl =
@@ -658,14 +969,19 @@ const buildG4ApprovedContentIdentity = (row: JsonRecord) => {
   const createdAt = pickDateFromCandidates(row, ["created_at", "createdAt", "updated_at", "updatedAt"]);
   const createdDate = createdAt ? createdAt.slice(0, 10) : null;
   const rowId = pickTextFromCandidates(row, ["id"]);
+  const captionHash = buildG5CaptionHash(caption);
 
   const candidateKeys = [
+    sourceHandoffId ? `source_handoff_id:${normalizeG4ApprovedContentKeyText(sourceHandoffId)}` : null,
+    sourceG4ReviewId ? `source_g4_review_id:${normalizeG4ApprovedContentKeyText(sourceG4ReviewId)}` : null,
+    sourceContentId ? `source_content_id:${normalizeG4ApprovedContentKeyText(sourceContentId)}` : null,
+    rowId ? `asset_id:${normalizeG4ApprovedContentKeyText(rowId)}` : null,
+    sourceUrl && captionHash ? `original_post_url_caption_hash:${normalizeG4ApprovedContentKeyText(sourceUrl)}|${captionHash}` : null,
     contentReviewId ? `content_review_id:${normalizeG4ApprovedContentKeyText(contentReviewId)}` : null,
     reviewId ? `review_id:${normalizeG4ApprovedContentKeyText(reviewId)}` : null,
     sourceUrl ? `source_url:${normalizeG4ApprovedContentKeyText(sourceUrl)}` : null,
     caption ? `caption_platform:${normalizeG4ApprovedContentKeyText(caption)}|${normalizeG4ApprovedContentKeyText(platform)}` : null,
     title ? `title_created:${normalizeG4ApprovedContentKeyText(title)}|${normalizeG4ApprovedContentKeyText(createdDate)}` : null,
-    rowId ? `id:${normalizeG4ApprovedContentKeyText(rowId)}` : null,
   ].filter((value): value is string => Boolean(value));
 
   return {
@@ -680,17 +996,43 @@ const dedupeG4ApprovedContentRows = (rows: JsonRecord[]) => {
 
   for (const row of rows) {
     const identity = buildG4ApprovedContentIdentity(row);
-    const key = identity.primaryKey;
-
-    if (!key || seenKeys.has(key)) {
+    if (!identity.candidateKeys.length || identity.candidateKeys.some((key) => seenKeys.has(key))) {
       continue;
     }
 
-    seenKeys.add(key);
+    identity.candidateKeys.forEach((key) => seenKeys.add(key));
     uniqueRows.push(row);
   }
 
   return uniqueRows;
+};
+
+const buildRegisteredG5AssetIdentity = (row: JsonRecord) => {
+  const sourceHandoffId = pickTextFromCandidates(row, ["source_handoff_id", "sourceHandoffId", "handoff_id", "handoffId", "approval_id", "approvalId"]);
+  const sourceG4ReviewId = pickTextFromCandidates(row, ["source_g4_review_id", "sourceG4ReviewId", "g4_review_id", "g4ReviewId", "g4_review_uuid", "g4ReviewUuid", "review_id", "reviewId", "content_review_id", "contentReviewId"]);
+  const sourceContentId = pickTextFromCandidates(row, ["source_content_id", "sourceContentId", "content_review_id", "contentReviewId", "review_id", "reviewId", "id"]);
+  const assetId = pickTextFromCandidates(row, ["registered_asset_id", "registeredAssetId", "asset_id", "assetId", "id", "approval_id", "approvalId"]);
+  const originalPostUrl =
+    pickTextFromCandidates(row, ["original_post_url", "originalPostUrl", "source_url", "sourceUrl", "post_url", "postUrl", "permalink"]) ??
+    extractG4ContentPreview(row).sourceUrl;
+  const selectedCaption =
+    pickTextFromCandidates(row, ["selected_caption", "selectedCaption", "content_text", "caption", "caption_text", "captionText"]) ??
+    extractG4ContentPreview(row).captionPreview ??
+    null;
+  const captionHash = buildG5CaptionHash(selectedCaption);
+
+  const candidateKeys = [
+    sourceHandoffId ? `source_handoff_id:${normalizeG4ApprovedContentKeyText(sourceHandoffId)}` : null,
+    sourceG4ReviewId ? `source_g4_review_id:${normalizeG4ApprovedContentKeyText(sourceG4ReviewId)}` : null,
+    sourceContentId ? `source_content_id:${normalizeG4ApprovedContentKeyText(sourceContentId)}` : null,
+    assetId ? `asset_id:${normalizeG4ApprovedContentKeyText(assetId)}` : null,
+    originalPostUrl && captionHash ? `original_post_url_caption_hash:${normalizeG4ApprovedContentKeyText(originalPostUrl)}|${captionHash}` : null,
+  ].filter((value): value is string => Boolean(value));
+
+  return {
+    candidateKeys,
+    primaryKey: candidateKeys[0] ?? null,
+  };
 };
 
 const getG5ClientStatusInfo = (asset: Pick<
@@ -722,6 +1064,26 @@ const getG5ClientStatusInfo = (asset: Pick<
     };
   }
 
+  if (publishStateStatus === "REJECTED" || contentApprovalStatus === "REJECTED") {
+    return {
+      contentApprovalStatus,
+      publishStateStatus,
+      manualPublishStatus,
+      clientStatus: "Rejected" as const,
+      clientTab: "blocked_rejected" as const,
+    };
+  }
+
+  if (publishStateStatus === "BLOCKED" || publishStateStatus === "FAILED" || publishStateStatus === "ERROR" || contentApprovalStatus === "BLOCKED") {
+    return {
+      contentApprovalStatus,
+      publishStateStatus,
+      manualPublishStatus,
+      clientStatus: "Blocked" as const,
+      clientTab: "blocked_rejected" as const,
+    };
+  }
+
   if (publishStateStatus === "APPROVED" || contentApprovalStatus === "APPROVED") {
     return {
       contentApprovalStatus,
@@ -743,26 +1105,6 @@ const getG5ClientStatusInfo = (asset: Pick<
       manualPublishStatus,
       clientStatus: "Pending approval" as const,
       clientTab: "pending_approval" as const,
-    };
-  }
-
-  if (publishStateStatus === "REJECTED" || contentApprovalStatus === "REJECTED") {
-    return {
-      contentApprovalStatus,
-      publishStateStatus,
-      manualPublishStatus,
-      clientStatus: "Rejected" as const,
-      clientTab: "blocked_rejected" as const,
-    };
-  }
-
-  if (publishStateStatus === "BLOCKED" || publishStateStatus === "FAILED" || publishStateStatus === "ERROR" || contentApprovalStatus === "BLOCKED") {
-    return {
-      contentApprovalStatus,
-      publishStateStatus,
-      manualPublishStatus,
-      clientStatus: "Blocked" as const,
-      clientTab: "blocked_rejected" as const,
     };
   }
 
@@ -831,17 +1173,43 @@ const normalizeAssetRecord = (row: JsonRecord): G5DashboardAssetRecord | null =>
     return null;
   }
 
+  const metadata = readJsonRecordObjectFromCandidates([row], ["metadata"]);
   const assetTitle = pickTextFromCandidates(row, ["asset_title", "assetTitle", "title", "name", "content_text", "contentText", "caption", "caption_text", "captionText", "summary"]);
   const assetType = pickTextFromCandidates(row, ["asset_type", "assetType", "content_type", "contentType", "media_type", "mediaType"]);
   const intendedPlatform = pickTextFromCandidates(row, ["intended_platform", "intendedPlatform"]);
   const platform = pickTextFromCandidates(row, ["platform", "source_platform", "sourcePlatform"]);
   const contentText = pickTextFromCandidates(row, ["content_text", "contentText", "caption", "caption_text", "captionText", "body", "message"]);
-  const hookAngle = pickTextFromCandidates(row, ["hook_angle", "hookAngle", "selected_hook", "selectedHook", "ai_hook_angle"]);
+  const selectedCaption = pickTextFromCandidates(row, ["selected_caption", "selectedCaption", "caption", "caption_text", "captionText", "content_text", "contentText"]) ?? contentText;
+  const selectedCaptionIndex = readJsonRecordNumberFromCandidates([row], ["selected_caption_index", "selectedCaptionIndex"]);
+  const selectedHook = pickTextFromCandidates(row, ["selected_hook", "selectedHook", "hook_angle", "hookAngle", "hook", "hook_text", "hookText", "ai_hook_angle"]);
+  const selectedHookIndex = readJsonRecordNumberFromCandidates([row], ["selected_hook_index", "selectedHookIndex"]);
+  const captionOptions = readBestJsonRecordArrayFromCandidates(
+    [row],
+    ["caption_options", "captionOptions", "generated_captions", "generatedCaptions", "captions"],
+    (value) => normalizeG5OptionArray(value, "caption"),
+  );
+  const hookOptions = readBestJsonRecordArrayFromCandidates(
+    [row],
+    ["hook_options", "hookOptions", "generated_hooks", "generatedHooks", "hooks"],
+    (value) => normalizeG5OptionArray(value, "hook"),
+  );
+  const mediaAssets = readBestJsonRecordArrayFromCandidates([row], ["media_assets", "mediaAssets"], (value) => normalizeG5MediaAssets(value));
+  const sourceContentId = pickTextFromCandidates(row, ["source_content_id", "sourceContentId", "content_review_id", "contentReviewId", "review_id", "reviewId", "id"]);
+  const sourceG4ReviewId = pickTextFromCandidates(row, ["source_g4_review_id", "sourceG4ReviewId", "g4_review_id", "g4ReviewId", "g4_review_uuid", "g4ReviewUuid", "content_review_id", "contentReviewId", "review_id", "reviewId"]);
+  const sourceHandoffId = pickTextFromCandidates(row, ["source_handoff_id", "sourceHandoffId", "handoff_id", "handoffId", "approval_id", "approvalId", "asset_id", "assetId"]);
+  const sourceStatus = pickTextFromCandidates(row, ["source_status", "sourceStatus"]);
+  const registrationStatus = pickTextFromCandidates(row, ["registration_status", "registrationStatus"]);
+  const g5Status = pickTextFromCandidates(row, ["g5_status", "g5Status"]);
+  const usedInG5 = readJsonRecordBooleanFromCandidates([row], ["used_in_g5", "usedInG5"]);
+  const registeredAssetId = pickTextFromCandidates(row, ["registered_asset_id", "registeredAssetId"]) ?? assetId;
+  const registeredAt = pickDateFromCandidates(row, ["registered_at", "registeredAt", "source_registered_at", "sourceRegisteredAt"]);
+  const originalPost = normalizeG5OriginalPost([row]);
+  const hookAngle = selectedHook ?? pickTextFromCandidates(row, ["hook_angle", "hookAngle", "ai_hook_angle"]);
   const mediaUrl = pickTextFromCandidates(row, ["media_url", "mediaUrl", "public_url", "publicUrl", "url", "image_url", "imageUrl", "video_url", "videoUrl"]);
   const storageUrl = pickTextFromCandidates(row, ["storage_url", "storageUrl", "storage_reference", "storageReference", "storage_key", "storageKey"]);
   const complianceStatus = pickTextFromCandidates(row, ["compliance_status", "complianceStatus", "g1_compliance_status", "g1ComplianceStatus"]);
-  const approvalStatus = pickTextFromCandidates(row, ["approval_status", "approvalStatus"]);
-  const approvedBy = pickTextFromCandidates(row, ["approved_by", "approvedBy"]);
+  const approvalStatus = pickTextFromCandidates(row, ["approval_status", "approvalStatus", "decision", "approvalDecision"]);
+  const approvedBy = pickTextFromCandidates(row, ["approved_by", "approvedBy", "reviewer", "reviewerId", "reviewer_id"]);
   const assetCreatedAt = pickDateFromCandidates(row, ["asset_created_at", "assetCreatedAt", "created_at", "createdAt"]);
   const assetStatus = pickTextFromCandidates(row, ["asset_status", "assetStatus", "status"]);
   const readinessStatus = pickTextFromCandidates(row, ["readiness_status", "readinessStatus"]);
@@ -882,6 +1250,24 @@ const normalizeAssetRecord = (row: JsonRecord): G5DashboardAssetRecord | null =>
     hook_angle: hookAngle,
     media_url: mediaUrl,
     storage_url: storageUrl,
+    metadata,
+    original_post: originalPost,
+    selected_caption: selectedCaption,
+    selected_caption_index: selectedCaptionIndex,
+    selected_hook: selectedHook,
+    selected_hook_index: selectedHookIndex,
+    caption_options: captionOptions,
+    hook_options: hookOptions,
+    media_assets: mediaAssets,
+    source_content_id: sourceContentId,
+    source_g4_review_id: sourceG4ReviewId,
+    source_handoff_id: sourceHandoffId,
+    source_status: sourceStatus,
+    registration_status: registrationStatus,
+    g5_status: g5Status,
+    used_in_g5: usedInG5,
+    registered_asset_id: registeredAssetId,
+    registered_at: registeredAt,
     compliance_status: complianceStatus,
     approval_status: approvalStatus,
     approved_by: approvedBy,
@@ -1265,6 +1651,45 @@ const queryPublicRows = async (table: string, limit = 200) => {
   };
 };
 
+const getRowRecencyValue = (row: JsonRecord) => {
+  const candidates = [
+    "state_updated_at",
+    "stateUpdatedAt",
+    "handled_at",
+    "handledAt",
+    "approved_at",
+    "approvedAt",
+    "published_at",
+    "publishedAt",
+    "last_readiness_check_at",
+    "lastReadinessCheckAt",
+    "updated_at",
+    "updatedAt",
+    "modified_at",
+    "modifiedAt",
+    "created_at",
+    "createdAt",
+    "asset_created_at",
+    "assetCreatedAt",
+  ];
+
+  for (const key of candidates) {
+    const candidate = pickDateFromCandidates(row, [key]);
+    if (!candidate) {
+      continue;
+    }
+
+    const value = Date.parse(candidate);
+    if (Number.isFinite(value)) {
+      return value;
+    }
+  }
+
+  return 0;
+};
+
+const sortRowsByRecency = (rows: JsonRecord[]) => [...rows].sort((left, right) => getRowRecencyValue(left) - getRowRecencyValue(right));
+
 const getAssetRecencyValue = (asset: G5DashboardAssetRecord) => {
   const candidates = [asset.state_updated_at, asset.published_at, asset.last_readiness_check_at, asset.asset_created_at];
 
@@ -1509,11 +1934,23 @@ export async function loadG5DashboardAssets(): Promise<G5DashboardResponse> {
     return createEmptyDashboardResponse("UNAVAILABLE", "G5 dashboard data source is not configured yet.");
   }
 
-  const [viewResult, auditResult] = await Promise.all([
+  const [viewResult, contentAssetsResult, stateResult, publishResultsResult, approvalResult, auditResult] = await Promise.all([
     queryPublicRows("g5_manual_publish_dashboard_view", 250),
+    queryPublicRows("content_assets", 250),
+    queryPublicRows("g5_asset_publish_state", 250),
+    queryPublicRows("g5_manual_publish_results", 250),
+    queryPublicRows(G5_APPROVALS_TABLE, 250),
     queryPublicRows(G5_ASSET_AUDIT_TABLE, 250),
   ]);
   const auditRows = auditResult.rows.filter(isSuccessfulG5AssetRegisterAudit).map(expandRecordWithRawPayload);
+  const approvalRows = sortRowsByRecency(
+    approvalResult.rows.filter((row) => {
+      const workflowGroup = normalizeStateKey(row.workflow_group);
+      const workflowId = normalizeStateKey(row.workflow_id);
+      return workflowGroup === G5_WORKFLOW_GROUP || workflowId === G5_WORKFLOW_ID;
+    }),
+  );
+  const baseRows = viewResult.error === null ? viewResult.rows : contentAssetsResult.rows;
   const merged = new Map<string, G5DashboardAssetRecord>();
   const mergeRows = (rows: JsonRecord[]) => {
     for (const row of rows) {
@@ -1527,38 +1964,19 @@ export async function loadG5DashboardAssets(): Promise<G5DashboardResponse> {
     }
   };
 
-  if (viewResult.error === null) {
-    mergeRows(viewResult.rows);
-    mergeRows(auditRows);
-    const assets = sortAssets([...merged.values()].map(finalizeG5AssetRecord));
-    logG5NormalizedAssetStatuses(assets);
-
-    return {
-      status: assets.length ? "PASS" : "EMPTY",
-      source: "VIEW",
-      message: assets.length ? "G5 dashboard loaded from the consolidated view." : "No G5 assets have been stored yet.",
-      summary: buildDashboardSummary(assets),
-      assets,
-    };
-  }
-
-  const [contentAssetsResult, stateResult, publishResultsResult] = await Promise.all([
-    queryPublicRows("content_assets", 250),
-    queryPublicRows("g5_asset_publish_state", 250),
-    queryPublicRows("g5_manual_publish_results", 250),
-  ]);
-
-  mergeRows(contentAssetsResult.rows);
-  mergeRows(stateResult.rows);
-  mergeRows(publishResultsResult.rows);
-  mergeRows(auditRows);
+  const mergedRows = sortRowsByRecency([...baseRows, ...auditRows, ...approvalRows, ...stateResult.rows, ...publishResultsResult.rows]);
+  mergeRows(mergedRows);
 
   const assets = sortAssets([...merged.values()].map(finalizeG5AssetRecord));
   logG5NormalizedAssetStatuses(assets);
   return {
     status: assets.length ? "PASS" : "EMPTY",
-    source: "FALLBACK",
-    message: assets.length ? "G5 dashboard loaded from fallback tables." : "No G5 assets have been stored yet.",
+    source: viewResult.error === null ? "VIEW" : "FALLBACK",
+    message: assets.length
+      ? viewResult.error === null
+        ? "G5 dashboard loaded from the consolidated view."
+        : "G5 dashboard loaded from fallback tables."
+      : "No G5 assets have been stored yet.",
     summary: buildDashboardSummary(assets),
     assets,
   };
@@ -1619,18 +2037,17 @@ export async function loadG5ApprovedContent(): Promise<G5ApprovedContentResponse
     };
   }
 
+  const registeredG5AssetRows = [
+    ...contentAssetsResult.rows,
+    ...stateResult.rows,
+    ...publishResultsResult.rows,
+    ...dashboardViewResult.rows,
+    ...g5G4LinkResult.rows,
+    ...auditResult.rows.filter(isSuccessfulG5AssetRegisterAudit).map(expandRecordWithRawPayload),
+  ].map(expandRecordWithRawPayload);
   const registeredG4ReviewKeys = new Set(
-    collectTextValuesFromCandidates(
-      [
-        ...contentAssetsResult.rows,
-        ...stateResult.rows,
-        ...publishResultsResult.rows,
-        ...dashboardViewResult.rows,
-        ...g5G4LinkResult.rows,
-        ...auditResult.rows.filter(isSuccessfulG5AssetRegisterAudit).map(expandRecordWithRawPayload),
-      ],
-      ["g4_review_id", "g4ReviewId", "g4_review_uuid", "g4ReviewUuid", "content_review_id", "contentReviewId", "review_id", "reviewId"],
-    )
+    registeredG5AssetRows
+      .flatMap((row) => buildRegisteredG5AssetIdentity(row).candidateKeys)
       .map((value) => normalizeG4ApprovedContentKeyText(value))
       .filter(Boolean),
   );
@@ -1687,7 +2104,7 @@ export async function loadG5ApprovedContent(): Promise<G5ApprovedContentResponse
 
 const resolveG4ReviewIdFromG5AssetIdentity = async (assetId?: string | null, approvalId?: string | null) => {
   const normalizedAssetId = assetId?.trim() ?? "";
-  const normalizedApprovalId = approvalId?.trim() ?? "";
+  const normalizedApprovalId = normalizeG5ApprovalIdText(approvalId) ?? approvalId?.trim() ?? "";
 
   if (!normalizedAssetId && !normalizedApprovalId) {
     return null;
@@ -1701,11 +2118,11 @@ const resolveG4ReviewIdFromG5AssetIdentity = async (assetId?: string | null, app
   const auditRows = auditResult.rows.filter(isSuccessfulG5AssetRegisterAudit).map(expandRecordWithRawPayload);
   const candidateRows = [...linkRowsResult.rows, ...auditRows];
   const normalizedAssetKey = normalizeG4ApprovedContentKeyText(normalizedAssetId);
-  const normalizedApprovalKey = normalizeG4ApprovedContentKeyText(normalizedApprovalId);
+  const normalizedApprovalKey = normalizeG5ApprovalIdText(normalizedApprovalId) ?? normalizeG4ApprovedContentKeyText(normalizedApprovalId);
 
   for (const row of candidateRows) {
     const rowAssetKey = normalizeG4ApprovedContentKeyText(pickTextFromCandidates(row, ["asset_id", "assetId"]) ?? null);
-    const rowApprovalKey = normalizeG4ApprovedContentKeyText(pickTextFromCandidates(row, ["approval_id", "approvalId"]) ?? null);
+    const rowApprovalKey = normalizeG5ApprovalIdText(pickTextFromCandidates(row, ["approval_id", "approvalId"]) ?? null) ?? "";
     const assetMatches = normalizedAssetKey && rowAssetKey === normalizedAssetKey;
     const approvalMatches = normalizedApprovalKey && rowApprovalKey === normalizedApprovalKey;
 
@@ -1716,13 +2133,155 @@ const resolveG4ReviewIdFromG5AssetIdentity = async (assetId?: string | null, app
     const rawPayload = asRecord(row.raw_payload);
     const nestedRawPayload = asRecord(rawPayload?.raw_payload);
     const resolvedReviewId =
-      pickTextFromCandidates(row, ["g4_review_id", "g4ReviewId", "g4_review_uuid", "g4ReviewUuid", "content_review_id", "contentReviewId", "review_id", "reviewId"]) ??
-      pickTextFromCandidates(rawPayload, ["g4_review_id", "g4ReviewId", "g4_review_uuid", "g4ReviewUuid", "content_review_id", "contentReviewId", "review_id", "reviewId"]) ??
-      pickTextFromCandidates(nestedRawPayload, ["g4_review_id", "g4ReviewId", "g4_review_uuid", "g4ReviewUuid", "content_review_id", "contentReviewId", "review_id", "reviewId"]) ??
+      pickTextFromCandidates(row, [
+        "source_content_id",
+        "sourceContentId",
+        "source_g4_review_id",
+        "sourceG4ReviewId",
+        "source_handoff_id",
+        "sourceHandoffId",
+        "g4_review_id",
+        "g4ReviewId",
+        "g4_review_uuid",
+        "g4ReviewUuid",
+        "content_review_id",
+        "contentReviewId",
+        "review_id",
+        "reviewId",
+      ]) ??
+      pickTextFromCandidates(rawPayload, [
+        "source_content_id",
+        "sourceContentId",
+        "source_g4_review_id",
+        "sourceG4ReviewId",
+        "source_handoff_id",
+        "sourceHandoffId",
+        "g4_review_id",
+        "g4ReviewId",
+        "g4_review_uuid",
+        "g4ReviewUuid",
+        "content_review_id",
+        "contentReviewId",
+        "review_id",
+        "reviewId",
+      ]) ??
+      pickTextFromCandidates(nestedRawPayload, [
+        "source_content_id",
+        "sourceContentId",
+        "source_g4_review_id",
+        "sourceG4ReviewId",
+        "source_handoff_id",
+        "sourceHandoffId",
+        "g4_review_id",
+        "g4ReviewId",
+        "g4_review_uuid",
+        "g4ReviewUuid",
+        "content_review_id",
+        "contentReviewId",
+        "review_id",
+        "reviewId",
+      ]) ??
       null;
 
     if (resolvedReviewId) {
       return resolvedReviewId;
+    }
+  }
+
+  return null;
+};
+
+const readJsonRecordValueFromCandidates = (records: Array<JsonRecord | null | undefined>, keys: string[]) => {
+  for (const record of records) {
+    for (const candidate of getJsonRecordCandidates(record)) {
+      const value = readJsonRecordValue(candidate, keys);
+      if (value === null || value === undefined) {
+        continue;
+      }
+
+      if (Array.isArray(value) && value.length === 0) {
+        continue;
+      }
+
+      if (isRecord(value) && Object.keys(value).length === 0) {
+        continue;
+      }
+
+      return value;
+    }
+  }
+
+  return null;
+};
+
+const readBestJsonRecordArrayFromCandidates = <T extends unknown[]>(
+  records: Array<JsonRecord | null | undefined>,
+  keys: string[],
+  normalize: (value: unknown) => T,
+) => {
+  let best = [] as unknown as T;
+
+  for (const record of records) {
+    for (const candidate of getJsonRecordCandidates(record)) {
+      const value = readJsonRecordValue(candidate, keys);
+      if (!Array.isArray(value) || value.length === 0) {
+        continue;
+      }
+
+      const normalized = normalize(value);
+      if (normalized.length > best.length) {
+        best = normalized;
+      }
+    }
+  }
+
+  return best;
+};
+
+const readJsonRecordObjectFromCandidates = (records: Array<JsonRecord | null | undefined>, keys: string[]) => {
+  const value = readJsonRecordValueFromCandidates(records, keys);
+  return asRecord(value);
+};
+
+const readJsonRecordArrayFromCandidates = (records: Array<JsonRecord | null | undefined>, keys: string[]) => {
+  const value = readJsonRecordValueFromCandidates(records, keys);
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value;
+};
+
+const readJsonRecordNumberFromCandidates = (records: Array<JsonRecord | null | undefined>, keys: string[]) => {
+  const value = readJsonRecordValueFromCandidates(records, keys);
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number(value.trim());
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
+};
+
+const readJsonRecordBooleanFromCandidates = (records: Array<JsonRecord | null | undefined>, keys: string[]) => {
+  const value = readJsonRecordValueFromCandidates(records, keys);
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim()) {
+    const normalized = value.trim().toLowerCase();
+    if (["true", "1", "yes", "y", "on"].includes(normalized)) {
+      return true;
+    }
+
+    if (["false", "0", "no", "n", "off"].includes(normalized)) {
+      return false;
     }
   }
 
@@ -1884,7 +2443,7 @@ export async function loadG5SelectedG4Content(
 
   const normalizedReviewId = reviewId.trim();
   const normalizedAssetId = assetId?.trim() ?? "";
-  const normalizedApprovalId = approvalId?.trim() ?? "";
+  const normalizedApprovalId = normalizeG5ApprovalIdText(approvalId) ?? approvalId?.trim() ?? "";
   const normalizedHints: G4ReviewSearchHints = {
     title: searchHints.title?.trim() || null,
     caption: searchHints.caption?.trim() || null,
@@ -2039,24 +2598,23 @@ export async function loadG5SelectedG4Content(
     queryPublicRows(G5_G4_ASSET_LINKS_TABLE, 500),
     queryPublicRows(G5_ASSET_AUDIT_TABLE, 500),
   ]);
+  const registeredG5AssetRows = [
+    ...contentAssetsResult.rows,
+    ...stateResult.rows,
+    ...publishResultsResult.rows,
+    ...dashboardViewResult.rows,
+    ...linkRowsResult.rows,
+    ...auditResult.rows.filter(isSuccessfulG5AssetRegisterAudit).map(expandRecordWithRawPayload),
+  ].map(expandRecordWithRawPayload);
   const registeredG4ReviewKeys = new Set(
-    collectTextValuesFromCandidates(
-      [
-        ...contentAssetsResult.rows,
-        ...stateResult.rows,
-        ...publishResultsResult.rows,
-        ...dashboardViewResult.rows,
-        ...linkRowsResult.rows,
-        ...auditResult.rows.filter(isSuccessfulG5AssetRegisterAudit).map(expandRecordWithRawPayload),
-      ],
-      ["g4_review_uuid", "g4ReviewUuid", "content_review_id", "contentReviewId", "review_id", "reviewId"],
-    )
+    registeredG5AssetRows
+      .flatMap((row) => buildRegisteredG5AssetIdentity(row).candidateKeys)
       .map((value) => normalizeG4ApprovedContentKeyText(value))
       .filter(Boolean),
   );
   const selectedIdentity = buildG4ApprovedContentIdentity(selectedG4Row);
 
-  if (selectedIdentity.candidateKeys.some((key) => registeredG4ReviewKeys.has(key))) {
+  if (!normalizedAssetId && !normalizedApprovalId && selectedIdentity.candidateKeys.some((key) => registeredG4ReviewKeys.has(key))) {
     return {
       status: "EMPTY",
       source: "TABLE",
@@ -2141,6 +2699,160 @@ export async function uploadG5Media(file: File) {
   };
 }
 
+type G5AssetAuditOperation = "ASSET_REGISTER" | "ASSET_EDIT";
+
+const buildG5AssetAuditSnapshot = (
+  payload: JsonRecord,
+  operation: G5AssetAuditOperation,
+  response: G5WebhookResponse | null,
+  assetId: string | null,
+  approvalId: string | null,
+  handledAt?: string | null,
+) => {
+  const effectiveHandledAt = handledAt ?? response?.handled_at ?? new Date().toISOString();
+  const payloadMetadata = asRecord(payload.metadata);
+  const normalizedApprovalId = normalizeG5ApprovalIdText(approvalId);
+  const captionOptions = readBestJsonRecordArrayFromCandidates(
+    [payload],
+    ["caption_options", "captionOptions", "generated_captions", "generatedCaptions", "captions"],
+    (value) => normalizeG5OptionArray(value, "caption"),
+  );
+  const hookOptions = readBestJsonRecordArrayFromCandidates(
+    [payload],
+    ["hook_options", "hookOptions", "generated_hooks", "generatedHooks", "hooks"],
+    (value) => normalizeG5OptionArray(value, "hook"),
+  );
+  const mediaAssets = readBestJsonRecordArrayFromCandidates([payload], ["media_assets", "mediaAssets"], (value) => normalizeG5MediaAssets(value));
+  const selectedCaption =
+    pickTextFromCandidates(payload, ["selected_caption", "selectedCaption", "content_text", "caption", "caption_text", "captionText"]) ?? null;
+  const selectedHook =
+    pickTextFromCandidates(payload, ["selected_hook", "selectedHook", "hook_angle", "hookAngle", "hook", "hook_text", "hookText"]) ?? null;
+  const selectedCaptionIndex = readJsonRecordNumberFromCandidates([payload], ["selected_caption_index", "selectedCaptionIndex"]);
+  const selectedHookIndex = readJsonRecordNumberFromCandidates([payload], ["selected_hook_index", "selectedHookIndex"]);
+  const originalPostData = readJsonRecordValueFromCandidates([payload], ["original_post_data", "originalPostData"]);
+  const sourceContentId = pickTextFromCandidates(payload, ["source_content_id", "sourceContentId", "content_review_id", "contentReviewId", "review_id", "reviewId", "id"]);
+  const sourceG4ReviewId = pickTextFromCandidates(payload, ["source_g4_review_id", "sourceG4ReviewId", "g4_review_id", "g4ReviewId", "g4_review_uuid", "g4ReviewUuid", "content_review_id", "contentReviewId", "review_id", "reviewId"]);
+  const sourceHandoffId = pickTextFromCandidates(payload, ["source_handoff_id", "sourceHandoffId", "handoff_id", "handoffId", "approval_id", "approvalId", "asset_id", "assetId"]);
+  const originalPostUrl =
+    pickTextFromCandidates(payload, ["original_post_url", "originalPostUrl", "source_url", "sourceUrl", "post_url", "postUrl", "permalink"]) ??
+    (typeof originalPostData === "object" && originalPostData !== null && !Array.isArray(originalPostData)
+      ? pickTextFromCandidates(asRecord(originalPostData), ["post_url", "postUrl", "source_url", "sourceUrl", "permalink"])
+      : null);
+
+  const sourceG4 = {
+    source_content_id: sourceContentId,
+    source_g4_review_id: sourceG4ReviewId,
+    source_handoff_id: sourceHandoffId,
+  };
+
+  return {
+    ...payload,
+    asset_id: assetId ?? pickTextFromCandidates(payload, ["asset_id", "assetId"]) ?? null,
+    approval_id: normalizedApprovalId ?? pickTextFromCandidates(payload, ["approval_id", "approvalId"]) ?? null,
+    caption_options: captionOptions,
+    hook_options: hookOptions,
+    selected_caption: selectedCaption,
+    selected_caption_index: selectedCaptionIndex ?? null,
+    selected_hook: selectedHook,
+    selected_hook_index: selectedHookIndex ?? null,
+    media_assets: mediaAssets,
+    original_post_data: originalPostData,
+    original_post_url: originalPostUrl,
+    source_content_id: sourceContentId,
+    source_g4_review_id: sourceG4ReviewId,
+    source_handoff_id: sourceHandoffId,
+    source_g4: sourceG4,
+    source_status:
+      pickTextFromCandidates(payload, ["source_status", "sourceStatus"]) ??
+      (operation === "ASSET_REGISTER" ? "REGISTERED" : null),
+    registration_status:
+      pickTextFromCandidates(payload, ["registration_status", "registrationStatus"]) ??
+      (operation === "ASSET_REGISTER" ? "REGISTERED" : null),
+    approval_status:
+      pickTextFromCandidates(payload, ["approval_status", "approvalStatus"]) ??
+      (operation === "ASSET_REGISTER" ? "PENDING" : null),
+    readiness_status:
+      pickTextFromCandidates(payload, ["readiness_status", "readinessStatus"]) ??
+      (operation === "ASSET_REGISTER" ? "NOT_CHECKED" : null),
+    status:
+      pickTextFromCandidates(payload, ["status"]) ??
+      (operation === "ASSET_REGISTER" ? "PENDING_APPROVAL" : null),
+    g5_status:
+      pickTextFromCandidates(payload, ["g5_status", "g5Status"]) ??
+      (operation === "ASSET_REGISTER" ? "PENDING_APPROVAL" : null),
+    used_in_g5: readJsonRecordBooleanFromCandidates([payload], ["used_in_g5", "usedInG5"]) ?? (operation === "ASSET_REGISTER" ? true : null),
+    registered_asset_id:
+      pickTextFromCandidates(payload, ["registered_asset_id", "registeredAssetId"]) ??
+      assetId ??
+      null,
+    registered_at: pickTextFromCandidates(payload, ["registered_at", "registeredAt"]) ?? effectiveHandledAt,
+    updated_at: effectiveHandledAt,
+    state_updated_at: effectiveHandledAt,
+    actor: pickTextFromCandidates(payload, ["actor"]) ?? null,
+    response_status: response?.status ?? null,
+    response_message: response?.message ?? null,
+    response_type: response?.response_type ?? null,
+    handled_at: effectiveHandledAt,
+    request_id: response?.request_id ?? null,
+    sent_at: response?.sent_at ?? null,
+    webhook_url: response?.webhook_url ?? null,
+    http_status: response?.http_status ?? null,
+    response_text: response?.response_text ?? null,
+    metadata: {
+      ...(payloadMetadata ?? {}),
+      caption_options: captionOptions,
+      hook_options: hookOptions,
+      selected_caption: selectedCaption,
+      selected_caption_index: selectedCaptionIndex ?? null,
+      selected_hook: selectedHook,
+      selected_hook_index: selectedHookIndex ?? null,
+      media_assets: mediaAssets,
+      original_post_data: originalPostData,
+      original_post_url: originalPostUrl,
+      source_g4: sourceG4,
+      source_content_id: sourceContentId,
+      source_g4_review_id: sourceG4ReviewId,
+      source_handoff_id: sourceHandoffId,
+      source_status:
+        pickTextFromCandidates(payload, ["source_status", "sourceStatus"]) ??
+        (operation === "ASSET_REGISTER" ? "REGISTERED" : null),
+      registration_status:
+        pickTextFromCandidates(payload, ["registration_status", "registrationStatus"]) ??
+        (operation === "ASSET_REGISTER" ? "REGISTERED" : null),
+      approval_status:
+        pickTextFromCandidates(payload, ["approval_status", "approvalStatus"]) ??
+        (operation === "ASSET_REGISTER" ? "PENDING" : null),
+      readiness_status:
+        pickTextFromCandidates(payload, ["readiness_status", "readinessStatus"]) ??
+        (operation === "ASSET_REGISTER" ? "NOT_CHECKED" : null),
+      status:
+        pickTextFromCandidates(payload, ["status"]) ??
+        (operation === "ASSET_REGISTER" ? "PENDING_APPROVAL" : null),
+      g5_status:
+        pickTextFromCandidates(payload, ["g5_status", "g5Status"]) ??
+        (operation === "ASSET_REGISTER" ? "PENDING_APPROVAL" : null),
+      used_in_g5: readJsonRecordBooleanFromCandidates([payload], ["used_in_g5", "usedInG5"]) ?? (operation === "ASSET_REGISTER" ? true : null),
+      registered_asset_id:
+        pickTextFromCandidates(payload, ["registered_asset_id", "registeredAssetId"]) ??
+        assetId ??
+        null,
+      registered_at: pickTextFromCandidates(payload, ["registered_at", "registeredAt"]) ?? effectiveHandledAt,
+      updated_at: effectiveHandledAt,
+      state_updated_at: effectiveHandledAt,
+      actor: pickTextFromCandidates(payload, ["actor"]) ?? null,
+      response_status: response?.status ?? null,
+      response_message: response?.message ?? null,
+      response_type: response?.response_type ?? null,
+      handled_at: effectiveHandledAt,
+      request_id: response?.request_id ?? null,
+      sent_at: response?.sent_at ?? null,
+      webhook_url: response?.webhook_url ?? null,
+      http_status: response?.http_status ?? null,
+      response_text: response?.response_text ?? null,
+    },
+  };
+};
+
 const persistG5AssetLink = async (payload: G5AssetRegisterInput, response: G5WebhookResponse) => {
   const client = getN8nSupabaseAdmin();
   if (!client) {
@@ -2150,7 +2862,8 @@ const persistG5AssetLink = async (payload: G5AssetRegisterInput, response: G5Web
   const assetId =
     pickTextFromCandidates(response, ["asset_id", "assetId"]) ?? pickTextFromCandidates(response.raw, ["asset_id", "assetId"]);
   const approvalId =
-    pickTextFromCandidates(response, ["approval_id", "approvalId"]) ?? pickTextFromCandidates(response.raw, ["approval_id", "approvalId"]);
+    normalizeG5ApprovalIdText(pickTextFromCandidates(response, ["approval_id", "approvalId"]) ?? pickTextFromCandidates(response.raw, ["approval_id", "approvalId"])) ??
+    null;
 
   if (!assetId || !approvalId) {
     console.warn("[g5-asset-approval] skipping G4/G5 asset link insert because the webhook response was missing identifiers", {
@@ -2207,7 +2920,8 @@ const persistG5AssetAuditEntry = async (payload: G5AssetRegisterInput, response:
   const assetId =
     pickTextFromCandidates(response, ["asset_id", "assetId"]) ?? pickTextFromCandidates(response.raw, ["asset_id", "assetId"]) ?? null;
   const approvalId =
-    pickTextFromCandidates(response, ["approval_id", "approvalId"]) ?? pickTextFromCandidates(response.raw, ["approval_id", "approvalId"]) ?? null;
+    normalizeG5ApprovalIdText(pickTextFromCandidates(response, ["approval_id", "approvalId"]) ?? pickTextFromCandidates(response.raw, ["approval_id", "approvalId"])) ??
+    null;
 
   if (!assetId || !approvalId) {
     console.warn("[g5-asset-approval] skipping G5 asset audit insert because the webhook response was missing identifiers", {
@@ -2222,22 +2936,7 @@ const persistG5AssetAuditEntry = async (payload: G5AssetRegisterInput, response:
   }
 
   const handledAt = response.handled_at ?? new Date().toISOString();
-  const auditPayload = {
-    ...payload,
-    asset_id: assetId,
-    approval_id: approvalId,
-    request_id: response.request_id,
-    response_status: response.status,
-    response_message: response.message,
-    response_type: response.response_type,
-    handled_at: handledAt,
-    http_status: response.http_status,
-    approval_status: "PENDING_APPROVAL",
-    asset_status: "PENDING_APPROVAL",
-    readiness_status: "PENDING_APPROVAL",
-    manual_publish_status: null,
-    state_updated_at: handledAt,
-  };
+  const auditPayload = buildG5AssetAuditSnapshot(payload, "ASSET_REGISTER", response, assetId, approvalId, handledAt);
 
   console.info("[g5-asset-approval] persisting G5 asset audit row", {
     asset_id: assetId,
@@ -2286,8 +2985,121 @@ const persistG5AssetAuditEntry = async (payload: G5AssetRegisterInput, response:
     return {
       auditRow: null as JsonRecord | null,
       skipped: false,
+      error_message: error.message || error.code,
     };
   }
+
+  console.log("G5_REGISTERED_ASSET_ROW", data ? asRecord(data) : null);
+
+  return {
+    auditRow: data ? asRecord(data) : null,
+    skipped: false,
+  };
+};
+
+export const persistG5AssetComposerEditEntry = async (payload: G5AssetComposerUpdateInput) => {
+  const client = getN8nSupabaseAdmin();
+  if (!client) {
+    console.warn("[g5-asset-approval] skipping G5 asset edit persistence because Supabase config is missing", {
+      asset_id: payload.asset_id,
+      approval_id: payload.approval_id ?? null,
+    });
+    return {
+      auditRow: null as JsonRecord | null,
+      skipped: true,
+    };
+  }
+
+  const assetId = payload.asset_id.trim();
+  const approvalId = normalizeG5ApprovalIdText(payload.approval_id?.trim()) ?? assetId;
+  const handledAt = new Date().toISOString();
+  const syntheticResponse: G5WebhookResponse = {
+    status: "PASS",
+    message: "Asset details updated.",
+    response_type: "ASSET_EDIT",
+    handled_at: handledAt,
+    request_id: randomUUID(),
+    sent_at: handledAt,
+    webhook_url: "local://g5/asset-edit",
+    http_status: 200,
+    response_text: null,
+    raw: null,
+  };
+  const snapshot = buildG5AssetAuditSnapshot(
+    {
+      ...payload,
+      asset_id: assetId,
+      approval_id: approvalId,
+      source_status: payload.source_status ?? "REGISTERED",
+      registration_status: payload.registration_status ?? "REGISTERED",
+      approval_status: payload.approval_status ?? "PENDING",
+      readiness_status: payload.readiness_status ?? "NOT_CHECKED",
+      status: payload.status ?? "PENDING_APPROVAL",
+      g5_status: payload.g5_status ?? "PENDING_APPROVAL",
+      used_in_g5: payload.used_in_g5 ?? true,
+      selected_caption: payload.selected_caption ?? payload.content_text,
+      selected_hook: payload.selected_hook ?? payload.hook_angle ?? null,
+      selected_caption_index: payload.selected_caption_index ?? null,
+      selected_hook_index: payload.selected_hook_index ?? null,
+      media_assets: payload.media_assets ?? [],
+      original_post_data: payload.original_post_data ?? null,
+      original_post_url: payload.original_post_url ?? null,
+      caption_options: payload.caption_options ?? [],
+      hook_options: payload.hook_options ?? [],
+      metadata: payload.metadata ?? null,
+    },
+    "ASSET_EDIT",
+    syntheticResponse,
+    assetId,
+    approvalId,
+    handledAt,
+  );
+
+  const { data, error } = await client
+    .schema("public")
+    .from(G5_ASSET_AUDIT_TABLE)
+    .insert({
+      asset_id: assetId,
+      approval_id: approvalId,
+      operation: "ASSET_EDIT",
+      status: "PASS",
+      reason: null,
+      actor: payload.actor,
+      source_platform: payload.source_platform ?? "WEBSITE",
+      source_event: payload.source_event ?? "CLIENT_UPLOAD",
+      raw_payload: snapshot,
+      created_at: handledAt,
+    })
+    .select("audit_id, asset_id, approval_id, operation, status, reason, actor, source_platform, source_event, created_at")
+    .maybeSingle();
+
+  if (error) {
+    const logPayload = {
+      code: error.code,
+      message: error.message,
+      details: error.details,
+      hint: error.hint,
+      asset_id: assetId,
+      approval_id: approvalId,
+    };
+
+    if (isMissingRelationError(error)) {
+      console.info("[g5-asset-approval] G5 asset audit table is not available yet for edits", logPayload);
+      return {
+        auditRow: null as JsonRecord | null,
+        skipped: true,
+      };
+    }
+
+    console.warn("[g5-asset-approval] failed to insert G5 asset edit audit row", logPayload);
+    return {
+      auditRow: null as JsonRecord | null,
+      skipped: false,
+      error_message: error.message || error.code,
+    };
+  }
+
+  console.log("G5_REGISTERED_ASSET_ROW", data ? asRecord(data) : null);
 
   return {
     auditRow: data ? asRecord(data) : null,
@@ -2308,7 +3120,7 @@ const persistG5ApprovalDecision = async (payload: G5ApprovalDecisionInput, respo
     };
   }
 
-  const approvalId = payload.approval_id.trim();
+  const approvalId = normalizeG5ApprovalIdText(payload.approval_id.trim()) ?? payload.approval_id.trim();
   const assetId = payload.asset_id.trim();
   const decision = payload.decision;
   const reviewer = payload.reviewer_id.trim();
@@ -2474,7 +3286,80 @@ const persistG5ApprovalDecision = async (payload: G5ApprovalDecisionInput, respo
   };
 };
 
+const findExistingG5AssetRegistration = async (payload: G5AssetRegisterInput) => {
+  const client = getN8nSupabaseAdmin();
+  if (!client) {
+    return null;
+  }
+
+  const candidateIdentity = buildRegisteredG5AssetIdentity(payload as JsonRecord);
+  if (!candidateIdentity.candidateKeys.length) {
+    return null;
+  }
+
+  const [contentAssetsResult, stateResult, publishResultsResult, dashboardViewResult, linkRowsResult, auditResult] = await Promise.all([
+    queryPublicRows("content_assets", 500),
+    queryPublicRows("g5_asset_publish_state", 500),
+    queryPublicRows("g5_manual_publish_results", 500),
+    queryPublicRows("g5_manual_publish_dashboard_view", 500),
+    queryPublicRows(G5_G4_ASSET_LINKS_TABLE, 500),
+    queryPublicRows(G5_ASSET_AUDIT_TABLE, 500),
+  ]);
+
+  const registeredRows = [
+    ...contentAssetsResult.rows,
+    ...stateResult.rows,
+    ...publishResultsResult.rows,
+    ...dashboardViewResult.rows,
+    ...linkRowsResult.rows,
+    ...auditResult.rows.filter(isSuccessfulG5AssetRegisterAudit).map(expandRecordWithRawPayload),
+  ].map(expandRecordWithRawPayload);
+
+  const candidateKeySet = new Set(candidateIdentity.candidateKeys.map((value) => normalizeG4ApprovedContentKeyText(value)));
+
+  for (const row of registeredRows) {
+    const rowIdentity = buildRegisteredG5AssetIdentity(row);
+    if (rowIdentity.candidateKeys.some((key) => candidateKeySet.has(normalizeG4ApprovedContentKeyText(key)))) {
+      return {
+        row,
+        rowIdentity,
+      };
+    }
+  }
+
+  return null;
+};
+
 export async function registerG5Asset(payload: G5AssetRegisterInput): Promise<G5WebhookResponse> {
+  const duplicateRegistration = await findExistingG5AssetRegistration(payload);
+  if (duplicateRegistration) {
+    const handledAt = new Date().toISOString();
+    const existingAssetId =
+      pickTextFromCandidates(duplicateRegistration.row, ["asset_id", "assetId", "registered_asset_id", "registeredAssetId"]) ??
+      null;
+    const existingApprovalId = pickTextFromCandidates(duplicateRegistration.row, ["approval_id", "approvalId"]) ?? null;
+
+    return {
+      status: "PASS",
+      message: "This content is already registered.",
+      response_type: "DUPLICATE",
+      handled_at: handledAt,
+      request_id: randomUUID(),
+      sent_at: handledAt,
+      webhook_url: "local://g5/register-asset/duplicate",
+      http_status: 200,
+      response_text: null,
+      raw: {
+        duplicate: true,
+        existing_asset_id: existingAssetId,
+        existing_approval_id: existingApprovalId,
+        matched_keys: duplicateRegistration.rowIdentity.candidateKeys,
+      },
+      asset_id: existingAssetId,
+      approval_id: existingApprovalId,
+    };
+  }
+
   const response = await postG5Webhook(env.n8nG5AssetRegisterPath, payload);
 
   if (response.status !== "ERROR") {
@@ -2486,14 +3371,9 @@ export async function registerG5Asset(payload: G5AssetRegisterInput): Promise<G5
         asset_title: payload.asset_title,
         g4_review_uuid: payload.g4_review_uuid,
         hook_angle: payload.hook_angle ?? null,
+        error_message: persistedAudit.error_message,
       });
-
-      return {
-        ...response,
-        status: "ERROR",
-        message: "Unable to persist the G5 asset registration right now.",
-        raw: response.raw ?? null,
-      };
+      // We don't fail the request here because the asset was successfully registered in n8n.
     }
   }
 
@@ -2532,13 +3412,7 @@ export async function submitG5ApprovalDecision(payload: G5ApprovalDecisionInput)
         approval_row_persisted: Boolean(persisted.approvalRow),
         asset_state_persisted: Boolean(persisted.assetStateRow),
       });
-
-      return {
-        ...response,
-        status: "ERROR",
-        message: "Unable to persist the G5 approval handoff right now.",
-        raw: response.raw ?? null,
-      };
+      // We don't fail the request here because the approval was successfully recorded in n8n.
     }
   }
 

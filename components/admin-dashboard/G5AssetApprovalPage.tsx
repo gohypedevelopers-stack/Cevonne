@@ -23,6 +23,10 @@ import {
   Upload,
   XCircle,
   TrendingUp,
+  ImagePlus,
+  Instagram,
+  Smartphone,
+  Globe,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -47,6 +51,9 @@ import { cn } from "@/lib/utils";
 
 type JsonRecord = Record<string, unknown>;
 
+const isRecord = (value: unknown): value is JsonRecord =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
 type G5DashboardAssetRecord = {
   asset_id: string;
   asset_title: string | null;
@@ -57,6 +64,24 @@ type G5DashboardAssetRecord = {
   hook_angle: string | null;
   media_url: string | null;
   storage_url: string | null;
+  metadata: JsonRecord | null;
+  original_post: G5OriginalPostDetails | null;
+  selected_caption: string | null;
+  selected_caption_index: number | null;
+  selected_hook: string | null;
+  selected_hook_index: number | null;
+  caption_options: G5G4CaptionOption[];
+  hook_options: G5G4HookOption[];
+  media_assets: JsonRecord[];
+  source_content_id: string | null;
+  source_g4_review_id: string | null;
+  source_handoff_id: string | null;
+  source_status: string | null;
+  registration_status: string | null;
+  g5_status: string | null;
+  used_in_g5: boolean | null;
+  registered_asset_id: string | null;
+  registered_at: string | null;
   compliance_status: string | null;
   approval_status: string | null;
   approved_by: string | null;
@@ -282,8 +307,12 @@ type AssetInspectorPanelProps = {
 
 type AssetCardProps = {
   asset: G5DashboardAssetRecord;
-  selected: boolean;
-  onSelect: (assetId: string) => void;
+  onApprove: (assetId: string) => void;
+  onRunReadinessCheck: (assetId: string) => void;
+  onEdit: (assetId: string) => void;
+  onDelete: (assetId: string) => void;
+  busyAction: BusyAction;
+  processingAssetId: string | null;
 };
 
 type G4PickerDialogProps = {
@@ -296,7 +325,7 @@ type G4PickerDialogProps = {
   onRefresh: () => void;
 };
 
-const PAGE_TITLE = "G5 Asset Approval + Manual Publishing Queue";
+const PAGE_TITLE = "G5 Asset Approval + Publishing Queue";
 const PAGE_DESCRIPTION = "Choose approved content, upload media, publish manually, and save the live post URL.";
 const SEARCH_PLACEHOLDER = "Search content, titles, or captions";
 const DESKTOP_QUERY = "(min-width: 1280px)";
@@ -404,15 +433,45 @@ const createComposerDraftPlaceholder = (review: G5SelectedContentRecord): G5Sele
   recommended_hook: null,
 });
 
-const buildOptimisticG5AssetRecord = (
-  content: G5SelectedG4ContentRecord,
-  media: G5UploadedMedia,
-  assetId: string,
-  approvalId: string,
-  createdAt: string,
-  caption: string,
-  hook: string | null,
-): G5DashboardAssetRecord => ({
+type OptimisticG5AssetBuildInput = {
+  content: G5SelectedG4ContentRecord;
+  media: G5UploadedMedia;
+  assetId: string;
+  approvalId: string;
+  createdAt: string;
+  caption: string;
+  hook: string | null;
+  selectedCaptionIndex: number | null;
+  selectedHookIndex: number | null;
+  captionOptions: G5G4CaptionOption[];
+  hookOptions: G5G4HookOption[];
+  mediaAssets: JsonRecord[];
+  originalPostData: JsonRecord | string | null;
+  originalPostUrl: string | null;
+  sourceContentId: string | null;
+  sourceG4ReviewId: string | null;
+  sourceHandoffId: string | null;
+};
+
+const buildOptimisticG5AssetRecord = ({
+  content,
+  media,
+  assetId,
+  approvalId,
+  createdAt,
+  caption,
+  hook,
+  selectedCaptionIndex,
+  selectedHookIndex,
+  captionOptions,
+  hookOptions,
+  mediaAssets,
+  originalPostData,
+  originalPostUrl,
+  sourceContentId,
+  sourceG4ReviewId,
+  sourceHandoffId,
+}: OptimisticG5AssetBuildInput): G5DashboardAssetRecord => ({
   asset_id: assetId,
   asset_title: content.display_title?.trim() || content.display_summary?.trim() || "G5 asset",
   asset_type: media.kind || "IMAGE",
@@ -422,12 +481,48 @@ const buildOptimisticG5AssetRecord = (
   hook_angle: hook,
   media_url: media.media_url,
   storage_url: media.storage_url,
+  metadata: {
+    selected_caption: caption,
+    selected_caption_index: selectedCaptionIndex,
+    selected_hook: hook,
+    selected_hook_index: selectedHookIndex,
+    caption_options: captionOptions,
+    hook_options: hookOptions,
+    media_assets: mediaAssets,
+    original_post_data: originalPostData,
+    original_post_url: originalPostUrl,
+    source_content_id: sourceContentId,
+    source_g4_review_id: sourceG4ReviewId,
+    source_handoff_id: sourceHandoffId,
+    source_g4: {
+      source_content_id: sourceContentId,
+      source_g4_review_id: sourceG4ReviewId,
+      source_handoff_id: sourceHandoffId,
+    },
+  },
+  original_post: content.original_post,
+  selected_caption: caption,
+  selected_caption_index: selectedCaptionIndex,
+  selected_hook: hook,
+  selected_hook_index: selectedHookIndex,
+  caption_options: captionOptions,
+  hook_options: hookOptions,
+  media_assets: mediaAssets,
+  source_content_id: sourceContentId,
+  source_g4_review_id: sourceG4ReviewId,
+  source_handoff_id: sourceHandoffId,
+  source_status: "REGISTERED",
+  registration_status: "REGISTERED",
+  g5_status: "PENDING_APPROVAL",
+  used_in_g5: true,
+  registered_asset_id: assetId,
+  registered_at: createdAt,
   compliance_status: null,
   approval_status: "PENDING_APPROVAL",
   approved_by: null,
   asset_created_at: createdAt,
   asset_status: "PENDING_APPROVAL",
-  readiness_status: null,
+  readiness_status: "NOT_CHECKED",
   manual_publish_status: null,
   approval_id: approvalId,
   last_manual_publish_result_id: null,
@@ -692,6 +787,503 @@ const getMatchingOption = <T extends { id: string; text: string }>(options: T[],
   return options.find((option) => normalizeSelectionText(option.text) === normalized) ?? null;
 };
 
+const readRecordText = (record: JsonRecord | null | undefined, keys: string[]) => {
+  if (!record) {
+    return null;
+  }
+
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return String(value);
+    }
+
+    if (typeof value === "boolean") {
+      return value ? "true" : "false";
+    }
+  }
+
+  return null;
+};
+
+const readRecordNumber = (record: JsonRecord | null | undefined, keys: string[]) => {
+  if (!record) {
+    return null;
+  }
+
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+
+    if (typeof value === "string") {
+      const parsed = Number(value.trim());
+      if (Number.isFinite(parsed)) {
+        return parsed;
+      }
+    }
+  }
+
+  return null;
+};
+
+const readRecordObject = (record: JsonRecord | null | undefined, keys: string[]) => {
+  if (!record) {
+    return null;
+  }
+
+  for (const key of keys) {
+    const value = record[key];
+    if (isRecord(value)) {
+      return value;
+    }
+  }
+
+  return null;
+};
+
+type NormalizedComposerMediaAsset = JsonRecord & {
+  media_url: string | null;
+  storage_url: string | null;
+  storage_key: string | null;
+  filename: string;
+  content_type: string | null;
+  kind: string;
+  size: number | null;
+};
+
+const normalizeComposerOptionArray = (value: unknown, kind: "caption" | "hook") => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry, index) => {
+      if (typeof entry === "string") {
+        const text = entry.trim();
+        if (!text) {
+          return null;
+        }
+
+        return {
+          id: `${kind}-${index + 1}`,
+          label: `${kind === "caption" ? "Caption" : "Hook"} ${index + 1}`,
+          text,
+          source: "G4" as const,
+        };
+      }
+
+      const record = isRecord(entry) ? entry : null;
+      if (!record) {
+        return null;
+      }
+
+      const text =
+        readRecordText(record, ["text", "caption", "caption_text", "captionText", "hook", "hook_text", "hookText", "value"]) ??
+        null;
+      if (!text) {
+        return null;
+      }
+
+      return {
+        id: readRecordText(record, ["id", "option_id", "optionId", "key", "value"]) ?? `${kind}-${index + 1}`,
+        label: readRecordText(record, ["label", "name", "title"]) ?? `${kind === "caption" ? "Caption" : "Hook"} ${index + 1}`,
+        text,
+        source: "G4" as const,
+      };
+    })
+    .filter((entry): entry is G5G4CaptionOption | G5G4HookOption => Boolean(entry));
+};
+
+const normalizeComposerMediaAssets = (value: unknown) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry, index) => {
+      if (typeof entry === "string") {
+        const mediaUrl = entry.trim();
+        if (!mediaUrl) {
+          return null;
+        }
+
+        return {
+          media_url: mediaUrl,
+          storage_url: mediaUrl,
+          storage_key: mediaUrl,
+          filename: `media-${index + 1}`,
+          content_type: null,
+          kind: "IMAGE",
+          size: null,
+        };
+      }
+
+      const record = isRecord(entry) ? entry : null;
+      if (!record) {
+        return null;
+      }
+
+      const mediaUrl = readRecordText(record, ["media_url", "mediaUrl", "url", "public_url", "publicUrl"]) ?? null;
+      const storageUrl = readRecordText(record, ["storage_url", "storageUrl", "storage_key", "storageKey"]) ?? mediaUrl;
+      const contentType = readRecordText(record, ["content_type", "contentType", "mime_type", "mimeType"]);
+      const kind = readRecordText(record, ["kind", "asset_kind", "assetKind"]) ?? (contentType?.toLowerCase().startsWith("video/") ? "VIDEO" : "IMAGE");
+      const size = readRecordNumber(record, ["size", "file_size", "fileSize"]);
+
+      return {
+        ...record,
+        media_url: mediaUrl,
+        storage_url: storageUrl,
+        storage_key: readRecordText(record, ["storage_key", "storageKey"]) ?? storageUrl ?? mediaUrl,
+        filename: readRecordText(record, ["filename", "name", "file_name", "fileName"]) ?? mediaUrl ?? `media-${index + 1}`,
+        content_type: contentType ?? null,
+        kind,
+        size,
+      };
+    })
+    .filter((entry): entry is NormalizedComposerMediaAsset => Boolean(entry));
+};
+
+const getAssetMetadataRecord = (asset: G5DashboardAssetRecord | null) => (asset && isRecord(asset.metadata) ? asset.metadata : null);
+
+const getAssetSourceG4Record = (asset: G5DashboardAssetRecord | null) => {
+  const metadata = getAssetMetadataRecord(asset);
+  return readRecordObject(metadata, ["source_g4", "sourceG4"]);
+};
+
+const getAssetSelectedCaptionValue = (asset: G5DashboardAssetRecord | null) => {
+  if (!asset) {
+    return "";
+  }
+
+  const metadata = getAssetMetadataRecord(asset);
+  const fallbackCaption =
+    asset.caption_options?.[0]?.text?.trim() ||
+    normalizeComposerOptionArray(
+      metadata?.caption_options ?? metadata?.captionOptions ?? metadata?.generated_captions ?? metadata?.generatedCaptions ?? metadata?.captions,
+      "caption",
+    )[0]?.text?.trim() ||
+    "";
+
+  return (
+    asset.selected_caption?.trim() ||
+    readRecordText(getAssetMetadataRecord(asset), ["selected_caption", "selectedCaption"]) ||
+    asset.content_text?.trim() ||
+    fallbackCaption ||
+    ""
+  );
+};
+
+const getAssetSelectedHookValue = (asset: G5DashboardAssetRecord | null) => {
+  if (!asset) {
+    return "";
+  }
+
+  const metadata = getAssetMetadataRecord(asset);
+  const fallbackHook =
+    asset.hook_options?.[0]?.text?.trim() ||
+    normalizeComposerOptionArray(
+      metadata?.hook_options ?? metadata?.hookOptions ?? metadata?.generated_hooks ?? metadata?.generatedHooks ?? metadata?.hooks,
+      "hook",
+    )[0]?.text?.trim() ||
+    "";
+
+  return (
+    asset.selected_hook?.trim() ||
+    readRecordText(getAssetMetadataRecord(asset), ["selected_hook", "selectedHook", "hook_angle", "hookAngle"]) ||
+    asset.hook_angle?.trim() ||
+    fallbackHook ||
+    ""
+  );
+};
+
+const getAssetSelectedCaptionIndexValue = (asset: G5DashboardAssetRecord | null) =>
+  asset?.selected_caption_index ?? readRecordNumber(getAssetMetadataRecord(asset), ["selected_caption_index", "selectedCaptionIndex"]) ?? null;
+
+const getAssetSelectedHookIndexValue = (asset: G5DashboardAssetRecord | null) =>
+  asset?.selected_hook_index ?? readRecordNumber(getAssetMetadataRecord(asset), ["selected_hook_index", "selectedHookIndex"]) ?? null;
+
+const getAssetCaptionOptionsForAsset = (asset: G5DashboardAssetRecord | null, sourceReview?: G5SelectedG4ContentRecord | null) => {
+  const direct = asset?.caption_options ?? EMPTY_G5_CAPTION_OPTIONS;
+  if (direct.length > 0) {
+    return direct;
+  }
+
+  const metadata = getAssetMetadataRecord(asset);
+  const metadataOptions = normalizeComposerOptionArray(
+    metadata?.caption_options ?? metadata?.captionOptions ?? metadata?.generated_captions ?? metadata?.generatedCaptions ?? metadata?.captions,
+    "caption",
+  );
+  if (metadataOptions.length > 0) {
+    return metadataOptions;
+  }
+
+  const sourceOptions = sourceReview?.caption_options ?? EMPTY_G5_CAPTION_OPTIONS;
+  if (sourceOptions.length > 0) {
+    return sourceOptions;
+  }
+
+  const fallbackText = getAssetSelectedCaptionValue(asset) || sourceReview?.caption_preview?.trim() || sourceReview?.display_summary?.trim() || "";
+  return fallbackText
+    ? [
+      {
+        id: `${asset?.asset_id ?? "asset"}:caption:current`,
+        label: "Current caption",
+        text: fallbackText,
+        source: "G4" as const,
+      },
+    ]
+    : [];
+};
+
+const getAssetHookOptionsForAsset = (asset: G5DashboardAssetRecord | null, sourceReview?: G5SelectedG4ContentRecord | null) => {
+  const direct = asset?.hook_options ?? EMPTY_G5_HOOK_OPTIONS;
+  if (direct.length > 0) {
+    return direct;
+  }
+
+  const metadata = getAssetMetadataRecord(asset);
+  const metadataOptions = normalizeComposerOptionArray(
+    metadata?.hook_options ?? metadata?.hookOptions ?? metadata?.generated_hooks ?? metadata?.generatedHooks ?? metadata?.hooks,
+    "hook",
+  );
+  if (metadataOptions.length > 0) {
+    return metadataOptions;
+  }
+
+  const sourceOptions = sourceReview?.hook_options ?? EMPTY_G5_HOOK_OPTIONS;
+  if (sourceOptions.length > 0) {
+    return sourceOptions;
+  }
+
+  const fallbackText = getAssetSelectedHookValue(asset) || sourceReview?.hook_angle?.trim() || "";
+  return fallbackText
+    ? [
+      {
+        id: `${asset?.asset_id ?? "asset"}:hook:current`,
+        label: "Current hook",
+        text: fallbackText,
+        source: "G4" as const,
+      },
+    ]
+    : [];
+};
+
+const getAssetMediaAssetsForAsset = (asset: G5DashboardAssetRecord | null, sourceReview?: G5SelectedG4ContentRecord | null) => {
+  const direct = asset?.media_assets ?? [];
+  if (direct.length > 0) {
+    return direct;
+  }
+
+  const metadata = getAssetMetadataRecord(asset);
+  const metadataAssets = normalizeComposerMediaAssets(metadata?.media_assets ?? metadata?.mediaAssets);
+  if (metadataAssets.length > 0) {
+    return metadataAssets;
+  }
+
+  return sourceReview?.original_post?.post_url
+    ? [
+      {
+        media_url: sourceReview.original_post.post_url,
+        storage_url: sourceReview.original_post.post_url,
+        storage_key: sourceReview.original_post.post_url,
+        filename: `${asset?.asset_id ?? "asset"}-media`,
+        content_type: null,
+        kind: "IMAGE",
+        size: null,
+      },
+    ]
+    : [];
+};
+
+const buildDraftMediaItemsFromAsset = (asset: G5DashboardAssetRecord | null, sourceReview?: G5SelectedG4ContentRecord | null): G5UploadedMedia[] => {
+  const metadata = getAssetMetadataRecord(asset);
+  const candidateMediaAssets = getAssetMediaAssetsForAsset(asset, sourceReview);
+
+  const normalizedCandidates = candidateMediaAssets
+    .map((entry, index) => {
+      const record = isRecord(entry) ? entry : null;
+      if (!record) {
+        return null;
+      }
+
+      const mediaUrl = readRecordText(record, ["media_url", "mediaUrl", "url", "public_url", "publicUrl"]) ?? null;
+      const storageUrl = readRecordText(record, ["storage_url", "storageUrl", "storage_key", "storageKey"]) ?? mediaUrl ?? asset?.media_url ?? asset?.storage_url ?? null;
+      const filename = readRecordText(record, ["filename", "name", "file_name", "fileName"]) ?? mediaUrl ?? `media-${index + 1}`;
+      const contentType = readRecordText(record, ["content_type", "contentType", "mime_type", "mimeType"]) ?? null;
+      const kind = readRecordText(record, ["kind", "asset_kind", "assetKind"]) ?? (contentType?.toLowerCase().startsWith("video/") ? "VIDEO" : "IMAGE");
+      const size = readRecordNumber(record, ["size", "file_size", "fileSize"]) ?? 0;
+
+      if (!mediaUrl && !storageUrl) {
+        return null;
+      }
+
+      return {
+        status: "PASS",
+        message: "Existing media loaded.",
+        media_url: mediaUrl ?? storageUrl ?? "",
+        storage_url: storageUrl ?? mediaUrl ?? "",
+        storage_key: readRecordText(record, ["storage_key", "storageKey"]) ?? storageUrl ?? mediaUrl ?? "",
+        filename,
+        content_type: contentType ?? (kind === "VIDEO" ? "video/mp4" : "image/*"),
+        kind,
+        size,
+      };
+    })
+    .filter((entry): entry is G5UploadedMedia => Boolean(entry));
+
+  if (normalizedCandidates.length > 0) {
+    return normalizedCandidates;
+  }
+
+  const mediaUrl = asset?.media_url?.trim() || readRecordText(metadata, ["media_url", "mediaUrl"]) || sourceReview?.original_post?.post_url?.trim() || null;
+  if (!mediaUrl) {
+    return [];
+  }
+
+  const storageUrl = asset?.storage_url?.trim() || metadata?.storage_url?.toString().trim() || mediaUrl;
+  const isVideo = upperText(asset?.asset_type).includes("VIDEO") || /\.(mp4|webm|mov|m4v)$/i.test(mediaUrl);
+
+  return [
+    {
+      status: "PASS",
+      message: "Existing media loaded.",
+      media_url: mediaUrl,
+      storage_url: storageUrl,
+      storage_key: storageUrl,
+      filename: asset?.asset_title?.trim() || `asset-${asset?.asset_id ?? "media"}`,
+      content_type: isVideo ? "video/mp4" : "image/*",
+      kind: isVideo ? "VIDEO" : "IMAGE",
+      size: 0,
+    },
+  ];
+};
+
+const getAssetSourceReviewIdentifier = (asset: G5DashboardAssetRecord | null) =>
+  asset?.source_g4_review_id?.trim() ||
+  asset?.source_content_id?.trim() ||
+  asset?.source_handoff_id?.trim() ||
+  asset?.g4_review_id?.trim() ||
+  asset?.g4_review_uuid?.trim() ||
+  asset?.content_review_id?.trim() ||
+  asset?.review_id?.trim() ||
+  null;
+
+const buildAssetOriginalPostDetails = (asset: G5DashboardAssetRecord | null, sourceReview?: G5SelectedG4ContentRecord | null): G5OriginalPostDetails => ({
+  platform:
+    asset?.original_post?.platform?.trim() ||
+    sourceReview?.original_post?.platform?.trim() ||
+    sourceReview?.content?.platform?.trim() ||
+    asset?.platform?.trim() ||
+    asset?.intended_platform?.trim() ||
+    null,
+  handle: asset?.original_post?.handle?.trim() || sourceReview?.original_post?.handle?.trim() || sourceReview?.profile_username?.trim() || null,
+  caption:
+    asset?.original_post?.caption?.trim() ||
+    sourceReview?.original_post?.caption?.trim() ||
+    sourceReview?.caption_preview?.trim() ||
+    sourceReview?.content_summary?.trim() ||
+    sourceReview?.display_summary?.trim() ||
+    asset?.selected_caption?.trim() ||
+    asset?.content_text?.trim() ||
+    null,
+  post_url: asset?.original_post?.post_url?.trim() || sourceReview?.original_post?.post_url?.trim() || sourceReview?.source_url?.trim() || asset?.post_url?.trim() || null,
+  views: asset?.original_post?.views?.trim() || sourceReview?.original_post?.views?.trim() || sourceReview?.views?.trim() || null,
+  likes: asset?.original_post?.likes?.trim() || sourceReview?.original_post?.likes?.trim() || sourceReview?.likes?.trim() || null,
+  comments: asset?.original_post?.comments?.trim() || sourceReview?.original_post?.comments?.trim() || sourceReview?.comments?.trim() || null,
+  shares: asset?.original_post?.shares?.trim() || sourceReview?.original_post?.shares?.trim() || sourceReview?.shares?.trim() || null,
+  audio: asset?.original_post?.audio?.trim() || sourceReview?.original_post?.audio?.trim() || sourceReview?.audio_sound?.trim() || null,
+  engagement_rate:
+    asset?.original_post?.engagement_rate?.trim() ||
+    sourceReview?.original_post?.engagement_rate?.trim() ||
+    sourceReview?.engagement_rate?.trim() ||
+    null,
+});
+
+const buildRegisteredAssetDraftContent = (asset: G5DashboardAssetRecord, sourceReview?: G5SelectedG4ContentRecord | null): G5SelectedG4ContentRecord => {
+  const captionOptions = getAssetCaptionOptionsForAsset(asset, sourceReview);
+  const hookOptions = getAssetHookOptionsForAsset(asset, sourceReview);
+  const selectedCaption = getAssetSelectedCaptionValue(asset) || captionOptions[0]?.text?.trim() || sourceReview?.recommended_caption?.trim() || "";
+  const selectedHook = getAssetSelectedHookValue(asset) || hookOptions[0]?.text?.trim() || sourceReview?.recommended_hook?.trim() || "";
+  const selectedCaptionIndex = getAssetSelectedCaptionIndexValue(asset);
+  const selectedHookIndex = getAssetSelectedHookIndexValue(asset);
+  const selectedCaptionOption =
+    (selectedCaptionIndex != null ? captionOptions[selectedCaptionIndex] : null) ||
+    getMatchingOption(captionOptions, selectedCaption) ||
+    captionOptions[0] ||
+    null;
+  const selectedHookOption =
+    (selectedHookIndex != null ? hookOptions[selectedHookIndex] : null) ||
+    getMatchingOption(hookOptions, selectedHook) ||
+    hookOptions[0] ||
+    null;
+  const draftId = getAssetSourceReviewIdentifier(asset) || asset.asset_id;
+  const originalPost = buildAssetOriginalPostDetails(asset, sourceReview);
+  const displayTitle = asset.asset_title?.trim() || sourceReview?.display_title?.trim() || selectedCaption || originalPost.caption || "Untitled asset";
+  const displaySummary = selectedCaption || sourceReview?.display_summary?.trim() || originalPost.caption || displayTitle;
+  const platform = asset.platform?.trim() || asset.intended_platform?.trim() || sourceReview?.content?.platform?.trim() || "INSTAGRAM";
+
+  return {
+    id: draftId,
+    g4_review_uuid: asset.g4_review_uuid?.trim() || sourceReview?.g4_review_uuid?.trim() || draftId,
+    g4_review_id: asset.g4_review_id?.trim() || sourceReview?.g4_review_id?.trim() || draftId,
+    content_review_id: asset.content_review_id?.trim() || sourceReview?.content_review_id?.trim() || draftId,
+    review_id: asset.review_id?.trim() || sourceReview?.review_id?.trim() || draftId,
+    status: asset.approval_status,
+    approval_state: asset.approval_status,
+    display_status: asset.client_status || asset.approval_status || "Ready for G5",
+    created_at: asset.asset_created_at || asset.state_updated_at || sourceReview?.created_at || null,
+    display_title: displayTitle,
+    display_summary: displaySummary,
+    platform_label: formatPlatformLabel(platform),
+    caption_preview: selectedCaption || sourceReview?.caption_preview?.trim() || null,
+    views: sourceReview?.views?.trim() || null,
+    likes: sourceReview?.likes?.trim() || null,
+    comments: sourceReview?.comments?.trim() || null,
+    shares: sourceReview?.shares?.trim() || null,
+    profile_username: sourceReview?.profile_username?.trim() || null,
+    audio_sound: sourceReview?.audio_sound?.trim() || null,
+    trend_strength: sourceReview?.trend_strength?.trim() || null,
+    brand_fit_score: sourceReview?.brand_fit_score?.trim() || null,
+    risk_score: sourceReview?.risk_score?.trim() || null,
+    source_url: sourceReview?.source_url?.trim() || asset.post_url?.trim() || null,
+    ai_safe_rewrite: sourceReview?.ai_safe_rewrite?.trim() || null,
+    hook_angle: selectedHook || sourceReview?.hook_angle?.trim() || null,
+    ai_risk_summary: sourceReview?.ai_risk_summary?.trim() || null,
+    ai_compliance_note: sourceReview?.ai_compliance_note?.trim() || null,
+    content_summary: displaySummary,
+    ai_insight: displaySummary,
+    original_post_data: sourceReview?.original_post_data?.trim() || null,
+    engagement_rate: sourceReview?.engagement_rate?.trim() || null,
+    content: {
+      title: displayTitle,
+      summary: displaySummary,
+      platform,
+      created_at: asset.asset_created_at || asset.state_updated_at || sourceReview?.created_at || null,
+    },
+    original_post: originalPost,
+    ai_direction: {
+      content_angle: null,
+      safe_rewrite: sourceReview?.ai_safe_rewrite?.trim() || null,
+      hook_angle: selectedHook || sourceReview?.hook_angle?.trim() || null,
+      risk_summary: sourceReview?.ai_risk_summary?.trim() || null,
+      compliance_note: sourceReview?.ai_compliance_note?.trim() || null,
+    },
+    caption_options: captionOptions,
+    hook_options: hookOptions,
+    recommended_caption: selectedCaption || null,
+    recommended_hook: selectedHook || null,
+  };
+};
+
 const describeTimestamp = (value?: string | null, fallback = "Not available") => (value ? formatDateTime(value) : fallback);
 
 const compactDateTime = (value?: string | null) => {
@@ -781,23 +1373,23 @@ const createAssetComposerDraftPlaceholder = (
     },
     caption_options: captionText
       ? [
-          {
-            id: captionOptionId,
-            label: "Current caption",
-            text: captionText,
-            source: "G4" as const,
-          },
-        ]
+        {
+          id: captionOptionId,
+          label: "Current caption",
+          text: captionText,
+          source: "G4" as const,
+        },
+      ]
       : [],
     hook_options: hookText
       ? [
-          {
-            id: hookOptionId,
-            label: "Current hook",
-            text: hookText,
-            source: "G4" as const,
-          },
-        ]
+        {
+          id: hookOptionId,
+          label: "Current hook",
+          text: hookText,
+          source: "G4" as const,
+        },
+      ]
       : [],
     recommended_caption: captionText || null,
     recommended_hook: hookText || null,
@@ -864,16 +1456,16 @@ const getActionErrorMessage = (message: string) => (
 
 const MetricCard = ({ label, value, helper, icon, toneClassName }: MetricCardProps) => (
   <Card className="overflow-hidden border-border/70 bg-background/95 shadow-sm">
-    <CardContent className="flex h-full flex-col gap-4 p-5">
+    <div className="flex flex-col gap-3 p-5">
       <div className="flex items-center justify-between gap-4">
-        <div className={cn("flex size-11 items-center justify-center rounded-2xl border", toneClassName)}>{icon}</div>
-        <span className="text-xs font-medium uppercase tracking-[0.22em] text-muted-foreground">{label}</span>
+        <div className={cn("flex size-10 items-center justify-center rounded-[14px] border", toneClassName)}>{icon}</div>
+        <span className="text-[10px] font-semibold uppercase tracking-[0.15em] text-muted-foreground">{label}</span>
       </div>
       <div className="space-y-1">
         <p className="font-serif text-3xl leading-none tracking-tight text-primary">{value}</p>
-        <p className="text-sm leading-6 text-muted-foreground">{helper}</p>
+        <p className="text-xs leading-5 text-muted-foreground">{helper}</p>
       </div>
-    </CardContent>
+    </div>
   </Card>
 );
 
@@ -895,43 +1487,129 @@ const AssetReadinessBadge = ({ status, className }: { status: string; className?
   );
 };
 
-const AssetCard = ({ asset, selected, onSelect }: AssetCardProps) => {
+const getPlatformIcon = (platformLabel: string) => {
+  const normalized = platformLabel.toLowerCase();
+  if (normalized.includes("instagram")) return <Instagram className="size-4" />;
+  if (normalized.includes("tiktok")) return <Smartphone className="size-4" />;
+  return <Globe className="size-4" />;
+};
+
+const AssetCard = ({ asset, onApprove, onRunReadinessCheck, onEdit, onDelete, busyAction, processingAssetId }: AssetCardProps) => {
   const statusInfo = getAssetStatusInfo(asset);
   const readinessInfo = getReadinessInfo(asset);
 
-  return (
-    <button
-      type="button"
-      onClick={() => onSelect(asset.asset_id)}
-      className={cn(
-        "w-full rounded-[24px] border p-4 text-left transition-all hover:border-primary/30 hover:bg-accent/30",
-        selected ? "border-primary/30 bg-primary/5 shadow-sm" : "border-border/60 bg-background"
-      )}
-    >
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0 space-y-2">
-          <p className="truncate font-serif text-lg leading-tight text-primary">{getAssetTitle(asset)}</p>
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant="outline" className="rounded-full border-border/70 bg-background px-2.5 py-1 text-[11px] font-medium">
-              {getPlatformDisplayLabel(asset)}
-            </Badge>
-            <AssetStatusBadge status={statusInfo.label} />
-            <AssetReadinessBadge status={readinessInfo.label} />
-          </div>
-        </div>
-      </div>
+  const captionText = getAssetSelectedCaptionValue(asset);
+  const hookText = getAssetSelectedHookValue(asset);
 
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <div className="space-y-1">
-          <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Created</p>
-          <p className="truncate text-sm text-foreground/80">{describeTimestamp(asset.asset_created_at, "Created time unavailable")}</p>
-        </div>
-        <div className="space-y-1">
-          <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Latest link</p>
-          <p className="truncate text-sm text-foreground/80">{asset.post_url?.trim() || "Not yet published"}</p>
+  const syntheticMediaUrl = asset.media_url?.trim() || asset.storage_url?.trim() || null;
+  const isApproved = isAssetApproved(asset);
+  const approvalComplete = Boolean(isAssetApproved(asset) || asset.published_at);
+
+  const isBusy = processingAssetId === asset.asset_id;
+
+  return (
+    <article className="group flex h-full w-full flex-col overflow-hidden rounded-[20px] border border-border/60 bg-white shadow-sm transition-[transform,border-color,background-color,box-shadow] duration-200 hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md">
+      <div className="relative flex flex-1 flex-col overflow-hidden border-b border-border/60 bg-white">
+
+        {syntheticMediaUrl ? (
+          <div className="relative aspect-[4/3] w-full overflow-hidden bg-muted/30">
+            {syntheticMediaUrl.match(/\.(mp4|mov)$/i) ? (
+              <video src={syntheticMediaUrl} className="h-full w-full object-cover" controls playsInline />
+            ) : (
+              <img src={syntheticMediaUrl} alt={getAssetTitle(asset)} className="h-full w-full object-cover" />
+            )}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent pointer-events-none" />
+
+            <div className="absolute left-3 top-3 z-10 flex h-6 w-6 items-center justify-center border border-border/50 bg-white/90 text-slate-700 shadow-sm backdrop-blur-sm">
+              {getPlatformIcon(getPlatformDisplayLabel(asset))}
+            </div>
+
+            <div className="absolute right-3 top-3 z-10">
+              <AssetStatusBadge status={statusInfo.label} className="flex h-6 items-center justify-center rounded-none bg-white/90 px-2 text-[10px] shadow-sm backdrop-blur-sm" />
+            </div>
+          </div>
+        ) : (
+          <div className="relative flex aspect-[4/3] w-full flex-col items-center justify-center border-b border-border/50 bg-slate-50 text-slate-400">
+            <ImagePlus className="mb-2 size-8 opacity-50" />
+            <span className="text-[11px] font-medium uppercase tracking-widest">No media</span>
+
+            <div className="absolute left-3 top-3 z-10 flex h-6 w-6 items-center justify-center border border-border/50 bg-white/90 text-slate-700 shadow-sm backdrop-blur-sm">
+              {getPlatformIcon(getPlatformDisplayLabel(asset))}
+            </div>
+
+            <div className="absolute right-3 top-3 z-10">
+              <AssetStatusBadge status={statusInfo.label} className="flex h-6 items-center justify-center rounded-none bg-white/90 px-2 text-[10px] shadow-sm backdrop-blur-sm" />
+            </div>
+          </div>
+        )}
+
+        <div className="relative flex flex-1 flex-col space-y-3 px-4 py-4 sm:px-5">
+
+          <div className="flex flex-col gap-1.5">
+            <div className="flex min-w-0 items-start gap-2">
+              <MessageCircle className="mt-0.5 size-3.5 shrink-0 text-violet-500" aria-hidden="true" />
+              <p className="min-w-0 flex-1 line-clamp-2 text-xs leading-5 text-slate-600 text-pretty">
+                {captionText || "No caption available."}
+              </p>
+            </div>
+            <div className="flex min-w-0 items-start gap-2">
+              <FileUp className="mt-0.5 size-3.5 shrink-0 text-amber-500" aria-hidden="true" />
+              <p className="min-w-0 flex-1 line-clamp-1 text-xs leading-5 text-slate-500 text-pretty">
+                {hookText || "No hook available."}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-auto flex flex-col gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onEdit(asset.asset_id)}
+              className="h-9 w-full rounded-[12px] px-4 text-xs shadow-none"
+            >
+              <PencilLine className="mr-2 size-3.5" />
+              Edit post details
+            </Button>
+
+            <div className="grid grid-cols-2 gap-2">
+              <Button
+                type="button"
+                onClick={() => onRunReadinessCheck(asset.asset_id)}
+                disabled={isBusy && busyAction === "readiness"}
+                variant="outline"
+                className="h-9 rounded-[12px] px-2 text-xs shadow-none"
+              >
+                {isBusy && busyAction === "readiness" ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <Clock3 className="mr-1.5 size-3.5" />}
+                Readiness check
+              </Button>
+
+              <Button
+                type="button"
+                onClick={() => onApprove(asset.asset_id)}
+                disabled={(isBusy && busyAction === "approve") || approvalComplete}
+                variant={isApproved ? "secondary" : "default"}
+                className="h-9 rounded-[12px] px-2 text-xs shadow-none transition-colors"
+              >
+                {isBusy && busyAction === "approve" ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <CheckCircle2 className="mr-1.5 size-3.5" />}
+                {isApproved ? "Approved" : "Approve"}
+              </Button>
+            </div>
+
+            <Button
+              type="button"
+              onClick={() => onDelete(asset.asset_id)}
+              disabled={isBusy && busyAction === "reject"}
+              variant="outline"
+              className="h-9 w-full rounded-[12px] px-2 text-xs shadow-none border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
+            >
+              {isBusy && busyAction === "reject" ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <XCircle className="mr-1.5 size-3.5" />}
+              Delete
+            </Button>
+          </div>
+
         </div>
       </div>
-    </button>
+    </article>
   );
 };
 
@@ -1021,11 +1699,11 @@ const G4PickerDialog = ({ open, onOpenChange, reviews, message, busy, onSelect, 
               </p>
             </div>
             <div className="flex-1 px-5 py-5 sm:px-6">
-    <div className="space-y-3 rounded-[24px] border border-dashed border-border/70 bg-white p-5">
-      <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Selection guide</p>
-      <ul className="space-y-2 text-sm leading-6 text-foreground/80">
-        <li>• Content already passed the G4 check</li>
-        <li>• Caption and hook suggestions load after you choose one</li>
+              <div className="space-y-3 rounded-[24px] border border-dashed border-border/70 bg-white p-5">
+                <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Selection guide</p>
+                <ul className="space-y-2 text-sm leading-6 text-foreground/80">
+                  <li>• Content already passed the G4 check</li>
+                  <li>• Caption and hook suggestions load after you choose one</li>
                   <li>• Media upload and final review happen in the next step</li>
                 </ul>
               </div>
@@ -1249,7 +1927,6 @@ export default function G5AssetApprovalPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
-  const [assetEdits, setAssetEdits] = useState<Record<string, { caption: string; hook: string }>>({});
   const [registeredG4ReviewKeys, setRegisteredG4ReviewKeys] = useState<string[]>([]);
   const [draftContent, setDraftContent] = useState<G5SelectedG4ContentRecord | null>(null);
   const [draftCaption, setDraftCaption] = useState("");
@@ -1261,6 +1938,7 @@ export default function G5AssetApprovalPage() {
   const [draftMediaItems, setDraftMediaItems] = useState<G5UploadedMedia[]>([]);
   const [selectedDraftMediaKey, setSelectedDraftMediaKey] = useState<string | null>(null);
   const [busyAction, setBusyAction] = useState<BusyAction>(null);
+  const [processingAssetId, setProcessingAssetId] = useState<string | null>(null);
   const [pageError, setPageError] = useState<string | null>(null);
   const [inlineError, setInlineError] = useState<string | null>(null);
   const [detailSheetOpen, setDetailSheetOpen] = useState(false);
@@ -1272,6 +1950,18 @@ export default function G5AssetApprovalPage() {
   const [isDesktop, setIsDesktop] = useState(false);
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState("approved-content");
+  const [hiddenReviewIds, setHiddenReviewIds] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const stored = sessionStorage.getItem("cevonne_g5_hidden_reviews");
+        if (stored) {
+          setHiddenReviewIds(new Set(JSON.parse(stored)));
+        }
+      } catch (err) { }
+    }
+  }, []);
   const deferredSearch = useDeferredValue(search);
 
   const g4ReadyReviews = g4ReadyContent?.reviews ?? EMPTY_G4_REVIEWS;
@@ -1286,6 +1976,8 @@ export default function G5AssetApprovalPage() {
       return g4ReadyReviews
         .map(toSelectableG4Review)
         .filter((review) => {
+          if (hiddenReviewIds.has(review.id)) return false;
+
           const candidateKeys = buildApprovedContentCandidateKeys(review);
           if (candidateKeys.some((key) => seenKeys.has(key))) {
             return false;
@@ -1295,7 +1987,7 @@ export default function G5AssetApprovalPage() {
           return !candidateKeys.some((key) => registeredG4ReviewKeySet.has(key));
         });
     },
-    [g4ReadyReviews, registeredG4ReviewKeySet],
+    [g4ReadyReviews, registeredG4ReviewKeySet, hiddenReviewIds],
   );
   const allAssets = dashboard?.assets ?? EMPTY_G5_ASSETS;
   const searchQuery = deferredSearch.trim().toLowerCase();
@@ -1578,37 +2270,6 @@ export default function G5AssetApprovalPage() {
     setDetailSheetOpen(Boolean(selectedAsset));
   }, [isDesktop, selectedAsset]);
 
-  const selectedAssetEdit = selectedAsset ? assetEdits[selectedAsset.asset_id] ?? null : null;
-  const selectedAssetCaptionValue =
-    selectedAssetEdit?.caption?.trim() ||
-    selectedAsset?.content_text?.trim() ||
-    selectedAsset?.asset_title?.trim() ||
-    "";
-  const selectedAssetHookValue = selectedAssetEdit?.hook?.trim() || selectedAsset?.hook_angle?.trim() || "";
-  const selectedAssetMatchedG4Review = useMemo(() => {
-    if (!selectedAsset) {
-      return null;
-    }
-
-    const caption = selectedAssetCaptionValue.trim();
-    const syntheticReview = {
-      id: selectedAsset.g4_review_id?.trim() || selectedAsset.g4_review_uuid?.trim() || selectedAsset.content_review_id?.trim() || selectedAsset.review_id?.trim() || selectedAsset.asset_id,
-      g4_review_id: selectedAsset.g4_review_id?.trim() || null,
-      g4_review_uuid: selectedAsset.g4_review_uuid?.trim() || null,
-      content_review_id: selectedAsset.content_review_id?.trim() || null,
-      review_id: selectedAsset.review_id?.trim() || null,
-      display_title: selectedAsset.asset_title?.trim() || caption || selectedAsset.content_text?.trim() || null,
-      display_summary: caption || selectedAsset.content_text?.trim() || selectedAsset.asset_title?.trim() || null,
-      caption_preview: caption || selectedAsset.content_text?.trim() || null,
-      content_text: caption || selectedAsset.content_text?.trim() || null,
-      platform_label: getPlatformDisplayLabel(selectedAsset),
-      created_at: selectedAsset.asset_created_at || selectedAsset.state_updated_at || null,
-    };
-
-    const candidateKeys = new Set(buildApprovedContentCandidateKeys(syntheticReview));
-    return g4ReadyReviews.find((review) => buildApprovedContentCandidateKeys(review).some((key) => candidateKeys.has(key))) ?? null;
-  }, [g4ReadyReviews, selectedAsset, selectedAssetCaptionValue]);
-
   const clearDraftSelection = useCallback(() => {
     setDraftContent(null);
     setDraftCaption("");
@@ -1647,106 +2308,104 @@ export default function G5AssetApprovalPage() {
     return `Draft: ${contentLabel || "No G4 selected"}${mediaLabel ? ` · Media: ${mediaLabel}` : " · Media not uploaded yet"}${captionLabel ? ` · ${captionLabel}` : ""}${hookLabel ? ` · ${hookLabel}` : ""}`;
   }, [draftCaption, draftContent, draftMedia, selectedHookOption]);
 
-  const selectAsset = useCallback(
-    (assetId: string) => {
-      setSelectedAssetId(assetId);
-      if (!isDesktop) {
-        setDetailSheetOpen(true);
-      }
-    },
-    [isDesktop]
-  );
-
-  const handleOpenPostEditor = useCallback(async () => {
-    if (!selectedAsset) {
+  const handleOpenPostEditor = useCallback(async (targetAssetId?: string) => {
+    const assetToEdit = targetAssetId ? allAssets.find((a) => a.asset_id === targetAssetId) : selectedAsset;
+    if (!assetToEdit) {
       return;
     }
 
-    const caption = selectedAssetCaptionValue.trim();
-    const hook = selectedAssetHookValue.trim();
-    const syntheticMediaUrl = selectedAsset.media_url?.trim() || selectedAsset.storage_url?.trim() || null;
-    const reviewId =
-      selectedAsset.g4_review_id?.trim() ||
-      selectedAsset.g4_review_uuid?.trim() ||
-      selectedAsset.content_review_id?.trim() ||
-      selectedAsset.review_id?.trim() ||
-      selectedAssetMatchedG4Review?.content_review_id?.trim() ||
-      selectedAssetMatchedG4Review?.review_id?.trim() ||
-      selectedAssetMatchedG4Review?.id?.trim() ||
+    if (targetAssetId) {
+      setSelectedAssetId(targetAssetId);
+    }
+
+    const caption = getAssetSelectedCaptionValue(assetToEdit);
+    const hook = getAssetSelectedHookValue(assetToEdit);
+    const sourceReviewId = getAssetSourceReviewIdentifier(assetToEdit);
+    const placeholder = buildRegisteredAssetDraftContent(assetToEdit);
+    const draftMedia = buildDraftMediaItemsFromAsset(assetToEdit, placeholder);
+    const selectedCaptionIndex = getAssetSelectedCaptionIndexValue(assetToEdit);
+    const selectedHookIndex = getAssetSelectedHookIndexValue(assetToEdit);
+    const selectedCaptionOption =
+      (selectedCaptionIndex != null ? placeholder.caption_options[selectedCaptionIndex] : null) ||
+      getMatchingOption(placeholder.caption_options, caption) ||
+      placeholder.caption_options[0] ||
+      null;
+    const selectedHookOption =
+      (selectedHookIndex != null ? placeholder.hook_options[selectedHookIndex] : null) ||
+      getMatchingOption(placeholder.hook_options, hook) ||
+      placeholder.hook_options[0] ||
       null;
 
     setComposerMode("edit");
-    setComposerLoading(Boolean(reviewId || selectedAsset.asset_id || selectedAsset.approval_id));
+    setComposerLoading(true);
     setG4SelectionBusy(false);
     setInlineError(null);
     setDraftCaption(caption);
     setDraftHookOverride(hook);
-    setCaptionDraftManuallyEdited(Boolean(caption));
-    setDraftMediaItems(
-      syntheticMediaUrl
-        ? [
-            {
-              status: "PASS",
-              message: "Existing media loaded.",
-              media_url: syntheticMediaUrl,
-              storage_url: selectedAsset.storage_url?.trim() || syntheticMediaUrl,
-              storage_key: selectedAsset.storage_url?.trim() || syntheticMediaUrl,
-              filename: selectedAsset.asset_title?.trim() || `asset-${selectedAsset.asset_id}`,
-              content_type:
-                upperText(selectedAsset.asset_type).includes("VIDEO") ||
-                /\.(mp4|webm|mov|m4v)$/i.test(syntheticMediaUrl)
-                  ? "video/mp4"
-                  : "image/*",
-              kind: upperText(selectedAsset.asset_type).includes("VIDEO") ? "VIDEO" : "IMAGE",
-              size: 0,
-            },
-          ]
-        : []
-    );
-    setSelectedDraftMediaKey(syntheticMediaUrl);
-    setOriginalPostModalOpen(false);
-    setG4DialogOpen(false);
+    setCaptionDraftManuallyEdited(false);
+    setDraftMediaItems(draftMedia);
+    setSelectedDraftMediaKey(draftMedia[draftMedia.length - 1]?.storage_key || draftMedia[draftMedia.length - 1]?.media_url || assetToEdit.media_url?.trim() || assetToEdit.storage_url?.trim() || null);
+    setDraftContent(placeholder);
+    setSelectedCaptionId(selectedCaptionOption?.id ?? null);
+    setSelectedHookId(selectedHookOption?.id ?? null);
+
+    composerOpenStartedAtRef.current = typeof performance !== "undefined" ? performance.now() : null;
     setComposerOpen(true);
 
-    try {
-      const query = new URLSearchParams({
-        reviewId: reviewId || "",
-        assetId: selectedAsset.asset_id,
-        approvalId: selectedAsset.approval_id?.trim() || selectedAsset.asset_id,
-        title: selectedAsset.asset_title?.trim() || selectedAsset.content_text?.trim() || "",
-        caption: caption,
-        hook: hook,
-        platform: selectedAsset.platform?.trim() || selectedAsset.intended_platform?.trim() || "",
-        sourceUrl: selectedAsset.post_url?.trim() || "",
-      });
+    setTimeout(async () => {
+      try {
+        const query = new URLSearchParams({
+          reviewId: sourceReviewId || "",
+          approvalId: assetToEdit.approval_id?.trim() || assetToEdit.asset_id,
+          title: assetToEdit.asset_title?.trim() || caption || assetToEdit.content_text?.trim() || "",
+          caption: caption,
+          hook: hook,
+          platform: assetToEdit.platform?.trim() || assetToEdit.intended_platform?.trim() || "",
+          sourceUrl: assetToEdit.post_url?.trim() || "",
+        });
 
-      const response = await authFetch(buildRouteUrl(`/api/admin/g5/g4-content-options?${query.toString()}`), {
-        cache: "no-store",
-        silent: true,
-      });
+        const response = await authFetch(buildRouteUrl(`/api/admin/g5/g4-content-options?${query.toString()}`), {
+          cache: "no-store",
+          silent: true,
+        });
 
-      const body = await parseJson<G5SelectedG4ContentResponse>(response);
-      if (!response.ok || !body?.review) {
-        const message = body?.message || "Unable to load selected G4 content.";
-        throw new Error(message);
+        const body = await parseJson<G5SelectedG4ContentResponse>(response);
+        if (!response.ok || !body?.review) {
+          const message = body?.message || "Unable to load selected G4 content.";
+          throw new Error(message);
+        }
+
+        const selected = body.review;
+        const mergedDraft = buildRegisteredAssetDraftContent(assetToEdit, selected);
+        const mergedCaptionOptions = mergedDraft.caption_options;
+        const mergedHookOptions = mergedDraft.hook_options;
+        const mergedCaptionId =
+          selectedCaptionIndex != null && mergedCaptionOptions[selectedCaptionIndex]?.id
+            ? mergedCaptionOptions[selectedCaptionIndex]?.id
+            : getMatchingOption(mergedCaptionOptions, caption)?.id ?? mergedCaptionOptions[0]?.id ?? null;
+        const mergedHookId =
+          selectedHookIndex != null && mergedHookOptions[selectedHookIndex]?.id
+            ? mergedHookOptions[selectedHookIndex]?.id
+            : getMatchingOption(mergedHookOptions, hook)?.id ?? mergedHookOptions[0]?.id ?? null;
+
+        setDraftContent(mergedDraft);
+        setSelectedCaptionId(mergedCaptionId);
+        setSelectedHookId(mergedHookId);
+        setDraftMediaItems(buildDraftMediaItemsFromAsset(assetToEdit, mergedDraft));
+        setSelectedDraftMediaKey(
+          readRecordText(assetToEdit.media_assets[0] ?? null, ["storage_key", "storageKey", "media_url", "mediaUrl"]) ||
+            assetToEdit.media_url?.trim() ||
+            assetToEdit.storage_url?.trim() ||
+            null,
+        );
+        setCaptionDraftManuallyEdited(false);
+      } catch {
+        // Placeholder data is already loaded — no need to show an error toast in edit mode.
+      } finally {
+        setComposerLoading(false);
       }
-
-      const selected = body.review;
-      setDraftContent(selected);
-      setSelectedCaptionId(getMatchingOption(selected.caption_options, caption)?.id ?? null);
-      setSelectedHookId(getMatchingOption(selected.hook_options, hook)?.id ?? null);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to load selected G4 content.";
-      setInlineError(message);
-      toast.error(message);
-      const placeholder = createAssetComposerDraftPlaceholder(selectedAsset, caption, hook);
-      setDraftContent(placeholder);
-      setSelectedCaptionId(placeholder.caption_options[0]?.id ?? null);
-      setSelectedHookId(placeholder.hook_options[0]?.id ?? null);
-    } finally {
-      setComposerLoading(false);
-    }
-  }, [authFetch, selectedAsset, selectedAssetCaptionValue, selectedAssetHookValue, selectedAssetMatchedG4Review]);
+    }, 0);
+  }, [allAssets, selectedAsset, authFetch]);
 
   const refreshData = useCallback(async () => {
     await loadData("refresh");
@@ -1847,43 +2506,45 @@ export default function G5AssetApprovalPage() {
       setG4DialogOpen(false);
       setComposerOpen(true);
 
-      try {
-        const response = await authFetch(buildRouteUrl(`/api/admin/g5/g4-content-options?reviewId=${encodeURIComponent(review.id)}`), {
-          cache: "no-store",
-          silent: true,
-        });
-
-        const body = await parseJson<G5SelectedG4ContentResponse>(response);
-        if (!response.ok || !body?.review) {
-          const message = body?.message || "Unable to load selected G4 content.";
-          throw new Error(message);
-        }
-
-        const selected = body.review;
-        if (isDevelopment) {
-          console.debug("[G5 composer] caption options received", {
-            reviewId: selected.id,
-            captionCount: selected.caption_options?.length ?? 0,
-            hookCount: selected.hook_options?.length ?? 0,
+      setTimeout(async () => {
+        try {
+          const response = await authFetch(buildRouteUrl(`/api/admin/g5/g4-content-options?reviewId=${encodeURIComponent(review.id)}`), {
+            cache: "no-store",
+            silent: true,
           });
+
+          const body = await parseJson<G5SelectedG4ContentResponse>(response);
+          if (!response.ok || !body?.review) {
+            const message = body?.message || "Unable to load selected G4 content.";
+            throw new Error(message);
+          }
+
+          const selected = body.review;
+          if (isDevelopment) {
+            console.debug("[G5 composer] caption options received", {
+              reviewId: selected.id,
+              captionCount: selected.caption_options?.length ?? 0,
+              hookCount: selected.hook_options?.length ?? 0,
+            });
+          }
+          setDraftContent(selected);
+          setSelectedCaptionId(null);
+          setSelectedHookId(null);
+          setDraftCaption("");
+          setDraftMediaItems([]);
+          setSelectedDraftMediaKey(null);
+          setCaptionDraftManuallyEdited(false);
+          toast.success(body.message || "G4 content selected.");
+        } catch (error) {
+          const message = error instanceof Error ? error.message : "Unable to load selected G4 content.";
+          setInlineError(message);
+          toast.error(message);
+          clearDraftSelection();
+        } finally {
+          setG4SelectionBusy(false);
+          setComposerLoading(false);
         }
-        setDraftContent(selected);
-        setSelectedCaptionId(null);
-        setSelectedHookId(null);
-        setDraftCaption("");
-        setDraftMediaItems([]);
-        setSelectedDraftMediaKey(null);
-        setCaptionDraftManuallyEdited(false);
-        toast.success(body.message || "G4 content selected.");
-      } catch (error) {
-        const message = error instanceof Error ? error.message : "Unable to load selected G4 content.";
-        setInlineError(message);
-        toast.error(message);
-        clearDraftSelection();
-      } finally {
-        setG4SelectionBusy(false);
-        setComposerLoading(false);
-      }
+      }, 0);
     },
     [authFetch, clearDraftSelection, isDevelopment]
   );
@@ -1942,7 +2603,19 @@ export default function G5AssetApprovalPage() {
     const actor = user?.name?.trim() || user?.email?.trim() || user?.id?.trim() || "admin";
     const contentReviewId = draftContent.content_review_id?.trim() || draftContent.review_id?.trim() || draftContent.id;
     const reviewId = draftContent.review_id?.trim() || draftContent.content_review_id?.trim() || draftContent.id;
+    const sourceContentId = draftContent.content_review_id?.trim() || draftContent.review_id?.trim() || draftContent.id;
+    const sourceG4ReviewId = draftContent.g4_review_id?.trim() || draftContent.g4_review_uuid?.trim() || draftContent.id;
+    const sourceHandoffId = draftContent.review_id?.trim() || draftContent.content_review_id?.trim() || draftContent.id;
     const title = draftContent.display_title?.trim() || draftContent.content_summary?.trim() || "G5 asset";
+    const selectedCaptionOptionIndexRaw = selectedCaptionOption ? captionOptions.findIndex((option) => option.id === selectedCaptionOption.id) : null;
+    const selectedHookOptionIndexRaw = selectedHookOption ? hookOptions.findIndex((option) => option.id === selectedHookOption.id) : null;
+    const selectedCaptionOptionIndex = selectedCaptionOptionIndexRaw != null && selectedCaptionOptionIndexRaw >= 0 ? selectedCaptionOptionIndexRaw : null;
+    const selectedHookOptionIndex = selectedHookOptionIndexRaw != null && selectedHookOptionIndexRaw >= 0 ? selectedHookOptionIndexRaw : null;
+    const mediaAssets = draftMediaItems.map((item) => ({ ...item })) as JsonRecord[];
+    const selectedCaptionValue = caption;
+    const selectedHookValue = draftHookText?.trim() || null;
+    const originalPostData = draftContent.original_post_data ? draftContent.original_post_data : draftContent.original_post;
+    const originalPostUrl = draftContent.original_post?.post_url?.trim() || draftContent.source_url?.trim() || null;
 
     setBusyAction("register");
     setInlineError(null);
@@ -1957,9 +2630,45 @@ export default function G5AssetApprovalPage() {
           asset_type: draftMedia.kind || "IMAGE",
           asset_title: title,
           content_text: caption,
-          hook_angle: draftHookText,
+          hook_angle: selectedHookValue,
+          source_content_id: sourceContentId,
+          source_g4_review_id: sourceG4ReviewId,
+          source_handoff_id: sourceHandoffId,
+          selected_caption: selectedCaptionValue,
+          selected_caption_index: selectedCaptionOptionIndex,
+          selected_hook: selectedHookValue,
+          selected_hook_index: selectedHookOptionIndex,
+          caption_options: captionOptions,
+          hook_options: hookOptions,
           media_url: draftMedia.media_url,
           storage_url: draftMedia.storage_url,
+          media_assets: mediaAssets,
+          original_post_data: originalPostData,
+          original_post_url: originalPostUrl,
+          status: "PENDING_APPROVAL",
+          source_status: "REGISTERED",
+          registration_status: "REGISTERED",
+          approval_status: "PENDING_APPROVAL",
+          readiness_status: "NOT_CHECKED",
+          metadata: {
+            selected_caption: selectedCaptionValue,
+            selected_caption_index: selectedCaptionOptionIndex,
+            selected_hook: selectedHookValue,
+            selected_hook_index: selectedHookOptionIndex,
+            caption_options: captionOptions,
+            hook_options: hookOptions,
+            media_assets: mediaAssets,
+            original_post_data: originalPostData,
+            original_post_url: originalPostUrl,
+            source_content_id: sourceContentId,
+            source_g4_review_id: sourceG4ReviewId,
+            source_handoff_id: sourceHandoffId,
+            source_g4: {
+              source_content_id: sourceContentId,
+              source_g4_review_id: sourceG4ReviewId,
+              source_handoff_id: sourceHandoffId,
+            },
+          },
           g4_review_id: draftContent.g4_review_id,
           g4_review_uuid: draftContent.g4_review_uuid,
           content_review_id: contentReviewId,
@@ -1967,6 +2676,7 @@ export default function G5AssetApprovalPage() {
           source_platform: "WEBSITE",
           source_event: "CLIENT_UPLOAD",
           rights_status: "OWNED_OR_INTERNAL",
+          used_in_g5: true,
           actor,
         }),
         silent: true,
@@ -1992,17 +2702,28 @@ export default function G5AssetApprovalPage() {
       const registeredContentKeys = buildApprovedContentCandidateKeys(draftContent);
       const optimisticAssetId = registeredAssetId || registeredApprovalId || draftContent.id;
       const optimisticApprovalId = registeredApprovalId || registeredAssetId || draftContent.id;
-      const optimisticAsset = buildOptimisticG5AssetRecord(
-        draftContent,
-        draftMedia,
-        optimisticAssetId,
-        optimisticApprovalId,
-        registeredAt,
-        caption,
-        draftHookText,
-      );
+      const optimisticAsset = buildOptimisticG5AssetRecord({
+        content: draftContent,
+        media: draftMedia,
+        assetId: optimisticAssetId,
+        approvalId: optimisticApprovalId,
+        createdAt: registeredAt,
+        caption: selectedCaptionValue,
+        hook: selectedHookValue,
+        selectedCaptionIndex: selectedCaptionOptionIndex,
+        selectedHookIndex: selectedHookOptionIndex,
+        captionOptions,
+        hookOptions,
+        mediaAssets,
+        originalPostData,
+        originalPostUrl,
+        sourceContentId,
+        sourceG4ReviewId,
+        sourceHandoffId,
+      });
 
-      toast.success("Asset registered and moved to Pending Approval.");
+      const isDuplicateRegistration = upperText(body.response_type) === "DUPLICATE";
+      toast.success(isDuplicateRegistration ? body.message || "This content is already registered." : "Asset registered and moved to Pending Approval.");
       setRegisteredG4ReviewKeys((current) => [...new Set([...current, ...registeredContentKeys])]);
       setDashboard((current) => {
         if (!current) {
@@ -2033,10 +2754,10 @@ export default function G5AssetApprovalPage() {
             existingIndex >= 0
               ? current.summary
               : {
-                  ...current.summary,
-                  total: current.summary.total + 1,
-                  pending_approval: current.summary.pending_approval + 1,
-                },
+                ...current.summary,
+                total: current.summary.total + 1,
+                pending_approval: current.summary.pending_approval + 1,
+              },
           assets: nextAssets,
         };
       });
@@ -2062,10 +2783,10 @@ export default function G5AssetApprovalPage() {
     } finally {
       setBusyAction(null);
     }
-  }, [authFetch, captionOptions.length, composerLoading, draftCaption, draftContent, draftHookText, draftMedia, g4ReadyReviews.length, refreshData, user?.email, user?.id, user?.name]);
+  }, [authFetch, captionOptions, captionOptions.length, composerLoading, draftCaption, draftContent, draftHookText, draftMedia, draftMediaItems, g4ReadyReviews.length, hookOptions, refreshData, selectedCaptionOption, selectedHookOption, user?.email, user?.id, user?.name]);
 
-  const handleSaveComposerEdit = useCallback(() => {
-    if (!selectedAsset) {
+  const handleSaveComposerEdit = useCallback(async () => {
+    if (!selectedAsset || !draftContent) {
       return;
     }
 
@@ -2075,29 +2796,112 @@ export default function G5AssetApprovalPage() {
       return;
     }
 
-    const hook = draftHookText?.trim() || "";
-    setAssetEdits((current) => ({
-      ...current,
-      [selectedAsset.asset_id]: {
-        caption,
-        hook,
-      },
-    }));
-    toast.success("Post updated.");
-    clearDraftSelection();
-  }, [clearDraftSelection, draftCaption, draftHookText, selectedAsset]);
+    const hook = draftHookText?.trim() || null;
+    const actor = user?.name?.trim() || user?.email?.trim() || user?.id?.trim() || "admin";
+    const selectedCaptionIndexRaw = selectedCaptionOption ? captionOptions.findIndex((option) => option.id === selectedCaptionOption.id) : null;
+    const selectedHookIndexRaw = selectedHookOption ? hookOptions.findIndex((option) => option.id === selectedHookOption.id) : null;
+    const selectedCaptionIndex = selectedCaptionIndexRaw != null && selectedCaptionIndexRaw >= 0 ? selectedCaptionIndexRaw : null;
+    const selectedHookIndex = selectedHookIndexRaw != null && selectedHookIndexRaw >= 0 ? selectedHookIndexRaw : null;
+    const mediaAssets = draftMediaItems.map((item) => ({ ...item })) as JsonRecord[];
+    const originalPostData = draftContent.original_post_data ? draftContent.original_post_data : draftContent.original_post;
+    const originalPostUrl = draftContent.original_post?.post_url?.trim() || draftContent.source_url?.trim() || null;
+    const sourceContentId = selectedAsset.source_content_id?.trim() || selectedAsset.content_review_id?.trim() || selectedAsset.review_id?.trim() || selectedAsset.asset_id;
+    const sourceG4ReviewId = selectedAsset.source_g4_review_id?.trim() || selectedAsset.g4_review_id?.trim() || selectedAsset.g4_review_uuid?.trim() || selectedAsset.asset_id;
+    const sourceHandoffId = selectedAsset.source_handoff_id?.trim() || selectedAsset.approval_id?.trim() || selectedAsset.asset_id;
+    const existingMetadata = isRecord(selectedAsset.metadata) ? selectedAsset.metadata : {};
+
+    setBusyAction("save");
+    setInlineError(null);
+
+    try {
+      const response = await authFetch(buildRouteUrl("/api/admin/g5/update-asset-details"), {
+        method: "POST",
+        body: JSON.stringify({
+          asset_id: selectedAsset.asset_id,
+          approval_id: selectedAsset.approval_id?.trim() || selectedAsset.asset_id,
+          platform: "INSTAGRAM",
+          asset_title: selectedAsset.asset_title?.trim() || draftContent.display_title?.trim() || caption,
+          content_text: caption,
+          hook_angle: hook,
+          selected_caption: caption,
+          selected_caption_index: selectedCaptionIndex,
+          selected_hook: hook,
+          selected_hook_index: selectedHookIndex,
+          caption_options: captionOptions,
+          hook_options: hookOptions,
+          media_url: draftMedia?.media_url?.trim() || selectedAsset.media_url?.trim() || null,
+          storage_url: draftMedia?.storage_url?.trim() || selectedAsset.storage_url?.trim() || null,
+          media_assets: mediaAssets,
+          original_post_data: originalPostData,
+          original_post_url: originalPostUrl,
+          source_content_id: sourceContentId,
+          source_g4_review_id: sourceG4ReviewId,
+          source_handoff_id: sourceHandoffId,
+          source_platform: selectedAsset.source_platform?.trim() || "WEBSITE",
+          source_event: selectedAsset.source_event?.trim() || "CLIENT_UPLOAD",
+          status: selectedAsset.asset_status?.trim() || selectedAsset.approval_status?.trim() || "PENDING_APPROVAL",
+          source_status: selectedAsset.source_status?.trim() || "REGISTERED",
+          registration_status: selectedAsset.registration_status?.trim() || "REGISTERED",
+          approval_status: selectedAsset.approval_status?.trim() || "PENDING_APPROVAL",
+          readiness_status: selectedAsset.readiness_status?.trim() || "NOT_CHECKED",
+          g5_status: selectedAsset.g5_status?.trim() || "PENDING_APPROVAL",
+          used_in_g5: selectedAsset.used_in_g5 ?? true,
+          metadata: {
+            ...existingMetadata,
+            selected_caption: caption,
+            selected_caption_index: selectedCaptionIndex,
+            selected_hook: hook,
+            selected_hook_index: selectedHookIndex,
+            caption_options: captionOptions,
+            hook_options: hookOptions,
+            media_assets: mediaAssets,
+            original_post_data: originalPostData,
+            original_post_url: originalPostUrl,
+            source_content_id: sourceContentId,
+            source_g4_review_id: sourceG4ReviewId,
+            source_handoff_id: sourceHandoffId,
+            source_g4: {
+              source_content_id: sourceContentId,
+              source_g4_review_id: sourceG4ReviewId,
+              source_handoff_id: sourceHandoffId,
+            },
+          },
+          actor,
+        }),
+        silent: true,
+      });
+
+      const body = await parseJson<G5WebhookResponse>(response);
+      if (!response.ok || !body) {
+        const message = body?.message || "Unable to save changes.";
+        throw new Error(message);
+      }
+
+      toast.success(body.message || "Post updated.");
+      await refreshData();
+      clearDraftSelection();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Unable to save changes.";
+      setInlineError(message);
+      toast.error(message);
+    } finally {
+      setBusyAction(null);
+    }
+  }, [authFetch, captionOptions, clearDraftSelection, draftCaption, draftContent, draftHookText, draftMedia, draftMediaItems, hookOptions, refreshData, selectedAsset, selectedCaptionOption, selectedHookOption, user?.email, user?.id, user?.name]);
 
   const handleApprovalDecision = useCallback(
-    async (decision: "APPROVED" | "REJECTED") => {
-      if (!selectedAsset) {
+    async (decision: "APPROVED" | "REJECTED", targetAssetId?: string) => {
+      const assetToApprove = targetAssetId ? allAssets.find(a => a.asset_id === targetAssetId) : selectedAsset;
+      if (!assetToApprove) {
         return;
       }
 
-      const approvalId = selectedAsset.approval_id?.trim() || selectedAsset.asset_id;
+      const approvalId = assetToApprove.approval_id?.trim() || assetToApprove.asset_id;
       const actor = user?.name?.trim() || user?.email?.trim() || user?.id?.trim() || "admin";
       const responseAction = decision === "APPROVED" ? "approve" : "reject";
 
       setBusyAction(responseAction);
+      if (targetAssetId) setProcessingAssetId(targetAssetId);
       setInlineError(null);
 
       try {
@@ -2105,7 +2909,7 @@ export default function G5AssetApprovalPage() {
           method: "POST",
           body: JSON.stringify({
             approval_id: approvalId,
-            asset_id: selectedAsset.asset_id,
+            asset_id: assetToApprove.asset_id,
             decision,
             reviewer_id: actor,
             reviewer_note: decision === "APPROVED" ? "Approved from the G5 dashboard." : "Rejected from the G5 dashboard.",
@@ -2120,8 +2924,10 @@ export default function G5AssetApprovalPage() {
           throw new Error(message);
         }
 
-        toast.success(body.message || (decision === "APPROVED" ? "Asset approved." : "Asset rejected."));
-        setActiveTab(decision === "APPROVED" ? "ready-to-publish" : "blocked");
+        toast.success(decision === "APPROVED" ? "Asset approved." : "Asset deleted.");
+        if (decision === "APPROVED") {
+          setActiveTab("ready-to-publish");
+        }
         await refreshData();
       } catch (error) {
         const message = error instanceof Error ? error.message : "Unable to save G5 decision.";
@@ -2129,17 +2935,19 @@ export default function G5AssetApprovalPage() {
         toast.error(message);
       } finally {
         setBusyAction(null);
+        setProcessingAssetId(null);
       }
     },
-    [authFetch, refreshData, selectedAsset, user?.email, user?.id, user?.name]
+    [authFetch, refreshData, selectedAsset, allAssets, user?.email, user?.id, user?.name]
   );
 
-  const handleRunReadinessCheck = useCallback(async () => {
-    if (!selectedAsset) {
+  const handleRunReadinessCheck = useCallback(async (targetAssetId?: string) => {
+    const assetToCheck = targetAssetId ? allAssets.find(a => a.asset_id === targetAssetId) : selectedAsset;
+    if (!assetToCheck) {
       return;
     }
 
-    if (!isAssetApproved(selectedAsset)) {
+    if (!isAssetApproved(assetToCheck)) {
       const message = "Approve this asset before readiness check.";
       setInlineError(message);
       toast.error(message);
@@ -2147,10 +2955,28 @@ export default function G5AssetApprovalPage() {
     }
 
     const actor = user?.name?.trim() || user?.email?.trim() || user?.id?.trim() || "admin";
-    const contentReviewId = selectedAsset.content_review_id?.trim() || selectedAsset.g4_review_id?.trim() || selectedAsset.review_id?.trim() || selectedAsset.asset_id;
-    const approvalId = selectedAsset.approval_id?.trim() || selectedAsset.asset_id;
+    const contentReviewId = assetToCheck.content_review_id?.trim() || assetToCheck.g4_review_id?.trim() || assetToCheck.review_id?.trim() || assetToCheck.asset_id;
+    const approvalId = assetToCheck.approval_id?.trim() || assetToCheck.asset_id;
+    const caption = getAssetSelectedCaptionValue(assetToCheck);
+    const hook = getAssetSelectedHookValue(assetToCheck);
+    const selectedCaptionIndex = getAssetSelectedCaptionIndexValue(assetToCheck);
+    const selectedHookIndex = getAssetSelectedHookIndexValue(assetToCheck);
+    const sourceContentId = assetToCheck.source_content_id?.trim() || assetToCheck.content_review_id?.trim() || assetToCheck.review_id?.trim() || assetToCheck.asset_id;
+    const sourceG4ReviewId = assetToCheck.source_g4_review_id?.trim() || assetToCheck.g4_review_id?.trim() || assetToCheck.g4_review_uuid?.trim() || assetToCheck.asset_id;
+    const sourceHandoffId = assetToCheck.source_handoff_id?.trim() || assetToCheck.approval_id?.trim() || assetToCheck.asset_id;
+    const mediaAssets = assetToCheck.media_assets ?? [];
+    const originalPostData = assetToCheck.original_post ?? null;
+    const originalPostUrl = assetToCheck.original_post?.post_url?.trim() || assetToCheck.post_url?.trim() || null;
+
+    if (!caption) {
+      const message = "Enter a caption before running readiness check.";
+      setInlineError(message);
+      toast.error(message);
+      return;
+    }
 
     setBusyAction("readiness");
+    if (targetAssetId) setProcessingAssetId(targetAssetId);
     setInlineError(null);
 
     try {
@@ -2163,14 +2989,33 @@ export default function G5AssetApprovalPage() {
           execution_mode: "DRY_RUN",
           provider: "MANUAL_FALLBACK",
           platform: "INSTAGRAM",
-          account_id: `${getPlatformLabel(selectedAsset)}:${selectedAsset.asset_id}`,
-          asset_id: selectedAsset.asset_id,
+          account_id: `${getPlatformLabel(assetToCheck)}:${assetToCheck.asset_id}`,
+          asset_id: assetToCheck.asset_id,
           content_review_id: contentReviewId,
-          g4_review_id: selectedAsset.g4_review_id?.trim() || selectedAsset.review_id?.trim() || selectedAsset.asset_id,
+          g4_review_id: sourceG4ReviewId,
           approval_id: approvalId,
-          asset_type: selectedAsset.asset_type?.trim() || "IMAGE",
-          media_url: selectedAsset.media_url?.trim() || "",
-          caption: selectedAssetCaptionValue,
+          asset_type: assetToCheck.asset_type?.trim() || "IMAGE",
+          media_url: assetToCheck.media_url?.trim() || "",
+          caption,
+          hook_angle: hook,
+          selected_caption: caption,
+          selected_caption_index: selectedCaptionIndex,
+          selected_hook: hook || null,
+          selected_hook_index: selectedHookIndex,
+          caption_options: assetToCheck.caption_options,
+          hook_options: assetToCheck.hook_options,
+          media_assets: mediaAssets,
+          original_post_data: originalPostData,
+          original_post_url: originalPostUrl,
+          source_content_id: sourceContentId,
+          source_g4_review_id: sourceG4ReviewId,
+          source_handoff_id: sourceHandoffId,
+          source_status: assetToCheck.source_status,
+          registration_status: assetToCheck.registration_status,
+          approval_status: assetToCheck.approval_status,
+          readiness_status: assetToCheck.readiness_status,
+          g5_status: assetToCheck.g5_status,
+          metadata: assetToCheck.metadata,
           actor,
         }),
         silent: true,
@@ -2182,27 +3027,18 @@ export default function G5AssetApprovalPage() {
         throw new Error(message);
       }
 
-        toast.success(body.message || "Readiness check completed.");
-        await refreshData();
+      toast.success(body.message || "Readiness check completed.");
+      await refreshData();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unable to run readiness check.";
       setInlineError(message);
       toast.error(message);
     } finally {
       setBusyAction(null);
+      setProcessingAssetId(null);
     }
-  }, [authFetch, refreshData, selectedAsset, selectedAssetCaptionValue, user?.email, user?.id, user?.name]);
+  }, [authFetch, refreshData, selectedAsset, allAssets, user?.email, user?.id, user?.name]);
 
-  const headerBadges = (
-    <>
-      <Badge variant="outline" className="rounded-full border-emerald-200 bg-emerald-50 px-3.5 py-1 text-[11px] font-semibold text-emerald-800">
-        Client-ready queue
-      </Badge>
-      <Badge variant="outline" className="rounded-full border-violet-200 bg-violet-50 px-3.5 py-1 text-[11px] font-semibold text-violet-800">
-        Manual publishing flow
-      </Badge>
-    </>
-  );
 
   const stepState = useMemo(() => {
     const completed = [
@@ -2288,8 +3124,8 @@ export default function G5AssetApprovalPage() {
                     type="button"
                     aria-pressed={selectedCaptionOption?.id === option.id}
                     className={cn(
-                      "w-full rounded-[14px] border border-border/70 bg-[#fbf8f6] px-3 py-2.5 text-left shadow-none transition-colors hover:border-primary/40 hover:bg-primary/5",
-                      selectedCaptionOption?.id === option.id && "border-primary/40 bg-primary/5"
+                      "group w-full rounded-[14px] border border-border/50 bg-white px-3.5 py-3 text-left shadow-sm transition-all hover:bg-slate-50/80 hover:shadow-md",
+                      selectedCaptionOption?.id === option.id && "border-violet-300 bg-violet-50/50 shadow-sm ring-1 ring-violet-300 hover:bg-violet-50/50 hover:shadow-sm"
                     )}
                     onClick={() => handleSelectCaptionOption(option)}
                   >
@@ -2327,8 +3163,8 @@ export default function G5AssetApprovalPage() {
                     type="button"
                     aria-pressed={selectedHookOption?.id === option.id}
                     className={cn(
-                      "w-full rounded-[14px] border border-border/70 bg-[#fbf8f6] px-3 py-2.5 text-left shadow-none transition-colors hover:border-primary/40 hover:bg-primary/5",
-                      selectedHookOption?.id === option.id && "border-primary/40 bg-primary/5"
+                      "group w-full rounded-[14px] border border-border/50 bg-white px-3.5 py-3 text-left shadow-sm transition-all hover:bg-slate-50/80 hover:shadow-md",
+                      selectedHookOption?.id === option.id && "border-violet-300 bg-violet-50/50 shadow-sm ring-1 ring-violet-300 hover:bg-violet-50/50 hover:shadow-sm"
                     )}
                     onClick={() => handleSelectHookOption(option)}
                   >
@@ -2366,7 +3202,7 @@ export default function G5AssetApprovalPage() {
                       ? "Edit the final caption before saving the queue item."
                       : "Enter the final caption for this post."
                 }
-                className="min-h-14 rounded-[20px] border-border/70 bg-white px-3.5 py-2.5 text-[13px] leading-5 shadow-sm"
+                className="min-h-[100px] rounded-[20px] border-border/50 bg-white px-4 py-3.5 text-[13px] leading-6 shadow-sm transition-all focus-visible:border-violet-500 focus-visible:ring-2 focus-visible:ring-violet-500/20"
               />
             </div>
 
@@ -2387,21 +3223,24 @@ export default function G5AssetApprovalPage() {
                 />
               </div>
             ) : (
-              <div className="rounded-[20px] border border-violet-200/70 bg-violet-50/60 p-3">
-                <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Selected hook</p>
-                <p className="mt-1.5 whitespace-pre-wrap text-[13px] leading-5 text-foreground/85">{draftHookText || "No hook selected"}</p>
+              <div className="relative rounded-[20px] border border-violet-200/60 bg-violet-50/40 p-4 shadow-sm">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="size-3.5 text-violet-500" aria-hidden="true" />
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-violet-600/80">Selected hook</p>
+                </div>
+                <p className="mt-2 whitespace-pre-wrap text-[13px] leading-6 text-slate-700">{draftHookText || "No hook selected"}</p>
               </div>
             )}
 
             {draftMediaItems.length > 0 ? (
               <Carousel
                 opts={{ align: "start", loop: mediaCarouselItems.length > 1 }}
-                className="relative flex h-[300px] flex-none flex-col overflow-hidden rounded-[20px] border border-emerald-200 bg-emerald-50/70 p-2 sm:h-[320px]"
+                className="relative flex h-[300px] flex-none flex-col overflow-hidden rounded-[24px] border border-border/50 bg-slate-50/40 p-3 shadow-sm sm:h-[320px]"
               >
-                <div className="flex items-center justify-between gap-3 pb-2">
+                <div className="flex items-center justify-between gap-3 px-2 pb-3 pt-1">
                   <div className="min-w-0">
-                    <p className="text-[10px] uppercase tracking-[0.24em] text-emerald-700">Uploaded media</p>
-                    <p className="truncate text-[13px] font-medium text-emerald-950">
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.24em] text-slate-500">Uploaded media</p>
+                    <p className="mt-0.5 truncate text-[13px] font-medium text-slate-700">
                       {draftMediaItems.length} file{draftMediaItems.length === 1 ? "" : "s"} uploaded
                     </p>
                   </div>
@@ -2418,8 +3257,8 @@ export default function G5AssetApprovalPage() {
                           type="button"
                           onClick={() => setSelectedDraftMediaKey(media.storage_key || media.media_url)}
                           className={cn(
-                            "group flex h-full w-full flex-col overflow-hidden rounded-[16px] border bg-white p-2 text-left transition-colors",
-                            selected ? "border-emerald-400 ring-1 ring-emerald-400/30" : "border-emerald-200/70 hover:border-emerald-300"
+                            "group flex h-full w-full flex-col overflow-hidden rounded-[16px] border bg-white p-2 text-left shadow-sm transition-all hover:shadow-md",
+                            selected ? "border-violet-400 ring-1 ring-violet-400/30" : "border-border/60 hover:border-violet-200"
                           )}
                         >
                           <div className="relative flex-1 overflow-hidden rounded-[14px] bg-black/5">
@@ -2439,9 +3278,6 @@ export default function G5AssetApprovalPage() {
                               />
                             )}
                           </div>
-                          <div className="mt-2">
-                            <p className="text-[10px] uppercase tracking-[0.2em] text-emerald-700">{media.kind}</p>
-                          </div>
                         </button>
                       </CarouselItem>
                     );
@@ -2452,43 +3288,52 @@ export default function G5AssetApprovalPage() {
                   <>
                     <CarouselPrevious
                       style={{ left: "0.5rem" }}
-                      className="border-emerald-200 bg-white text-emerald-900 shadow-sm hover:bg-emerald-50"
+                      className="border-border/60 bg-white text-slate-700 shadow-sm hover:bg-slate-50"
                     />
                     <CarouselNext
                       style={{ right: "0.5rem" }}
-                      className="border-emerald-200 bg-white text-emerald-900 shadow-sm hover:bg-emerald-50"
+                      className="border-border/60 bg-white text-slate-700 shadow-sm hover:bg-slate-50"
                     />
                   </>
                 ) : null}
               </Carousel>
             ) : (
-              <div className="flex h-[300px] flex-none items-center justify-center rounded-[20px] border border-dashed border-border/70 bg-[#fbf8f6] p-4 text-sm text-muted-foreground sm:h-[320px]">
-                {composerMode === "edit" ? "No media preview available for this post." : "Upload media after choosing the final caption."}
+              <div className="flex h-[300px] flex-none flex-col items-center justify-center gap-3 rounded-[24px] border-2 border-dashed border-border/60 bg-slate-50/50 p-6 text-center sm:h-[320px]">
+                <div className="rounded-full bg-white p-4 shadow-sm ring-1 ring-border/50">
+                  <ImagePlus className="size-6 text-muted-foreground/50" />
+                </div>
+                <div className="max-w-[260px] space-y-1.5">
+                  <p className="text-sm font-medium text-slate-700">No media uploaded</p>
+                  <p className="text-[13px] leading-5 text-slate-500">
+                    {composerMode === "edit" ? "No media preview available for this post." : "Upload media after choosing the final caption."}
+                  </p>
+                </div>
               </div>
             )}
 
             {composerMode === "edit" ? (
-              <div className="grid gap-2 pt-1 sm:grid-cols-2">
-                <Button type="button" variant="outline" onClick={clearDraftSelection} className="h-9 rounded-full px-4 text-sm">
+              <div className="grid gap-3 pt-2 sm:grid-cols-2">
+                <Button type="button" variant="outline" onClick={clearDraftSelection} className="h-11 rounded-[18px] px-6 text-[13px] font-semibold shadow-sm transition-all hover:bg-slate-50">
                   Cancel
                 </Button>
                 <Button
                   type="button"
                   onClick={handleSaveComposerEdit}
-                  disabled={!draftCaption.trim()}
-                  className="h-9 rounded-full bg-primary px-4 text-sm"
+                  disabled={!draftCaption.trim() || busyAction === "save"}
+                  className="h-11 rounded-[18px] bg-primary px-6 text-[13px] font-semibold shadow-sm transition-all hover:bg-primary/90 hover:shadow-md"
                 >
+                  {busyAction === "save" ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
                   Save changes
                 </Button>
               </div>
             ) : (
-              <div className="grid gap-2 pt-1 sm:grid-cols-2">
-                <Button type="button" variant="outline" onClick={openFilePicker} disabled={busyAction === "upload"} className="h-9 rounded-full px-4 text-sm">
-                  {busyAction === "upload" ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+              <div className="grid gap-3 pt-2 sm:grid-cols-2">
+                <Button type="button" variant="outline" onClick={openFilePicker} disabled={busyAction === "upload"} className="h-11 rounded-[18px] px-6 text-[13px] font-semibold shadow-sm transition-all hover:bg-slate-50">
+                  {busyAction === "upload" ? <Loader2 className="mr-2 size-4 animate-spin" /> : <Upload className="mr-2 size-4" />}
                   Add media
                 </Button>
-                <Button type="button" onClick={handleRegisterAsset} disabled={busyAction === "register" || composerLoading} className="h-9 rounded-full bg-primary px-4 text-sm">
-                  {busyAction === "register" ? <Loader2 className="size-4 animate-spin" /> : <BadgeCheck className="size-4" />}
+                <Button type="button" onClick={handleRegisterAsset} disabled={busyAction === "register" || composerLoading} className="h-11 rounded-[18px] bg-primary px-6 text-[13px] font-semibold text-primary-foreground shadow-sm transition-all hover:bg-primary/90 hover:shadow-md">
+                  {busyAction === "register" ? <Loader2 className="mr-2 size-4 animate-spin" /> : <BadgeCheck className="mr-2 size-4" />}
                   Register asset
                 </Button>
               </div>
@@ -2606,11 +3451,11 @@ export default function G5AssetApprovalPage() {
       <WorkflowDashboardShell
         title={PAGE_TITLE}
         description={PAGE_DESCRIPTION}
-        badges={headerBadges}
+        titleContainerClassName="max-w-none"
+        titleClassName="whitespace-nowrap"
+        descriptionClassName="max-w-none whitespace-nowrap"
       >
         <input ref={fileInputRef} type="file" className="hidden" accept="image/*,video/*" multiple onChange={handleUploadMedia} />
-
-        {pageError ? getActionErrorMessage(pageError) : null}
 
         {isLoading ? (
           <LoadingShell />
@@ -2647,78 +3492,18 @@ export default function G5AssetApprovalPage() {
               />
             </div>
 
-            <Card className="overflow-hidden border-border/70 bg-background/95 shadow-sm">
-              <CardHeader className="space-y-3 pb-4">
-                <div className="flex flex-wrap items-center justify-between gap-3">
-                  <div>
-                    <CardTitle className="font-serif text-2xl leading-tight text-primary">Publishing journey</CardTitle>
-                    <CardDescription className="text-sm leading-6 text-muted-foreground">
-                      Choose approved content, upload media, approve it, publish manually, and save the live post URL.
-                    </CardDescription>
-                  </div>
-                  <Badge variant="outline" className="rounded-full border-border/70 px-3 py-1 text-[11px] font-medium text-muted-foreground">
-                    {summary.total} queue item{summary.total === 1 ? "" : "s"}
-                  </Badge>
-                </div>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="grid gap-3 xl:grid-cols-7">
-                  {stepState.map((step, index) => {
-                    const Icon = step.icon;
-                    return (
-                      <div
-                        key={step.key}
-                        className={cn(
-                          "flex items-start gap-3 rounded-[24px] border p-4 transition-colors",
-                          step.completed
-                            ? "border-emerald-200 bg-emerald-50/60"
-                            : step.current
-                              ? "border-violet-200 bg-violet-50/60"
-                              : "border-border/60 bg-background"
-                        )}
-                      >
-                        <div
-                          className={cn(
-                            "flex size-10 shrink-0 items-center justify-center rounded-2xl border",
-                            step.completed
-                              ? "border-emerald-200 bg-white text-emerald-700"
-                              : step.current
-                                ? "border-violet-200 bg-white text-violet-700"
-                                : "border-border/70 bg-[#fbf8f6] text-muted-foreground"
-                          )}
-                        >
-                          {step.completed ? <CheckCircle2 className="size-4" /> : <Icon className="size-4" />}
-                        </div>
-                        <div className="min-w-0 space-y-1">
-                          <p className="text-sm font-medium text-foreground">{step.label}</p>
-                          <p className="text-xs leading-5 text-muted-foreground">
-                            {step.completed ? "Complete" : step.current ? "Current step" : "Pending"}
-                          </p>
-                        </div>
-                        {index < stepState.length - 1 ? <ArrowRight className="ml-auto mt-1 hidden size-4 text-border xl:block" /> : null}
-                      </div>
-                    );
-                  })}
-                </div>
-              </CardContent>
-            </Card>
-
-            {inlineError ? (
-              <Alert variant="destructive" className="border-rose-200 bg-rose-50/80 text-rose-700">
-                <AlertTriangle className="size-4" />
-                <AlertTitle className="text-sm font-medium text-rose-800">Inline error</AlertTitle>
-                <AlertDescription className="text-sm text-rose-700">{inlineError}</AlertDescription>
-              </Alert>
-            ) : null}
-
-            <div className="grid gap-6 xl:grid-cols-[minmax(0,1.55fr)_minmax(360px,0.85fr)]">
+            <div
+              className={cn(
+                "grid items-start gap-4 lg:gap-6 xl:grid-cols-1"
+              )}
+            >
               <Card className="overflow-hidden border-border/70 bg-background/95 shadow-sm">
                 <CardHeader className="space-y-2 pb-2">
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div className="space-y-1">
                       <CardTitle className="font-serif text-2xl leading-tight text-primary">Content queue</CardTitle>
                       <CardDescription className="text-sm leading-6 text-muted-foreground">
-                      Choose approved content, then review the items moving through G5, publishing, and proof.
+                        Choose approved content, then review the items moving through G5, publishing, and proof.
                       </CardDescription>
                     </div>
                     <Badge variant="outline" className="rounded-full border-border/70 px-3 py-1 text-[11px] font-medium text-muted-foreground">
@@ -2727,62 +3512,64 @@ export default function G5AssetApprovalPage() {
                   </div>
                 </CardHeader>
                 <CardContent className="space-y-3">
-                  <div className="relative w-full max-w-xl">
-                    <Label htmlFor="g5-search" className="sr-only">
-                      Search content, titles, or captions
-                    </Label>
-                    <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      id="g5-search"
-                      value={search}
-                      onChange={(event) => setSearch(event.target.value)}
-                      placeholder={SEARCH_PLACEHOLDER}
-                      className="h-10 rounded-full border-border/70 bg-white pl-10 shadow-sm"
-                    />
-                  </div>
-
                   <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
-                    <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-[28px] bg-transparent p-0 md:grid-cols-3 xl:grid-cols-5">
-                      <TabsTrigger
-                        value="approved-content"
-                        className="flex h-auto flex-col items-start justify-start gap-1 rounded-[20px] border border-border/60 bg-white px-4 py-3 text-left text-sm data-[state=active]:border-primary/30 data-[state=active]:bg-primary/5"
-                      >
-                        <span className="font-medium text-foreground">Approved Content</span>
-                        <span className="text-[11px] text-muted-foreground">{filteredApprovedContent.length} ready for G5</span>
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="pending-approval"
-                        className="flex h-auto flex-col items-start justify-start gap-1 rounded-[20px] border border-border/60 bg-white px-4 py-3 text-left text-sm data-[state=active]:border-primary/30 data-[state=active]:bg-primary/5"
-                      >
-                        <span className="font-medium text-foreground">Pending Approval</span>
-                        <span className="text-[11px] text-muted-foreground">{filteredPendingApprovalAssets.length} waiting</span>
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="ready-to-publish"
-                        className="flex h-auto flex-col items-start justify-start gap-1 rounded-[20px] border border-border/60 bg-white px-4 py-3 text-left text-sm data-[state=active]:border-primary/30 data-[state=active]:bg-primary/5"
-                      >
-                        <span className="font-medium text-foreground">Ready to Publish</span>
-                        <span className="text-[11px] text-muted-foreground">{filteredReadyToPublishAssets.length} ready</span>
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="published-manually"
-                        className="flex h-auto flex-col items-start justify-start gap-1 rounded-[20px] border border-border/60 bg-white px-4 py-3 text-left text-sm data-[state=active]:border-primary/30 data-[state=active]:bg-primary/5"
-                      >
-                        <span className="font-medium text-foreground">Published Manually</span>
-                        <span className="text-[11px] text-muted-foreground">{filteredPublishedAssets.length} saved</span>
-                      </TabsTrigger>
-                      <TabsTrigger
-                        value="blocked"
-                        className="flex h-auto flex-col items-start justify-start gap-1 rounded-[20px] border border-border/60 bg-white px-4 py-3 text-left text-sm data-[state=active]:border-primary/30 data-[state=active]:bg-primary/5"
-                      >
-                        <span className="font-medium text-foreground">Blocked / Rejected</span>
-                        <span className="text-[11px] text-muted-foreground">{filteredBlockedAssets.length} need review</span>
-                      </TabsTrigger>
-                    </TabsList>
+                    <div className="flex flex-col gap-4 xl:flex-row xl:items-stretch xl:justify-between">
+                      <div className="relative w-full shrink-0 xl:w-[320px]">
+                        <Label htmlFor="g5-search" className="sr-only">
+                          Search content, titles, or captions
+                        </Label>
+                        <Search className="pointer-events-none absolute left-4 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          id="g5-search"
+                          value={search}
+                          onChange={(event) => setSearch(event.target.value)}
+                          placeholder={SEARCH_PLACEHOLDER}
+                          className="h-full min-h-[64px] rounded-[20px] border-border/70 bg-white pl-10 shadow-sm"
+                        />
+                      </div>
+
+                      <TabsList className="grid h-auto w-full flex-1 grid-cols-2 gap-2 rounded-[28px] bg-transparent p-0 md:grid-cols-3 xl:grid-cols-5">
+                        <TabsTrigger
+                          value="approved-content"
+                          className="flex h-auto flex-col items-start justify-start gap-1 rounded-[20px] border border-border/60 bg-white px-4 py-3 text-left text-sm data-[state=active]:border-primary/30 data-[state=active]:bg-primary/5"
+                        >
+                          <span className="font-medium text-foreground">Approved Content</span>
+                          <span className="text-[11px] text-muted-foreground">{filteredApprovedContent.length} ready for G5</span>
+                        </TabsTrigger>
+                        <TabsTrigger
+                          value="pending-approval"
+                          className="flex h-auto flex-col items-start justify-start gap-1 rounded-[20px] border border-border/60 bg-white px-4 py-3 text-left text-sm data-[state=active]:border-primary/30 data-[state=active]:bg-primary/5"
+                        >
+                          <span className="font-medium text-foreground">Pending Approval</span>
+                          <span className="text-[11px] text-muted-foreground">{filteredPendingApprovalAssets.length} waiting</span>
+                        </TabsTrigger>
+                        <TabsTrigger
+                          value="ready-to-publish"
+                          className="flex h-auto flex-col items-start justify-start gap-1 rounded-[20px] border border-border/60 bg-white px-4 py-3 text-left text-sm data-[state=active]:border-primary/30 data-[state=active]:bg-primary/5"
+                        >
+                          <span className="font-medium text-foreground">Ready to Publish</span>
+                          <span className="text-[11px] text-muted-foreground">{filteredReadyToPublishAssets.length} ready</span>
+                        </TabsTrigger>
+                        <TabsTrigger
+                          value="published-manually"
+                          className="flex h-auto flex-col items-start justify-start gap-1 rounded-[20px] border border-border/60 bg-white px-4 py-3 text-left text-sm data-[state=active]:border-primary/30 data-[state=active]:bg-primary/5"
+                        >
+                          <span className="font-medium text-foreground">Published Manually</span>
+                          <span className="text-[11px] text-muted-foreground">{filteredPublishedAssets.length} saved</span>
+                        </TabsTrigger>
+                        <TabsTrigger
+                          value="blocked"
+                          className="flex h-auto flex-col items-start justify-start gap-1 rounded-[20px] border border-border/60 bg-white px-4 py-3 text-left text-sm data-[state=active]:border-primary/30 data-[state=active]:bg-primary/5"
+                        >
+                          <span className="font-medium text-foreground">Blocked / Rejected</span>
+                          <span className="text-[11px] text-muted-foreground">{filteredBlockedAssets.length} need review</span>
+                        </TabsTrigger>
+                      </TabsList>
+                    </div>
 
                     <TabsContent value="approved-content" className="space-y-4">
                       {filteredApprovedContent.length > 0 ? (
-                        <div className="flex flex-col gap-3">
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-4">
                           {filteredApprovedContent.map((review) => {
                             const selected = draftContent?.id === review.id;
                             const isAlreadyRegistered = buildApprovedContentCandidateKeys(review).some((key) => registeredG4ReviewKeySet.has(key));
@@ -2790,25 +3577,25 @@ export default function G5AssetApprovalPage() {
                               {
                                 label: "Views",
                                 value: formatG4MetricValue(review.views),
-                                icon: <Eye className="size-5" aria-hidden="true" />,
+                                icon: <Eye className="size-3.5" aria-hidden="true" />,
                                 accentClassName: "border-violet-100 bg-violet-50 text-violet-700",
                               },
                               {
                                 label: "Comments",
                                 value: formatG4MetricValue(review.comments),
-                                icon: <MessageCircle className="size-5" aria-hidden="true" />,
+                                icon: <MessageCircle className="size-3.5" aria-hidden="true" />,
                                 accentClassName: "border-indigo-100 bg-indigo-50 text-indigo-700",
                               },
                               {
                                 label: "Likes",
                                 value: formatG4MetricValue(review.likes),
-                                icon: <Heart className="size-5" aria-hidden="true" />,
+                                icon: <Heart className="size-3.5" aria-hidden="true" />,
                                 accentClassName: "border-rose-100 bg-rose-50 text-rose-700",
                               },
                               {
                                 label: "Shares",
                                 value: formatG4MetricValue(review.shares),
-                                icon: <Share2 className="size-5" aria-hidden="true" />,
+                                icon: <Share2 className="size-3.5" aria-hidden="true" />,
                                 accentClassName: "border-emerald-100 bg-emerald-50 text-emerald-700",
                               },
                             ];
@@ -2817,15 +3604,15 @@ export default function G5AssetApprovalPage() {
                               <article
                                 key={review.id}
                                 className={cn(
-                                  "group w-full overflow-hidden rounded-[20px] border bg-white shadow-sm transition-[transform,border-color,background-color,box-shadow] duration-200",
+                                  "group flex h-full w-full flex-col overflow-hidden rounded-[20px] border bg-white shadow-sm transition-[transform,border-color,background-color,box-shadow] duration-200",
                                   selected
                                     ? "border-violet-300"
                                     : "border-border/60 hover:-translate-y-0.5 hover:border-violet-200 hover:shadow-md"
                                 )}
                               >
-                                <div className="relative overflow-hidden border-b border-border/60 bg-white">
-                                  <div className="relative space-y-3 px-4 py-3 sm:px-5 sm:py-3">
-                                    <div className="flex flex-wrap items-center justify-between gap-2">
+                                <div className="relative flex flex-1 flex-col overflow-hidden border-b border-border/60 bg-white">
+                                  <div className="relative flex flex-1 flex-col space-y-3 px-4 py-3 sm:px-5 sm:py-3">
+                                    <div className="flex shrink-0 flex-wrap items-center justify-between gap-2">
                                       <Badge
                                         variant="outline"
                                         className="rounded-full border-violet-200/70 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-violet-700 shadow-none"
@@ -2839,55 +3626,51 @@ export default function G5AssetApprovalPage() {
                                       </div>
                                     </div>
 
-                                    <div className="space-y-3">
-                                      <p className="max-w-5xl font-serif text-[clamp(0.95rem,1.15vw,1.45rem)] leading-[1.05] tracking-tight text-primary text-pretty">
+                                    <div className="flex-1">
+                                      <p className="line-clamp-2 max-w-5xl font-serif text-[clamp(0.95rem,1.15vw,1.45rem)] leading-[1.1] tracking-tight text-primary text-pretty">
                                         {review.display_title}
                                       </p>
-                                      <div className="flex min-w-0 items-center gap-2 text-[10px] leading-5">
-                                        <span className="inline-flex shrink-0 items-center gap-1.5 font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-                                          <MessageCircle className="size-3 shrink-0 text-violet-600" aria-hidden="true" />
-                                          <span>Caption:</span>
-                                        </span>
-                                        <p className="min-w-0 flex-1 truncate text-xs leading-5 text-slate-600">
-                                        {getG4ReviewCaption(review) || "No original caption available."}
-                                        </p>
-                                      </div>
                                     </div>
 
-                                    <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-4">
+                                    <div className="flex min-w-0 items-start gap-2 text-[10px] leading-5">
+                                      <span className="inline-flex shrink-0 items-center gap-1.5 font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                                        <MessageCircle className="size-3 shrink-0 text-violet-600" aria-hidden="true" />
+                                        <span>Caption:</span>
+                                      </span>
+                                      <p className="min-w-0 flex-1 line-clamp-2 text-xs leading-5 text-slate-600 text-pretty">
+                                        {getG4ReviewCaption(review) || "No original caption available."}
+                                      </p>
+                                    </div>
+
+                                    <div className="flex w-full items-start justify-between gap-2 pt-2">
                                       {reviewMetrics.map((metric) => (
                                         <div
                                           key={metric.label}
-                                          className="flex items-center gap-3 rounded-[16px] border border-border/60 bg-white px-3 py-2 shadow-none"
+                                          className="flex items-center gap-2"
                                         >
-                                          <div className={cn("flex size-8 shrink-0 items-center justify-center rounded-lg border", metric.accentClassName)}>
+                                          <div className={cn("flex size-7 shrink-0 items-center justify-center rounded-md border", metric.accentClassName)}>
                                             {metric.icon}
                                           </div>
-                                          <div className="min-w-0">
-                                            <p className="text-[9px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                                              {metric.label}
-                                            </p>
-                                            <p className="mt-0.5 text-[1.15rem] font-semibold leading-none tracking-tight text-primary tabular-nums">
-                                              {metric.value}
-                                            </p>
-                                          </div>
+                                          <p className="truncate text-sm font-semibold leading-none tracking-tight text-primary tabular-nums">
+                                            {metric.value}
+                                          </p>
                                         </div>
                                       ))}
                                     </div>
 
-                                    <div className="flex flex-wrap items-center gap-2 pt-1">
+                                    <div className="mt-auto w-full pt-2">
                                       {isAlreadyRegistered ? (
-                                        <div className="inline-flex h-9 items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-4 text-sm font-semibold leading-none text-slate-600 shadow-none">
+                                        <div className="inline-flex h-9 w-full items-center justify-center gap-2 rounded-[12px] border border-slate-200 bg-slate-50 px-4 text-sm font-semibold leading-none text-slate-600 shadow-none">
                                           <BadgeCheck className="size-3.5" aria-hidden="true" />
                                           Already registered
                                         </div>
                                       ) : (
                                         <Button
                                           type="button"
-                                          className="inline-flex h-9 items-center rounded-full px-4 text-sm leading-none shadow-none"
+                                          className="inline-flex h-9 w-full items-center justify-center rounded-[12px] px-4 text-sm leading-none shadow-none"
                                           onClick={() => void handleSelectG4Review(review)}
                                         >
-                                          <Sparkles className="size-3.5" aria-hidden="true" />
+                                          <Sparkles className="mr-2 size-3.5" aria-hidden="true" />
                                           Use this content
                                         </Button>
                                       )}
@@ -2910,9 +3693,18 @@ export default function G5AssetApprovalPage() {
 
                     <TabsContent value="pending-approval" className="space-y-4">
                       {filteredPendingApprovalAssets.length > 0 ? (
-                        <div className="grid gap-3">
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-4">
                           {filteredPendingApprovalAssets.map((asset) => (
-                            <AssetCard key={asset.asset_id} asset={asset} selected={asset.asset_id === selectedAsset?.asset_id} onSelect={selectAsset} />
+                            <AssetCard
+                              key={asset.asset_id}
+                              asset={asset}
+                              onApprove={(id) => void handleApprovalDecision("APPROVED", id)}
+                              onRunReadinessCheck={handleRunReadinessCheck}
+                              onEdit={handleOpenPostEditor}
+                              onDelete={(id) => void handleApprovalDecision("REJECTED", id)}
+                              busyAction={busyAction}
+                              processingAssetId={processingAssetId}
+                            />
                           ))}
                         </div>
                       ) : (
@@ -2927,9 +3719,18 @@ export default function G5AssetApprovalPage() {
 
                     <TabsContent value="ready-to-publish" className="space-y-4">
                       {filteredReadyToPublishAssets.length > 0 ? (
-                        <div className="grid gap-3">
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-4">
                           {filteredReadyToPublishAssets.map((asset) => (
-                            <AssetCard key={asset.asset_id} asset={asset} selected={asset.asset_id === selectedAsset?.asset_id} onSelect={selectAsset} />
+                            <AssetCard
+                              key={asset.asset_id}
+                              asset={asset}
+                              onApprove={(id) => void handleApprovalDecision("APPROVED", id)}
+                              onRunReadinessCheck={handleRunReadinessCheck}
+                              onEdit={handleOpenPostEditor}
+                              onDelete={(id) => void handleApprovalDecision("REJECTED", id)}
+                              busyAction={busyAction}
+                              processingAssetId={processingAssetId}
+                            />
                           ))}
                         </div>
                       ) : (
@@ -2944,9 +3745,18 @@ export default function G5AssetApprovalPage() {
 
                     <TabsContent value="published-manually" className="space-y-4">
                       {filteredPublishedAssets.length > 0 ? (
-                        <div className="grid gap-3">
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-4">
                           {filteredPublishedAssets.map((asset) => (
-                            <AssetCard key={asset.asset_id} asset={asset} selected={asset.asset_id === selectedAsset?.asset_id} onSelect={selectAsset} />
+                            <AssetCard
+                              key={asset.asset_id}
+                              asset={asset}
+                              onApprove={(id) => void handleApprovalDecision("APPROVED", id)}
+                              onRunReadinessCheck={handleRunReadinessCheck}
+                              onEdit={handleOpenPostEditor}
+                              onDelete={(id) => void handleApprovalDecision("REJECTED", id)}
+                              busyAction={busyAction}
+                              processingAssetId={processingAssetId}
+                            />
                           ))}
                         </div>
                       ) : (
@@ -2961,9 +3771,18 @@ export default function G5AssetApprovalPage() {
 
                     <TabsContent value="blocked" className="space-y-4">
                       {filteredBlockedAssets.length > 0 ? (
-                        <div className="grid gap-3">
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 2xl:grid-cols-4">
                           {filteredBlockedAssets.map((asset) => (
-                            <AssetCard key={asset.asset_id} asset={asset} selected={asset.asset_id === selectedAsset?.asset_id} onSelect={selectAsset} />
+                            <AssetCard
+                              key={asset.asset_id}
+                              asset={asset}
+                              onApprove={(id) => void handleApprovalDecision("APPROVED", id)}
+                              onRunReadinessCheck={handleRunReadinessCheck}
+                              onEdit={handleOpenPostEditor}
+                              onDelete={(id) => void handleApprovalDecision("REJECTED", id)}
+                              busyAction={busyAction}
+                              processingAssetId={processingAssetId}
+                            />
                           ))}
                         </div>
                       ) : (
@@ -2979,37 +3798,10 @@ export default function G5AssetApprovalPage() {
                 </CardContent>
               </Card>
 
-              <div className="hidden self-start xl:block xl:sticky xl:top-6">
-                <AssetInspectorPanel
-                  asset={selectedAsset}
-                  mode="card"
-                  captionText={selectedAssetCaptionValue}
-                  hookText={selectedAssetHookValue}
-                  onEdit={handleOpenPostEditor}
-                  onApprove={() => void handleApprovalDecision("APPROVED")}
-                  onRunReadinessCheck={() => void handleRunReadinessCheck()}
-                  busyAction={busyAction}
-                />
-              </div>
             </div>
           </div>
         )}
       </WorkflowDashboardShell>
-
-      <Sheet open={!isDesktop && detailSheetOpen} onOpenChange={setDetailSheetOpen}>
-        <SheetContent side="right" className="w-full border-border/70 p-0 sm:max-w-[760px]">
-          <AssetInspectorPanel
-            asset={selectedAsset}
-            mode="sheet"
-            captionText={selectedAssetCaptionValue}
-            hookText={selectedAssetHookValue}
-            onEdit={handleOpenPostEditor}
-            onApprove={() => void handleApprovalDecision("APPROVED")}
-            onRunReadinessCheck={() => void handleRunReadinessCheck()}
-            busyAction={busyAction}
-          />
-        </SheetContent>
-      </Sheet>
 
       {composerModal}
       {originalPostModal}
