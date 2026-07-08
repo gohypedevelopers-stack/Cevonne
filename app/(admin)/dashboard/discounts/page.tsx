@@ -1,8 +1,6 @@
 "use client";
 
-import dynamic from "next/dynamic";
-
-const DiscountsPage = dynamic(() => import("@/components/admin-dashboard/DiscountsPage"), { ssr: false });
+import DiscountsPage from "@/components/admin-dashboard/DiscountsPage";
 
 export default function Page() {
   return <DiscountsPage />;

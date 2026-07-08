@@ -11,6 +11,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
+import Link from "next/link";
 import { zodResolver } from "@hookform/resolvers/zod";
 import {
   AlertTriangle,
@@ -81,6 +82,7 @@ import { Input } from "@/components/ui/input";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -145,7 +147,11 @@ import {
   getDiscountStatusToneClass,
   getDiscountTypeLabel,
   buildDiscountAppliesToLabel,
+  isDiscountProofAttentionRequired,
+  isAllProductsAppliesToType,
+  type DiscountProofSummary,
 } from "@/lib/admin/discounts";
+import type { Product } from "@/types/product";
 
 type DiscountsApiResponse = {
   items: AdminDiscountRecord[];
@@ -157,17 +163,88 @@ type DiscountMutationResponse = {
   message?: string;
 };
 
+type AdminRequest = (url: string, options?: RequestInit & { silent?: boolean }) => Promise<Response>;
+
 type DiscountProofResponse = {
-  status: "PASS" | "BLOCK" | "NEEDS_EVIDENCE";
+  status: "PASS" | "BLOCK" | "NEEDS_EVIDENCE" | "PARTIALLY_VERIFIED";
   message: string;
   handledAt: string;
+  proofScope?: ProofScopeSelection;
+  summary?: DiscountProofSummary | null;
+  items?: CollectionProofItemResult[] | null;
+  blockedReasons?: CollectionBlockedReason[] | null;
+  item?: AdminDiscountRecord | null;
 };
+
+type ProofProductOption = {
+  product_name: string;
+  sku: string;
+  variant_name: string;
+  stock_available: number | null;
+  product_status: string;
+  variant_status: string;
+};
+
+type CollectionProofItemResult = ProofProductOption & {
+  discount_status: DiscountStatus;
+  proof_status: DiscountProofStatus;
+  g7_result: "PASS" | "BLOCK" | "NEEDS_EVIDENCE";
+  reason: string;
+  failure_reasons: string[];
+};
+
+type CollectionBlockedReason = {
+  reason: string;
+  count: number;
+};
+
+const buildSavedProofRunResult = (discount: AdminDiscountRecord | null): ProofRunResult | null => {
+  if (!discount || !discount.g7LastCheckedAt) {
+    return null;
+  }
+
+  const summary: DiscountProofSummary = {
+    verified: Math.max(0, discount.g7VerifiedCount ?? 0),
+    needsEvidence: Math.max(0, discount.g7NeedsEvidenceCount ?? 0),
+    blocked: Math.max(0, discount.g7BlockedCount ?? 0),
+    total:
+      Math.max(0, discount.g7VerifiedCount ?? 0) +
+      Math.max(0, discount.g7NeedsEvidenceCount ?? 0) +
+      Math.max(0, discount.g7BlockedCount ?? 0),
+  };
+  const items = Array.isArray(discount.g7LastItems) ? discount.g7LastItems : [];
+  const blockedReasons = items
+    .filter((item) => item.proof_status === "BLOCKED")
+    .reduce<Map<string, number>>((counts, item) => {
+      counts.set(item.reason, (counts.get(item.reason) ?? 0) + 1);
+      return counts;
+    }, new Map<string, number>());
+
+  return {
+    status: discount.proofStatus,
+    message: discount.proofMessage ?? formatDiscountProofMessage(discount.proofStatus),
+    checkedAt: discount.proofCheckedAt,
+    summary,
+    items,
+    blockedReasons: [...blockedReasons.entries()]
+      .map(([reason, count]) => ({ reason, count }))
+      .sort((left, right) => right.count - left.count || left.reason.localeCompare(right.reason)),
+  };
+};
+
+type ProofRunResult = DiscountProofStatusDetail & {
+  summary?: DiscountProofSummary | null;
+  items?: CollectionProofItemResult[] | null;
+  blockedReasons?: CollectionBlockedReason[] | null;
+};
+
+type ProofScopeSelection = "ALL_PRODUCTS" | "ONE_PRODUCT";
 
 type FormMode = "create" | "edit";
 type StatusFilter = "all" | DiscountStatus;
 type DangerAction = Extract<DiscountAction, "EXPIRE" | "ARCHIVE">;
 
-const defaultRequest = (url: string, options?: RequestInit) => fetch(url, options);
+const defaultRequest: AdminRequest = (url, options) => fetch(url, options);
 const ADMIN_DISCOUNTS_ROUTE = `${API_BASE}/admin/discounts`;
 const STATUS_FILTER_OPTIONS: Array<{ label: string; value: StatusFilter }> = [
   { label: "All statuses", value: "all" },
@@ -213,6 +290,15 @@ const parseJsonResponse = async <T,>(response: Response): Promise<T | null> => {
   }
 };
 
+const normalizeProofScopeSelection = (value: string | null | undefined): ProofScopeSelection => {
+  const normalized = String(value ?? "").trim().toUpperCase();
+  if (normalized === "ONE_PRODUCT" || normalized === "COLLECTION_PRODUCT" || normalized === "PRODUCT") {
+    return "ONE_PRODUCT";
+  }
+
+  return "ALL_PRODUCTS";
+};
+
 const readResponseMessage = async (response: Response, fallback: string) => {
   const body = await parseJsonResponse<{ message?: string }>(response);
   if (body?.message?.trim()) {
@@ -224,20 +310,24 @@ const readResponseMessage = async (response: Response, fallback: string) => {
 
 const formatFilterCount = (count: number) => numberFormatter.format(count);
 
-const toProofStatus = (status: DiscountProofResponse["status"], message: string): DiscountProofStatus => {
-  if (status === "PASS") {
+const toProofStatus = (_discount: AdminDiscountRecord, response: DiscountProofResponse): DiscountProofStatus => {
+  if (response.status === "PASS") {
     return "VERIFIED";
   }
 
-  if (status === "NEEDS_EVIDENCE") {
+  if (response.status === "PARTIALLY_VERIFIED") {
+    return "PARTIALLY_VERIFIED";
+  }
+
+  if (response.status === "NEEDS_EVIDENCE") {
     return "NEEDS_EVIDENCE";
   }
 
-  return /expired|archived/i.test(message) ? "EXPIRED" : "BLOCKED";
+  return /expired|archived/i.test(response.message) ? "EXPIRED" : "BLOCKED";
 };
 
-const mapProofResponseToDetail = (response: DiscountProofResponse): DiscountProofStatusDetail => ({
-  status: toProofStatus(response.status, response.message),
+const mapProofResponseToDetail = (discount: AdminDiscountRecord, response: DiscountProofResponse): DiscountProofStatusDetail => ({
+  status: toProofStatus(discount, response),
   message: response.message,
   checkedAt: response.handledAt,
 });
@@ -264,6 +354,8 @@ const getProofSurfaceClass = (status: DiscountProofStatus) => {
   switch (status) {
     case "VERIFIED":
       return "border-emerald-200/80 bg-emerald-50/70";
+    case "PARTIALLY_VERIFIED":
+      return "border-amber-200/80 bg-amber-50/70";
     case "NEEDS_EVIDENCE":
       return "border-amber-200/80 bg-amber-50/70";
     case "BLOCKED":
@@ -275,6 +367,10 @@ const getProofSurfaceClass = (status: DiscountProofStatus) => {
       return "border-border/70 bg-muted/20";
   }
 };
+
+const isVerifiedProofStatus = (status: DiscountProofStatus) => status === "VERIFIED";
+
+const getProofActionLabel = (status: DiscountProofStatus) => (isVerifiedProofStatus(status) ? "Re-check Proof" : "Check Proof");
 
 const getProofStatusBadgeClass = (status: DiscountProofStatus) =>
   cn("rounded-full border px-3 py-1 text-[11px] font-semibold tracking-wide", getDiscountProofStatusToneClass(status));
@@ -313,6 +409,132 @@ const buildSelectedProof = (
     message: discount.proofMessage ?? formatDiscountProofMessage(discount.proofStatus),
     checkedAt: discount.proofCheckedAt,
   };
+};
+
+type ProductPickerOption = {
+  id: string;
+  label: string;
+  subtitle: string;
+  searchValue: string;
+  disabled: boolean;
+};
+
+const getProductProofSku = (product: Product) => {
+  const shades = Array.isArray(product.shades) ? product.shades : [];
+
+  for (const shade of shades) {
+    const sku = normalizeProofText(shade?.sku ?? null);
+    if (sku) {
+      return sku;
+    }
+  }
+
+  const fallbackSku = normalizeProofText(product.slug);
+  return fallbackSku || null;
+};
+
+const buildProductPickerOptions = (products: Product[]): ProductPickerOption[] =>
+  products.map((product) => {
+    const label = normalizeProofText(product.name) || normalizeProofText(product.slug) || product.id;
+    const proofSku = getProductProofSku(product);
+    const activeSkuCount = Array.isArray(product.shades)
+      ? product.shades.reduce((count, shade) => count + (normalizeProofText(shade?.sku ?? null) ? 1 : 0), 0)
+      : 0;
+
+    return {
+      id: product.id,
+      label,
+      subtitle:
+        activeSkuCount > 0
+          ? `${activeSkuCount} active SKU${activeSkuCount === 1 ? "" : "s"}`
+          : proofSku
+            ? `Fallback SKU: ${proofSku}`
+            : "No active SKU",
+      searchValue: [product.id, label, product.slug, proofSku, activeSkuCount].filter(Boolean).join(" ").toLowerCase(),
+      disabled: !proofSku,
+    };
+  });
+
+type ProofTargetOption = {
+  sku: string;
+  label: string;
+  details: string;
+  productId: string;
+  productName: string;
+  productSlug: string | null;
+  shadeName: string | null;
+  collectionId: string | null;
+  collectionName: string | null;
+};
+
+const normalizeProofText = (value: string | null | undefined) => value?.trim() ?? "";
+
+const matchesDiscountScope = (discount: AdminDiscountRecord, product: Product) => {
+  const discountProductKeys = [discount.productId, discount.productName, discount.productSlug]
+    .filter(Boolean)
+    .map((value) => String(value).trim().toLowerCase());
+  const discountCollectionKeys = [discount.collectionId, discount.collectionName, discount.collectionSlug]
+    .filter(Boolean)
+    .map((value) => String(value).trim().toLowerCase());
+
+  if (discount.appliesToType === "SPECIFIC_PRODUCT") {
+    const productKeys = [product.id, product.name, product.slug].filter(Boolean).map((value) => String(value).trim().toLowerCase());
+    return discountProductKeys.some((key) => productKeys.includes(key));
+  }
+
+  if (discount.appliesToType === "SPECIFIC_COLLECTION") {
+    const collection = product.collection;
+    const collectionKeys = [product.collectionId, collection?.id, collection?.name, collection?.slug]
+      .filter(Boolean)
+      .map((value) => String(value).trim().toLowerCase());
+    return discountCollectionKeys.some((key) => collectionKeys.includes(key));
+  }
+
+  return true;
+};
+
+const buildProofTargetOptions = (discount: AdminDiscountRecord, products: Product[]) => {
+  const seen = new Set<string>();
+  const options: ProofTargetOption[] = [];
+
+  for (const product of products) {
+    if (!matchesDiscountScope(discount, product)) {
+      continue;
+    }
+
+    const collectionName = product.collection?.name ?? discount.collectionName ?? null;
+    const shades = Array.isArray(product.shades) ? product.shades : [];
+
+    for (const shade of shades) {
+      const sku = normalizeProofText(shade?.sku ?? null);
+      if (!sku) {
+        continue;
+      }
+
+      const normalizedSku = sku.toLowerCase();
+      if (seen.has(normalizedSku)) {
+        continue;
+      }
+
+      seen.add(normalizedSku);
+      const shadeName = normalizeProofText(shade?.name ?? null) || "Variant";
+      const details = collectionName ? `Collection: ${collectionName}` : "";
+
+      options.push({
+        sku,
+        label: `${product.name} — ${shadeName} / ${sku}`,
+        details,
+        productId: product.id,
+        productName: product.name,
+        productSlug: product.slug ?? null,
+        shadeName,
+        collectionId: product.collectionId ?? null,
+        collectionName,
+      });
+    }
+  }
+
+  return options.sort((left, right) => left.label.localeCompare(right.label));
 };
 
 function MetricCard({
@@ -479,7 +701,7 @@ function DiscountRowActions({
           }}
         >
           <ShieldCheck className="mr-2 size-4" />
-          Check Offer Proof
+          {getProofActionLabel(discount.proofStatus)}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem
@@ -572,7 +794,6 @@ function DiscountTableRow({
           <p className="font-semibold tracking-wide text-foreground" translate="no">
             {discount.code}
           </p>
-          <p className="text-xs text-muted-foreground">ID {discount.discountId.slice(0, 8).toUpperCase()}</p>
         </div>
       </TableCell>
       <TableCell className="px-5 py-4">
@@ -689,7 +910,7 @@ function MobileDiscountCard({
 
       <div className="mt-4 flex items-center justify-between gap-3 text-sm text-muted-foreground">
         <span>{formatDiscountUsage(discount.usedCount, discount.usageLimitTotal)}</span>
-        <span>{discount.proofCheckedAt ? `Updated ${formatDiscountDateTime(discount.proofCheckedAt)}` : "Not checked"}</span>
+        <span>{discount.proofCheckedAt ? `Updated ${formatDiscountDateTime(discount.proofCheckedAt)}` : "Needs proof"}</span>
       </div>
 
       <div className="mt-4 flex items-center justify-end gap-2" onClick={(event) => event.stopPropagation()}>
@@ -747,6 +968,16 @@ function DiscountDetailsCard({
 
   const proof = buildSelectedProof(discount, null);
   const proofTone = getProofSurfaceClass(proof.status);
+  const proofHelper =
+    proof.status === "VERIFIED"
+      ? discount.appliesToType === "SPECIFIC_COLLECTION"
+        ? "This collection discount is verified for every product in the collection."
+        : null
+      : proof.status === "PARTIALLY_VERIFIED"
+        ? discount.appliesToType === "SPECIFIC_COLLECTION"
+          ? "Some products in this collection still need proof before the discount can be used everywhere."
+          : "Some products are still unverified. Check the remaining targets before using this discount broadly."
+        : null;
   const handleCopyCode = async () => {
     try {
       await navigator.clipboard.writeText(discount.code);
@@ -798,15 +1029,16 @@ function DiscountDetailsCard({
           <div className="flex items-start gap-3">
             {proof.status === "VERIFIED" ? (
               <CheckCircle2 className="mt-0.5 size-4 shrink-0" />
-            ) : proof.status === "NEEDS_EVIDENCE" ? (
+            ) : proof.status === "NEEDS_EVIDENCE" || proof.status === "PARTIALLY_VERIFIED" ? (
               <AlertTriangle className="mt-0.5 size-4 shrink-0" />
             ) : (
               <ShieldCheck className="mt-0.5 size-4 shrink-0" />
             )}
             <div className="space-y-1">
               <p className="font-medium text-foreground">{proof.message ?? formatDiscountProofMessage(proof.status)}</p>
+              {proofHelper ? <p className="text-xs leading-5 text-muted-foreground">{proofHelper}</p> : null}
               <p className="text-xs text-muted-foreground">
-                {proof.checkedAt ? `Checked ${formatDiscountDateTime(proof.checkedAt)}` : "Not checked yet"}
+                {proof.checkedAt ? `Checked ${formatDiscountDateTime(proof.checkedAt)}` : "Needs proof"}
               </p>
             </div>
           </div>
@@ -898,7 +1130,7 @@ function DiscountDetailsCard({
             ) : (
               <ShieldCheck className="mr-2 size-4" />
             )}
-            Check Offer Proof
+            {getProofActionLabel(discount.proofStatus)}
           </Button>
         </div>
 
@@ -952,7 +1184,7 @@ function DiscountFormDialog({
   open: boolean;
   mode: FormMode;
   discount: AdminDiscountRecord | null;
-  products?: any[];
+  products?: Product[];
   collections?: any[];
   onOpenChange: (open: boolean) => void;
   onSubmit: (values: DiscountFormValues) => Promise<void> | void;
@@ -974,7 +1206,13 @@ function DiscountFormDialog({
 
   const discountType = watch("discountType");
   const appliesToType = watch("appliesToType");
+  const productIdValue = watch("productId");
   const codeRegistration = register("code");
+  const productPickerOptions = useMemo(() => buildProductPickerOptions(products), [products]);
+  const selectedProductOption = useMemo(
+    () => productPickerOptions.find((option) => option.id === productIdValue) ?? null,
+    [productIdValue, productPickerOptions],
+  );
 
   useEffect(() => {
     if (!open) {
@@ -1020,11 +1258,41 @@ function DiscountFormDialog({
     setValue("sku", "", { shouldDirty: true, shouldValidate: true });
   }, [appliesToType, open, setValue]);
 
+  useEffect(() => {
+    if (!open || mode !== "edit" || appliesToType !== "SPECIFIC_PRODUCT" || productIdValue) {
+      return;
+    }
+
+    const fallbackName = normalizeProofText(discount?.productName ?? null).toLowerCase();
+    const fallbackSlug = normalizeProofText(discount?.productSlug ?? null).toLowerCase();
+    if (!fallbackName && !fallbackSlug) {
+      return;
+    }
+
+    const fallbackProduct = productPickerOptions.find((option) => {
+      const searchValue = option.searchValue;
+      return (fallbackName && searchValue.includes(fallbackName)) || (fallbackSlug && searchValue.includes(fallbackSlug));
+    });
+
+    if (fallbackProduct) {
+      setValue("productId", fallbackProduct.id, { shouldDirty: false, shouldValidate: true });
+    }
+  }, [
+    appliesToType,
+    discount?.productName,
+    discount?.productSlug,
+    mode,
+    open,
+    productIdValue,
+    productPickerOptions,
+    setValue,
+  ]);
+
   const title = mode === "create" ? "Create discount" : "Edit discount";
   const description =
     mode === "create"
       ? "Set up a new code with timing, usage limits, and a target scope."
-      : "Update the discount details without touching the proof trail.";
+      : "Changing discount value, target, dates, or status will require a new proof check.";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -1080,7 +1348,7 @@ function DiscountFormDialog({
                             <SelectTrigger className="h-11 w-full rounded-full border-border/70 bg-white shadow-none">
                               <SelectValue placeholder="Select status" />
                             </SelectTrigger>
-                            <SelectContent>
+                              <SelectContent>
                               {FORM_STATUS_OPTIONS.map((option) => (
                                 <SelectItem key={option.value} value={option.value}>
                                   {option.label}
@@ -1212,45 +1480,58 @@ function DiscountFormDialog({
                                   role="combobox"
                                   className="h-10 w-full justify-between rounded-none border border-primary-200 bg-white font-normal hover:bg-primary-50/50"
                                 >
-                                  {field.value
-                                    ? products.find((product: any) => product.id === field.value)?.title || products.find((product: any) => product.id === field.value)?.name || products.find((product: any) => product.id === field.value)?.id
-                                    : <span className="text-muted-foreground">Select product</span>}
+                                  {selectedProductOption ? (
+                                    <span className="flex min-w-0 flex-col items-start text-left">
+                                      <span className="truncate font-medium text-foreground">{selectedProductOption.label}</span>
+                                      <span className="truncate text-xs text-muted-foreground">{selectedProductOption.subtitle}</span>
+                                    </span>
+                                  ) : (
+                                    <span className="text-muted-foreground">
+                                      {field.value
+                                        ? discount?.productName || discount?.productSlug || field.value
+                                        : "Select product"}
+                                    </span>
+                                  )}
                                   <ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                                 </Button>
                               </PopoverTrigger>
-                              <PopoverContent 
-                                className="p-0" 
-                                style={{ width: "var(--radix-popover-trigger-width)" }}
+                              <PopoverContent
                                 align="start"
+                                collisionPadding={16}
+                                sideOffset={8}
+                                className="z-50 w-[var(--radix-popover-trigger-width)] overflow-hidden p-0"
                               >
-                                <Command className="">
-                                  <CommandInput className="" placeholder="Search products..." />
-                                  <CommandList>
+                                <Command>
+                                  <CommandInput placeholder="Search products..." />
+                                  <CommandList className="max-h-[320px] overflow-y-auto">
                                     <CommandEmpty>No product found.</CommandEmpty>
                                     <CommandGroup>
-                                      {products.map((product: any) => {
-                                        const thumbnail = product?.images?.[0]?.url ? encodeURI(product.images[0].url) : "";
+                                      {productPickerOptions.map((option) => {
                                         return (
                                           <CommandItem
-                                            key={product.id}
-                                            value={product.title || product.name || product.id}
+                                            key={option.id}
+                                            value={option.searchValue}
+                                            disabled={option.disabled}
                                             onSelect={() => {
-                                              field.onChange(product.id);
+                                              if (!option.disabled) {
+                                                field.onChange(option.id);
+                                              }
                                             }}
-                                            className="flex items-center gap-3 cursor-pointer"
+                                            className="flex items-start gap-3"
                                           >
-                                            <div className="flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border/50 bg-muted/50">
-                                              {thumbnail ? (
-                                                <img src={thumbnail} alt={product.title || product.name || ""} className="h-full w-full object-cover" />
-                                              ) : (
-                                                <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                                              )}
+                                            <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+                                              <span className="truncate text-sm font-medium text-foreground">{option.label}</span>
+                                              <span className="truncate text-xs text-muted-foreground">{option.subtitle}</span>
                                             </div>
-                                            <span className="truncate flex-1">{product.title || product.name || product.id}</span>
+                                            {option.disabled ? (
+                                              <Badge variant="secondary" className="rounded-full border-border/70 bg-muted/60 text-muted-foreground">
+                                                No active SKU
+                                              </Badge>
+                                            ) : null}
                                             <Check
                                               className={cn(
                                                 "ml-auto h-4 w-4",
-                                                field.value === product.id ? "opacity-100" : "opacity-0"
+                                                field.value === option.id ? "opacity-100" : "opacity-0"
                                               )}
                                             />
                                           </CommandItem>
@@ -1263,7 +1544,7 @@ function DiscountFormDialog({
                             </Popover>
                           )}
                         />
-                        <FieldDescription>Choose the catalog product for this discount.</FieldDescription>
+                        <FieldDescription>Choose the catalog product for this discount. Products without an active SKU are disabled.</FieldDescription>
                         {renderFieldError(errors.productId?.message)}
                       </FieldContent>
                     </Field>
@@ -1468,10 +1749,14 @@ function DiscountFormDialog({
 
 function CheckProofDialog({
   discount,
+  products = [],
+  request,
   onOpenChange,
   onRunProof,
 }: {
   discount: AdminDiscountRecord | null;
+  products?: Product[];
+  request: AdminRequest;
   onOpenChange: (open: boolean) => void;
   onRunProof: (
     discount: AdminDiscountRecord,
@@ -1482,69 +1767,794 @@ function CheckProofDialog({
       secondStockQuantity?: string;
       secondStockEvidenceUrl?: string;
       secondStockCheckedAt?: string;
+      proofScope?: ProofScopeSelection;
     },
-  ) => void;
+  ) => Promise<ProofRunResult | null> | void;
 }) {
-  const [sku, setSku] = useState("");
+  const [selectedSku, setSelectedSku] = useState("");
+  const [proofScope, setProofScope] = useState<ProofScopeSelection>("ALL_PRODUCTS");
+  const [proofProducts, setProofProducts] = useState<ProofProductOption[]>([]);
+  const [proofProductsLoading, setProofProductsLoading] = useState(false);
+  const [proofProductsError, setProofProductsError] = useState<string | null>(null);
+  const [proofRunResult, setProofRunResult] = useState<ProofRunResult | null>(null);
   const [urgencyClaim, setUrgencyClaim] = useState("none");
   const [secondStockSource, setSecondStockSource] = useState("");
   const [secondStockQuantity, setSecondStockQuantity] = useState("");
   const [secondStockEvidenceUrl, setSecondStockEvidenceUrl] = useState("");
   const [secondStockCheckedAt, setSecondStockCheckedAt] = useState("");
+  const [targetError, setTargetError] = useState<string | null>(null);
+  const [targetOpen, setTargetOpen] = useState(false);
+  const [isRunningProof, setIsRunningProof] = useState(false);
 
   useEffect(() => {
-    if (discount) {
-      setSku(discount.sku ?? "");
-      setUrgencyClaim("none");
-      setSecondStockSource("");
-      setSecondStockQuantity("");
-      setSecondStockEvidenceUrl("");
-      setSecondStockCheckedAt("");
+    if (!discount) {
+      return;
     }
+
+    setSelectedSku(isAllProductsAppliesToType(discount.appliesToType) || discount.appliesToType === "SPECIFIC_COLLECTION" ? "" : discount.sku ?? discount.g7LastItems?.[0]?.sku ?? "");
+    setProofScope(
+      isAllProductsAppliesToType(discount.appliesToType) || discount.appliesToType === "SPECIFIC_COLLECTION"
+        ? "ALL_PRODUCTS"
+        : normalizeProofScopeSelection(discount.g7ProofScope),
+    );
+    setProofProducts([]);
+    setProofProductsError(null);
+    setProofProductsLoading(false);
+    setProofRunResult(buildSavedProofRunResult(discount));
+    setUrgencyClaim("none");
+    setSecondStockSource("");
+    setSecondStockQuantity("");
+    setSecondStockEvidenceUrl("");
+    setSecondStockCheckedAt("");
+    setTargetError(null);
+    setTargetOpen(false);
+    setIsRunningProof(false);
   }, [discount]);
+
+  useEffect(() => {
+    const usesProofProductList = Boolean(
+      discount &&
+        (discount.appliesToType === "SPECIFIC_COLLECTION" ||
+          discount.appliesToType === "SPECIFIC_PRODUCT" ||
+          isAllProductsAppliesToType(discount.appliesToType)),
+    );
+
+    if (!usesProofProductList || !discount) {
+      setProofProducts([]);
+      setProofProductsError(null);
+      setProofProductsLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadProofProducts = async () => {
+      setProofProductsLoading(true);
+      setProofProductsError(null);
+
+      try {
+        const response = await request(buildRouteUrl(`${ADMIN_DISCOUNTS_ROUTE}/${discount.discountId}/proof-products`), {
+          cache: "no-store",
+          silent: true,
+        });
+        const body = await parseJsonResponse<ProofProductOption[]>(response);
+
+        if (!response.ok || !Array.isArray(body)) {
+          throw new Error("Unable to load proof products.");
+        }
+
+        if (!cancelled) {
+          setProofProducts(body);
+          setProofProductsError(
+            body.length
+              ? null
+              : discount.appliesToType === "SPECIFIC_PRODUCT"
+                ? "This product has no active variant/SKU. Add a variant before checking proof."
+              : isAllProductsAppliesToType(discount.appliesToType)
+                ? "No active products are available in the catalog."
+                : "No products are linked to this collection yet. Add products to this collection before checking proof.",
+          );
+        }
+      } catch {
+        if (!cancelled) {
+          setProofProducts([]);
+          setProofProductsError(
+            discount.appliesToType === "SPECIFIC_PRODUCT"
+              ? "Unable to load product variants right now."
+              : isAllProductsAppliesToType(discount.appliesToType)
+                ? "Unable to load active products right now."
+                : "No products are linked to this collection yet. Add products to this collection before checking proof.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setProofProductsLoading(false);
+        }
+      }
+    };
+
+    void loadProofProducts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [discount, request]);
+
+  useEffect(() => {
+    setProofRunResult(null);
+    setTargetError(null);
+  }, [proofScope, selectedSku]);
+
+  const proofTargets = (() => {
+    if (!discount) {
+      return [];
+    }
+
+    if (discount.appliesToType === "SPECIFIC_PRODUCT") {
+      return proofProducts.map((option) => ({
+        sku: option.sku,
+        label: option.variant_name.trim()
+          ? `${option.product_name} — ${option.variant_name} / ${option.sku}`
+          : `${option.product_name} / ${option.sku}`,
+        details:
+          option.stock_available === null
+            ? "Stock unknown"
+            : `Stock ${numberFormatter.format(option.stock_available)}`,
+      }));
+    }
+
+    if (
+      discount.appliesToType === "SPECIFIC_SKU" ||
+      discount.appliesToType === "SPECIFIC_COLLECTION" ||
+      isAllProductsAppliesToType(discount.appliesToType)
+    ) {
+      return [];
+    }
+
+    return buildProofTargetOptions(discount, products).map((option) => ({
+      sku: option.sku,
+      label: option.label,
+      details: option.details,
+    }));
+  })();
+
+  function formatCollectionProofLabel(option: ProofProductOption) {
+    return option.variant_name.trim()
+      ? `${option.product_name} — ${option.variant_name} / ${option.sku}`
+      : `${option.product_name} / ${option.sku}`;
+  }
+
+  const handleRun = async () => {
+    if (isBlockedByExpiry) {
+      return;
+    }
+
+    if (usesMultiProductProof) {
+      if (proofScope === "ONE_PRODUCT" && !targetValue) {
+        setTargetError(
+          isAllProductsDiscount
+            ? "Select a product from this discount before checking proof."
+            : "Select a product from this collection before checking proof.",
+        );
+        return;
+      }
+
+      if (proofScope === "ALL_PRODUCTS" && !hasProofProducts) {
+        setTargetError(
+          isAllProductsDiscount
+            ? proofProductsError ?? "No active products are available in the catalog."
+            : "No products are linked to this collection yet. Add products to this collection before checking proof.",
+        );
+        return;
+      }
+
+      setTargetError(null);
+      setProofRunResult(null);
+      setIsRunningProof(true);
+      try {
+        const result = await Promise.resolve(
+          onRunProof(currentDiscount, {
+            sku: proofScope === "ONE_PRODUCT" ? targetValue : "",
+            proofScope,
+            urgencyClaim: urgencyClaim === "none" ? "" : urgencyClaim,
+            secondStockSource: needsStockProof ? secondStockSource : undefined,
+            secondStockQuantity: needsStockProof ? secondStockQuantity : undefined,
+            secondStockEvidenceUrl: needsStockProof ? secondStockEvidenceUrl : undefined,
+            secondStockCheckedAt: needsStockProof ? secondStockCheckedAt : undefined,
+          }),
+        );
+
+        if (result) {
+          setProofRunResult(result);
+        }
+      } finally {
+        setIsRunningProof(false);
+      }
+      return;
+    }
+
+    if (requiresTargetSelection && !targetValue) {
+      setTargetError("Select a product or SKU before running proof check.");
+      return;
+    }
+
+    if (requiresTargetSelection && !proofTargets.length && currentDiscount.appliesToType !== "SPECIFIC_SKU") {
+      setTargetError(
+        currentDiscount.appliesToType === "SPECIFIC_PRODUCT"
+          ? "This product has no active variant/SKU. Add a variant before checking proof."
+          : "No product or SKU options are available for this discount.",
+      );
+      return;
+    }
+
+    setTargetError(null);
+    setProofRunResult(null);
+    setIsRunningProof(true);
+    try {
+      const result = await Promise.resolve(
+        onRunProof(currentDiscount, {
+          sku: targetValue,
+          urgencyClaim: urgencyClaim === "none" ? "" : urgencyClaim,
+          secondStockSource: needsStockProof ? secondStockSource : undefined,
+          secondStockQuantity: needsStockProof ? secondStockQuantity : undefined,
+          secondStockEvidenceUrl: needsStockProof ? secondStockEvidenceUrl : undefined,
+          secondStockCheckedAt: needsStockProof ? secondStockCheckedAt : undefined,
+        }),
+      );
+
+      if (result) {
+        setProofRunResult(result);
+      }
+    } finally {
+      setIsRunningProof(false);
+    }
+  };
+
+  function formatProofStatusLabel(value: string) {
+    return value
+      .toLowerCase()
+      .split(/[_\s]+/)
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join(" ");
+  }
+
+  const collectionProofSummaryItems = proofRunResult?.summary
+    ? [
+        {
+          label: "Verified",
+          value: proofRunResult.summary.verified,
+          cardClasses: "border-emerald-200/70 bg-emerald-50/60",
+          valueClass: "text-emerald-700",
+        },
+        {
+          label: "Needs evidence",
+          value: proofRunResult.summary.needsEvidence,
+          cardClasses: "border-amber-200/70 bg-amber-50/60",
+          valueClass: "text-amber-700",
+        },
+        {
+          label: "Blocked",
+          value: proofRunResult.summary.blocked,
+          cardClasses: "border-rose-200/70 bg-rose-50/60",
+          valueClass: "text-rose-700",
+        },
+      ]
+    : [];
+
+  const collectionProofItemsBySku = new Map((proofRunResult?.items ?? []).map((item) => [item.sku.toLowerCase(), item]));
+
+  const collectionBlockedReasonGroups = proofRunResult?.blockedReasons?.length
+    ? proofRunResult.blockedReasons
+    : (() => {
+        const counts = new Map<string, number>();
+
+        for (const item of proofRunResult?.items ?? []) {
+          if (item.proof_status !== "BLOCKED") {
+            continue;
+          }
+
+          counts.set(item.reason, (counts.get(item.reason) ?? 0) + 1);
+        }
+
+        return [...counts.entries()]
+          .map(([reason, count]) => ({ reason, count }))
+          .sort((left, right) => right.count - left.count || left.reason.localeCompare(right.reason));
+      })();
+
+  const formatBlockedReasonCopy = (item: CollectionBlockedReason) => {
+    const total = proofRunResult?.summary?.total ?? item.count;
+    const appliesToAllProducts = isAllProductsDiscount;
+    const scopeLabel = appliesToAllProducts ? "this discount" : "this collection";
+
+    if (item.count === total) {
+      if (/product is out of stock/i.test(item.reason)) {
+        return appliesToAllProducts
+          ? "All active products in this discount are currently out of stock."
+          : "All products in this collection are currently out of stock.";
+      }
+
+      if (/discount is not linked to this product\/sku/i.test(item.reason)) {
+        return "Discount is not linked to these products in Neon.";
+      }
+
+      if (/discount is paused/i.test(item.reason)) {
+        return "This discount is paused.";
+      }
+
+      if (/discount has expired/i.test(item.reason)) {
+        return "This discount has expired.";
+      }
+
+      if (/discount is not active yet/i.test(item.reason)) {
+        return "This discount is not active yet.";
+      }
+    }
+
+    return `${numberFormatter.format(item.count)} products blocked for ${scopeLabel} because ${item.reason.replace(/\.$/, "")}`;
+  };
 
   if (!discount) return null;
 
-  const requiresSku = discount.appliesToType === "ALL_PRODUCTS" || discount.appliesToType === "SPECIFIC_COLLECTION";
+  const currentDiscount = discount;
+  const isCollectionDiscount = currentDiscount.appliesToType === "SPECIFIC_COLLECTION";
+  const isAllProductsDiscount = isAllProductsAppliesToType(currentDiscount.appliesToType);
+  const usesMultiProductProof = isCollectionDiscount || isAllProductsDiscount;
+  const hasProofProducts = proofProducts.length > 0;
+  const collectionName = currentDiscount.collectionName ?? "";
+  const collectionLabel = currentDiscount.collectionName ?? "this collection";
+  const proofScopeLabel = isAllProductsDiscount ? "this discount" : collectionLabel;
+  const proofRequiresActivation = isAllProductsDiscount && currentDiscount.status !== "ACTIVE";
+  const targetValue = usesMultiProductProof
+    ? proofScope === "ONE_PRODUCT"
+      ? selectedSku.trim()
+      : ""
+    : selectedSku.trim() || (currentDiscount.appliesToType === "SPECIFIC_SKU" ? currentDiscount.sku?.trim() ?? "" : "");
+  const selectedMultiProductTarget = usesMultiProductProof
+    ? proofScope === "ONE_PRODUCT"
+      ? proofProducts.find((option) => option.sku.toLowerCase() === targetValue.toLowerCase()) ?? null
+      : null
+    : null;
+  const selectedTarget = !usesMultiProductProof
+    ? proofTargets.find((option) => option.sku.toLowerCase() === targetValue.toLowerCase()) ?? null
+    : selectedMultiProductTarget
+      ? {
+          sku: selectedMultiProductTarget.sku,
+          label: formatCollectionProofLabel(selectedMultiProductTarget),
+          details: `Stock ${selectedMultiProductTarget.stock_available === null ? "unknown" : numberFormatter.format(selectedMultiProductTarget.stock_available)}`,
+        }
+      : null;
+  const requiresTargetSelection = usesMultiProductProof ? proofScope === "ONE_PRODUCT" : currentDiscount.appliesToType !== "SPECIFIC_SKU";
   const needsStockProof = urgencyClaim === "Low stock" || urgencyClaim === "Only X left";
   const isTimeBased = urgencyClaim === "Limited time" || urgencyClaim === "Ends soon" || urgencyClaim === "Today only";
-  const hasNoEndDate = !discount.endsAt;
+  const hasNoEndDate = !currentDiscount.endsAt;
   const isBlockedByExpiry = isTimeBased && hasNoEndDate;
-
-  const handleRun = () => {
-    onRunProof(discount, {
-      sku: sku,
-      urgencyClaim: urgencyClaim === "none" ? "" : urgencyClaim,
-      secondStockSource: needsStockProof ? secondStockSource : undefined,
-      secondStockQuantity: needsStockProof ? secondStockQuantity : undefined,
-      secondStockEvidenceUrl: needsStockProof ? secondStockEvidenceUrl : undefined,
-      secondStockCheckedAt: needsStockProof ? secondStockCheckedAt : undefined,
-    });
-  };
+  const targetPlaceholder = usesMultiProductProof
+    ? proofScope === "ONE_PRODUCT"
+      ? "Select a product / SKU"
+      : isAllProductsDiscount
+        ? "Check all active products"
+        : "All products in collection"
+    : currentDiscount.appliesToType === "ALL_PRODUCTS"
+      ? "Choose product / SKU"
+      : "Select product variant / SKU";
+  const targetLabel = usesMultiProductProof
+    ? isAllProductsDiscount
+      ? "Product or SKU"
+      : `Product from ${collectionLabel}`
+    : currentDiscount.appliesToType === "ALL_PRODUCTS"
+      ? "Product or SKU"
+      : "Product variant / SKU";
+  const targetDescription = usesMultiProductProof
+    ? proofScope === "ONE_PRODUCT"
+      ? isAllProductsDiscount
+        ? "Choose one active product for this discount's proof check."
+        : `Choose one active product from ${proofScopeLabel} for the proof check.`
+      : isAllProductsDiscount
+        ? "G7 will check every active product/SKU tied to this discount."
+        : "G7 will check every active product/SKU in this collection."
+    : currentDiscount.appliesToType === "ALL_PRODUCTS"
+      ? "Choose the exact product/SKU where this discount will be used."
+      : "Choose a product variant/SKU for the proof check.";
+  const subtitle = isCollectionDiscount
+    ? `This discount applies to all products in ${currentDiscount.collectionName ? `the ${collectionName} collection` : "this collection"}. G7 will check whether it is safe to use.`
+    : isAllProductsDiscount
+      ? "This discount applies to all active products. Choose whether to check every product or one product only."
+      : currentDiscount.appliesToType === "SPECIFIC_PRODUCT"
+        ? `This discount applies to ${currentDiscount.productName ?? "the selected product"}. Choose the variant or SKU where you want to use it.`
+        : "G7 will check the exact SKU tied to this discount.";
+  const dialogTitle = isCollectionDiscount
+    ? "Check Collection Discount Proof"
+    : isAllProductsDiscount
+      ? "Check All Products Discount Proof"
+      : "Check Discount Proof";
 
   return (
     <Dialog open={!!discount} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90vh] max-w-lg overflow-y-auto sm:rounded-[32px]">
-        <DialogHeader className="px-6 pt-6 md:px-8 md:pt-8">
-          <DialogTitle className="text-xl tracking-tight">Check Discount Proof</DialogTitle>
-          <DialogDescription className="text-sm leading-6">
-            G7 will check if this discount is safe to use in content or ads.
-          </DialogDescription>
+      <DialogContent className="max-h-[92vh] w-[95vw] max-w-6xl sm:max-w-6xl overflow-hidden sm:rounded-[32px] border-black/5 bg-white p-0 shadow-2xl flex flex-col">
+        <DialogHeader className="px-8 pt-8 md:px-12 md:pt-10 pb-6 border-b border-black/5 shrink-0">
+          <DialogTitle className="text-2xl font-medium tracking-[-0.03em] text-foreground">{dialogTitle}</DialogTitle>
+          <DialogDescription className="mt-2 text-base leading-relaxed tracking-[-0.01em] text-muted-foreground">{subtitle}</DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6 px-6 pb-6 md:px-8 md:pb-8">
-          {requiresSku && (
+        <div className="flex-1 overflow-y-auto px-8 py-8 md:px-12 space-y-12">
+          {targetError ? (
+            <Alert variant="destructive" className="border-rose-200 bg-rose-50 text-rose-800">
+              <AlertTriangle className="size-4 text-rose-600" />
+              <AlertTitle>Action required</AlertTitle>
+              <AlertDescription>{targetError}</AlertDescription>
+            </Alert>
+          ) : null}
+
+          {usesMultiProductProof ? (
+            <div className="grid gap-8 lg:grid-cols-[1fr_360px]">
+              <div className="space-y-10">
+                <Field>
+                  <FieldLabel htmlFor="proof-scope" className="text-sm font-medium text-foreground">Proof scope</FieldLabel>
+                  <FieldContent>
+                    <Select value={proofScope} onValueChange={(value) => setProofScope(value as ProofScopeSelection)}>
+                      <SelectTrigger id="proof-scope" className="h-12 w-full rounded-2xl border-black/10 bg-white shadow-sm focus:ring-1 focus:ring-black/5">
+                        <SelectValue placeholder={isAllProductsDiscount ? "Check all active products" : "Check all products in collection"} />
+                      </SelectTrigger>
+                      <SelectContent className="rounded-2xl border-border/70 bg-white/95 backdrop-blur-md">
+                        <SelectGroup>
+                          <SelectItem value="ALL_PRODUCTS">{isAllProductsDiscount ? "Check all active products" : "Check all products in collection"}</SelectItem>
+                          <SelectItem value="ONE_PRODUCT">Check one product only</SelectItem>
+                        </SelectGroup>
+                      </SelectContent>
+                    </Select>
+                    <FieldDescription>{targetDescription}</FieldDescription>
+                  </FieldContent>
+                </Field>
+
+                {proofRequiresActivation && hasProofProducts ? (
+                  <Alert className="border-amber-200 bg-amber-50 text-amber-950 rounded-2xl">
+                    <AlertTriangle className="size-4 text-amber-600" />
+                    <AlertTitle>Activate this discount before checking proof.</AlertTitle>
+                    <AlertDescription>
+                      The active catalog is loaded below, but proof stays disabled until this discount is active.
+                    </AlertDescription>
+                  </Alert>
+                ) : null}
+
+                {proofScope === "ONE_PRODUCT" ? (
+                  <Field>
+                    <FieldLabel htmlFor="proof-collection-product">
+                      {currentDiscount.appliesToType === "SPECIFIC_PRODUCT"
+                        ? "Product variant / SKU"
+                        : isAllProductsDiscount
+                          ? "Product or SKU"
+                          : "Product from collection"}
+                    </FieldLabel>
+                    <FieldContent>
+                      <Popover open={targetOpen} onOpenChange={setTargetOpen}>
+                        <PopoverTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="outline"
+                            role="combobox"
+                            className="h-12 w-full justify-between rounded-2xl border-black/10 bg-white font-normal shadow-sm hover:bg-muted/30 focus:ring-1 focus:ring-black/5"
+                          >
+                            {selectedTarget ? (
+                              <span className="flex min-w-0 flex-col items-start text-left">
+                                <span className="truncate font-medium text-foreground">{selectedTarget.label}</span>
+                                {selectedTarget.details ? (
+                                  <span className="truncate text-xs text-muted-foreground">{selectedTarget.details}</span>
+                                ) : null}
+                              </span>
+                            ) : (
+                              <span className="text-muted-foreground">{targetPlaceholder}</span>
+                            )}
+                            <ChevronDown className="ml-2 size-4 shrink-0 opacity-50" />
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                          <Command>
+                            <CommandInput placeholder="Search product or SKU..." />
+                            <CommandList>
+                              <CommandEmpty>No products found.</CommandEmpty>
+                              <CommandGroup>
+                                {proofProducts.map((option) => {
+                                  const optionLabel = formatCollectionProofLabel(option);
+                                  const isSelected = option.sku.toLowerCase() === targetValue.toLowerCase();
+
+                                  return (
+                                    <CommandItem
+                                      key={option.sku}
+                                      value={`${optionLabel} ${option.stock_available === null ? "unknown" : option.stock_available}`}
+                                      onSelect={() => {
+                                        setSelectedSku(option.sku);
+                                        setTargetError(null);
+                                        setTargetOpen(false);
+                                      }}
+                                      className="flex items-start gap-3"
+                                    >
+                                      <div className="min-w-0 flex-1">
+                                        <p className="truncate text-sm font-medium text-foreground">{optionLabel}</p>
+                                        <p className="truncate text-xs text-muted-foreground">
+                                          Stock {option.stock_available === null ? "unknown" : numberFormatter.format(option.stock_available)}
+                                        </p>
+                                      </div>
+                                      <Check className={cn("mt-0.5 size-4 shrink-0", isSelected ? "opacity-100" : "opacity-0")} />
+                                    </CommandItem>
+                                  );
+                                })}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </PopoverContent>
+                      </Popover>
+                    </FieldContent>
+                  </Field>
+                ) : null}
+
+                <div className="space-y-6 pt-4 border-t border-black/5">
+                  <div className="flex items-end justify-between">
+                    <div>
+                      <h3 className="text-lg font-medium tracking-tight text-foreground">{isAllProductsDiscount ? "Products found" : "Products in collection"}</h3>
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {proofProductsLoading
+                          ? "Loading products..."
+                          : hasProofProducts
+                            ? isAllProductsDiscount
+                              ? `${numberFormatter.format(proofProducts.length)} active products will be checked.`
+                              : `${numberFormatter.format(proofProducts.length)} active products found`
+                            : isAllProductsDiscount
+                              ? "No active products are available in the catalog."
+                              : "No products linked yet"}
+                      </p>
+                    </div>
+                    {!proofProductsLoading && hasProofProducts ? (
+                      <Button asChild variant="ghost" className="text-sm font-medium hover:bg-muted/30 rounded-full h-9 px-4 text-muted-foreground">
+                        <Link href={isAllProductsDiscount ? "/dashboard/products" : "/dashboard/products/collections"}>
+                          {isAllProductsDiscount ? "Manage products" : "Manage products"}
+                        </Link>
+                      </Button>
+                    ) : null}
+                  </div>
+
+                  {proofProductsLoading ? (
+                    <div className="flex items-center justify-center py-12 text-sm text-muted-foreground">
+                      <Loader2 className="size-5 animate-spin mr-2" /> Loading...
+                    </div>
+                  ) : null}
+
+                  {proofProductsError && !proofProductsLoading ? (
+                    <Alert className="border-amber-200 bg-amber-50 text-amber-950 rounded-2xl">
+                      <AlertTriangle className="size-4 text-amber-600" />
+                      <AlertTitle>
+                        {isAllProductsDiscount
+                          ? proofProductsError === "No active products are available in the catalog."
+                            ? "No active products available"
+                            : "Unable to load active products"
+                          : "Collection needs products"}
+                      </AlertTitle>
+                      <AlertDescription>{proofProductsError}</AlertDescription>
+                    </Alert>
+                  ) : null}
+
+                  {!proofProductsLoading && hasProofProducts ? (
+                    <div className="border-y border-black/5 divide-y divide-black/5 max-h-[35vh] overflow-y-auto pr-2">
+                      {proofProducts.map((option) => {
+                        const proofItem = collectionProofItemsBySku.get(option.sku.toLowerCase()) ?? null;
+                        const isVerified = proofItem?.proof_status === "VERIFIED";
+                        const isBlocked = proofItem?.proof_status === "BLOCKED";
+                        const isNeedsEvidence = proofItem?.proof_status === "NEEDS_EVIDENCE";
+                        
+                        return (
+                          <div key={option.sku} className="py-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                            <div className="min-w-0 space-y-1 pr-4">
+                              <p className="text-sm font-medium text-foreground truncate">
+                                {option.product_name} {option.variant_name ? <span className="text-muted-foreground">— {option.variant_name}</span> : ""}
+                              </p>
+                              <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                <span className="font-mono">{option.sku}</span>
+                                <span>•</span>
+                                <span className={cn(
+                                  option.stock_available === null ? "text-slate-500" :
+                                  option.stock_available > 0 ? "text-emerald-600" : "text-rose-600"
+                                )}>
+                                  {option.stock_available === null ? "Stock unknown" : `${numberFormatter.format(option.stock_available)} in stock`}
+                                </span>
+                              </div>
+                              {proofItem ? (
+                                <p className={cn("text-xs mt-2", 
+                                  isVerified ? "text-emerald-600" : 
+                                  isBlocked ? "text-rose-600" : 
+                                  isNeedsEvidence ? "text-amber-600" : "text-muted-foreground"
+                                )}>
+                                  {proofItem.reason}
+                                </p>
+                              ) : null}
+                            </div>
+                            
+                            <div className="flex flex-wrap sm:flex-nowrap items-center gap-2 shrink-0">
+                              <DiscountStatusBadge status={proofItem?.discount_status ?? discount.status} />
+                              {proofItem ? (
+                                <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-xs font-medium", getProofStatusBadgeClass(proofItem.proof_status))}>
+                                  {getDiscountProofStatusLabel(proofItem.proof_status)}
+                                </Badge>
+                              ) : (
+                                <Badge variant="secondary" className="bg-muted/50 text-muted-foreground border-transparent rounded-full px-3 font-medium">Needs proof</Badge>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+              <div className="flex flex-col gap-8 rounded-3xl border-0 bg-[#F9F9F9] p-8 md:p-10 shadow-none">
+                {isRunningProof ? (
+                  <div className="flex min-h-[260px] items-center justify-center rounded-3xl border border-black/5 bg-white p-8 shadow-sm">
+                    <div className="flex flex-col items-center gap-3 text-center">
+                      <Loader2 className="size-6 animate-spin text-foreground" />
+                      <p className="text-base font-medium text-foreground">Checking proof now...</p>
+                      <p className="text-sm leading-relaxed text-muted-foreground">
+                        {isAllProductsDiscount
+                          ? "G7 is reviewing the active products linked to this discount."
+                          : `G7 is reviewing the selected products in ${collectionLabel}.`}
+                      </p>
+                    </div>
+                  </div>
+                ) : proofRunResult?.summary ? (
+                  <>
+                    <div>
+                      <h4 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-4">Proof Result</h4>
+                      <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-xs font-medium", getProofStatusBadgeClass(proofRunResult.status))}>
+                        {getDiscountProofStatusLabel(proofRunResult.status)}
+                      </Badge>
+                      <p className="mt-4 text-sm leading-relaxed text-foreground">{proofRunResult.message}</p>
+                    </div>
+
+                    <div className="space-y-4">
+                      <h4 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Summary</h4>
+                      <div className="space-y-3">
+                        {collectionProofSummaryItems.map(item => (
+                          <div key={item.label} className="flex justify-between items-center py-2 border-b border-black/5 last:border-0">
+                            <span className="text-sm font-medium text-muted-foreground">{item.label}</span>
+                            <span className={cn("text-sm font-semibold", item.valueClass)}>{numberFormatter.format(item.value)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {collectionBlockedReasonGroups.length > 0 && (
+                      <div className="space-y-4">
+                        <h4 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Blocked Reasons</h4>
+                        <div className="space-y-3">
+                          {collectionBlockedReasonGroups.map(item => (
+                            <div key={item.reason} className="bg-white rounded-xl p-3 shadow-sm border border-black/5">
+                              <div className="flex justify-between items-start gap-3">
+                                <p className="text-xs leading-relaxed text-foreground">{formatBlockedReasonCopy(item)}</p>
+                                <Badge variant="secondary" className="bg-muted text-foreground shrink-0 rounded-full">{item.count}</Badge>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div>
+                    <h4 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-4">Overview</h4>
+                    <p className="text-sm leading-relaxed text-muted-foreground">
+                      {isAllProductsDiscount
+                        ? "G7 will check every active product/SKU tied to this discount when you run proof."
+                        : `G7 will check every active product/SKU in ${collectionLabel} when you run proof.`}
+                    </p>
+                    <div className="mt-6 flex flex-col gap-3">
+                      <div className="bg-white rounded-xl p-4 shadow-sm border border-black/5 flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">{isAllProductsDiscount ? "Products found" : "Products"}</span>
+                        <span className="text-sm font-medium">{numberFormatter.format(proofProducts.length)}</span>
+                      </div>
+                      <div className="bg-white rounded-xl p-4 shadow-sm border border-black/5 flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">Scope</span>
+                        <span className="text-sm font-medium">
+                          {proofScope === "ALL_PRODUCTS" ? (isAllProductsDiscount ? "All active products" : "All products") : "Selected product"}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          ) : (
             <Field>
-              <FieldLabel htmlFor="proof-sku">Which product or SKU will this discount be used for?</FieldLabel>
+              <FieldLabel htmlFor="proof-sku">{targetLabel}</FieldLabel>
               <FieldContent>
-                <Input
-                  id="proof-sku"
-                  placeholder="Example: SKU-9002"
-                  value={sku}
-                  onChange={(e) => setSku(e.target.value)}
-                  className="h-11 rounded-full border-border/70 bg-white shadow-none"
-                />
-                <FieldDescription>G7 needs a specific product or SKU to verify the discount.</FieldDescription>
+                {discount.appliesToType === "SPECIFIC_SKU" ? (
+                  <>
+                    <Input
+                      id="proof-sku"
+                      value={targetValue}
+                      readOnly
+                      className="h-12 w-full rounded-2xl border-black/10 bg-[#F4F4F4] shadow-sm"
+                    />
+                    <FieldDescription>G7 will use this exact SKU when checking proof.</FieldDescription>
+                  </>
+                ) : (
+                  <>
+                    <Popover open={targetOpen} onOpenChange={setTargetOpen}>
+                      <PopoverTrigger asChild>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          role="combobox"
+                          className="h-11 w-full justify-between rounded-full border-border/70 bg-white font-normal shadow-none hover:bg-muted/50"
+                        >
+                          {selectedTarget ? (
+                            <span className="flex min-w-0 flex-col items-start text-left">
+                              <span className="truncate font-medium text-foreground">{selectedTarget.label}</span>
+                              {selectedTarget.details ? (
+                                <span className="truncate text-xs text-muted-foreground">{selectedTarget.details}</span>
+                              ) : null}
+                            </span>
+                          ) : (
+                            <span className="text-muted-foreground">{targetPlaceholder}</span>
+                          )}
+                          <ChevronDown className="ml-2 size-4 shrink-0 opacity-50" />
+                        </Button>
+                      </PopoverTrigger>
+                      <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-0" align="start">
+                        <Command>
+                            <CommandInput placeholder={currentDiscount.appliesToType === "SPECIFIC_PRODUCT" ? "Search variant or SKU..." : "Search product or SKU..."} />
+                            <CommandList>
+                              <CommandEmpty>
+                                {currentDiscount.appliesToType === "SPECIFIC_PRODUCT"
+                                  ? "No active variants or SKUs found."
+                                  : "No product or SKU found."}
+                              </CommandEmpty>
+                              <CommandGroup>
+                                {proofTargets.map((option) => {
+                                  const isSelected = option.sku.toLowerCase() === targetValue.toLowerCase();
+
+                                return (
+                                  <CommandItem
+                                    key={option.sku}
+                                    value={`${option.label} ${option.details} ${option.sku}`}
+                                    onSelect={() => {
+                                      setSelectedSku(option.sku);
+                                      setTargetError(null);
+                                      setTargetOpen(false);
+                                    }}
+                                    className="flex items-start gap-3"
+                                  >
+                                    <div className="min-w-0 flex-1">
+                                      <p className="truncate text-sm font-medium text-foreground">{option.label}</p>
+                                      {option.details ? <p className="truncate text-xs text-muted-foreground">{option.details}</p> : null}
+                                    </div>
+                                    <Check className={cn("mt-0.5 size-4 shrink-0", isSelected ? "opacity-100" : "opacity-0")} />
+                                  </CommandItem>
+                                );
+                              })}
+                            </CommandGroup>
+                          </CommandList>
+                        </Command>
+                      </PopoverContent>
+                    </Popover>
+                    <FieldDescription>{targetDescription}</FieldDescription>
+                    {!proofProductsLoading && (proofProductsError || proofTargets.length === 0) ? (
+                      <Alert className="border-amber-200 bg-amber-50 text-amber-950">
+                        <AlertTriangle className="size-4 text-amber-600" />
+                        <AlertTitle>
+                          {currentDiscount.appliesToType === "SPECIFIC_PRODUCT"
+                            ? proofProductsError
+                              ? "Unable to load variants"
+                              : "No active variants available"
+                            : "Missing product data"}
+                        </AlertTitle>
+                        <AlertDescription>
+                          {currentDiscount.appliesToType === "SPECIFIC_PRODUCT"
+                            ? proofProductsError ?? "This product has no active variant/SKU. Add a variant before checking proof."
+                            : "No product or SKU options are available for this discount."}
+                        </AlertDescription>
+                      </Alert>
+                    ) : null}
+                  </>
+                )}
               </FieldContent>
             </Field>
           )}
@@ -1553,7 +2563,7 @@ function CheckProofDialog({
             <FieldLabel htmlFor="proof-urgency">Will you use urgency wording?</FieldLabel>
             <FieldContent>
               <Select value={urgencyClaim} onValueChange={setUrgencyClaim}>
-                <SelectTrigger id="proof-urgency" className="h-11 w-full rounded-full border-border/70 bg-white shadow-none">
+                <SelectTrigger id="proof-urgency" className="h-12 w-full rounded-2xl border-black/10 bg-white shadow-sm focus:ring-1 focus:ring-black/5">
                   <SelectValue placeholder="No urgency wording" />
                 </SelectTrigger>
                 <SelectContent className="rounded-2xl border-border/70 bg-white/95 backdrop-blur-md">
@@ -1568,24 +2578,18 @@ function CheckProofDialog({
             </FieldContent>
           </Field>
 
-          {isBlockedByExpiry && (
+          {isBlockedByExpiry ? (
             <Alert variant="destructive" className="border-rose-200 bg-rose-50 text-rose-800">
               <AlertTriangle className="size-4 text-rose-600" />
               <AlertTitle>Action required</AlertTitle>
-              <AlertDescription>
-                This discount must have a valid end date before urgency wording can be used. Add an end date before using urgency wording.
-              </AlertDescription>
+              <AlertDescription>This discount needs an end date before using urgency wording.</AlertDescription>
             </Alert>
-          )}
+          ) : null}
 
-          {needsStockProof && (
+          {needsStockProof ? (
             <div className="space-y-4 rounded-[22px] border border-border/60 bg-muted/10 p-5">
-              <h4 className="text-[13px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Stock Proof Required
-              </h4>
-              <p className="text-sm text-muted-foreground">
-                Low-stock claims need a second proof source before they can be used.
-              </p>
+              <h4 className="text-[13px] font-semibold uppercase tracking-wider text-muted-foreground">Stock Proof Required</h4>
+              <p className="text-sm text-muted-foreground">Add second stock proof before using low-stock wording.</p>
 
               <Field>
                 <FieldLabel htmlFor="proof-stock-source">Second stock source</FieldLabel>
@@ -1595,7 +2599,7 @@ function CheckProofDialog({
                     placeholder="e.g. Warehouse system, supplier email"
                     value={secondStockSource}
                     onChange={(e) => setSecondStockSource(e.target.value)}
-                    className="h-11 rounded-full border-border/70 bg-white shadow-none"
+                    className="h-12 w-full rounded-2xl border-black/10 bg-white shadow-sm focus:ring-1 focus:ring-black/5"
                   />
                 </FieldContent>
               </Field>
@@ -1609,7 +2613,7 @@ function CheckProofDialog({
                     placeholder="e.g. 5"
                     value={secondStockQuantity}
                     onChange={(e) => setSecondStockQuantity(e.target.value)}
-                    className="h-11 rounded-full border-border/70 bg-white shadow-none"
+                    className="h-12 w-full rounded-2xl border-black/10 bg-white shadow-sm focus:ring-1 focus:ring-black/5"
                   />
                 </FieldContent>
               </Field>
@@ -1622,7 +2626,7 @@ function CheckProofDialog({
                     placeholder="Link to evidence or quick note"
                     value={secondStockEvidenceUrl}
                     onChange={(e) => setSecondStockEvidenceUrl(e.target.value)}
-                    className="h-11 rounded-full border-border/70 bg-white shadow-none"
+                    className="h-12 w-full rounded-2xl border-black/10 bg-white shadow-sm focus:ring-1 focus:ring-black/5"
                   />
                 </FieldContent>
               </Field>
@@ -1635,31 +2639,41 @@ function CheckProofDialog({
                     type="datetime-local"
                     value={secondStockCheckedAt}
                     onChange={(e) => setSecondStockCheckedAt(e.target.value)}
-                    className="h-11 rounded-full border-border/70 bg-white shadow-none"
+                    className="h-12 w-full rounded-2xl border-black/10 bg-white shadow-sm focus:ring-1 focus:ring-black/5"
                   />
                 </FieldContent>
               </Field>
             </div>
-          )}
+          ) : null}
+        </div>
 
-          <div className="flex flex-col gap-3 pt-4 sm:flex-row sm:items-center sm:justify-end">
-            <Button
-              type="button"
-              variant="outline"
-              className="h-11 rounded-full border-border/70 bg-white px-5"
-              onClick={() => onOpenChange(false)}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              className="h-11 rounded-full px-6"
-              onClick={handleRun}
-              disabled={isBlockedByExpiry || (requiresSku && !sku.trim())}
-            >
-              Run Proof Check
-            </Button>
-          </div>
+        <div className="flex shrink-0 flex-col gap-3 p-6 md:px-12 md:py-6 border-t border-black/5 bg-white sm:flex-row sm:items-center sm:justify-end">
+          <Button
+            type="button"
+            variant="ghost"
+            className="h-11 rounded-full px-6 font-medium text-muted-foreground hover:text-foreground"
+            onClick={() => onOpenChange(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            className="h-11 rounded-full px-8 font-medium shadow-sm bg-foreground text-background hover:bg-foreground/90"
+            onClick={() => void handleRun()}
+            disabled={
+              isRunningProof ||
+              proofRequiresActivation ||
+              isBlockedByExpiry ||
+              (usesMultiProductProof &&
+                (proofProductsLoading ||
+                  proofProducts.length === 0 ||
+                  (proofScope === "ONE_PRODUCT" && !targetValue))) ||
+              (!isCollectionDiscount && requiresTargetSelection && !proofTargets.length && currentDiscount.appliesToType !== "SPECIFIC_SKU")
+            }
+          >
+            {isRunningProof ? <Loader2 className="mr-2 size-4 animate-spin" /> : null}
+            {isRunningProof ? "Checking proof now..." : getProofActionLabel(currentDiscount.proofStatus)}
+          </Button>
         </div>
       </DialogContent>
     </Dialog>
@@ -1668,7 +2682,7 @@ function CheckProofDialog({
 
 export default function DiscountsPage() {
   const { authFetch } = useAuth();
-  const request = authFetch ?? defaultRequest;
+  const request: AdminRequest = authFetch ?? defaultRequest;
   const { products, collections } = useDashboardData(true, request, true);
 
   const [discounts, setDiscounts] = useState<AdminDiscountRecord[]>([]);
@@ -1684,14 +2698,13 @@ export default function DiscountsPage() {
   const [submitting, setSubmitting] = useState(false);
   const [busyAction, setBusyAction] = useState<{ id: string; kind: string } | null>(null);
   const [confirmDanger, setConfirmDanger] = useState<{ discount: AdminDiscountRecord; action: DangerAction } | null>(null);
-  const [proofOverrides, setProofOverrides] = useState<Record<string, DiscountProofStatusDetail>>({});
   const [checkProofDiscount, setCheckProofDiscount] = useState<AdminDiscountRecord | null>(null);
   const hasLoadedRef = useRef(false);
 
   const searchValue = useDeferredValue(search.trim().toLowerCase());
 
   const loadDiscounts = useCallback(
-    async ({ silent = false }: { silent?: boolean } = {}) => {
+    async ({ silent = false }: { silent?: boolean } = {}): Promise<AdminDiscountRecord[] | null> => {
       if (hasLoadedRef.current) {
         setRefreshing(true);
       } else {
@@ -1716,8 +2729,10 @@ export default function DiscountsPage() {
         setDiscounts(body.items ?? []);
         hasLoadedRef.current = true;
         setError(null);
+        return body.items ?? [];
       } catch {
         setError("Discounts could not be loaded. Check the admin API connection.");
+        return null;
       } finally {
         setLoading(false);
         setRefreshing(false);
@@ -1730,21 +2745,7 @@ export default function DiscountsPage() {
     void loadDiscounts({ silent: true });
   }, [loadDiscounts]);
 
-  const displayDiscounts = useMemo(
-    () =>
-      discounts.map((discount) => {
-        const override = proofOverrides[discount.discountId];
-        return override
-          ? {
-              ...discount,
-              proofStatus: override.status,
-              proofMessage: override.message,
-              proofCheckedAt: override.checkedAt,
-            }
-          : discount;
-      }),
-    [discounts, proofOverrides],
-  );
+  const displayDiscounts = discounts;
 
   const summary = useMemo<DiscountSummary>(() => {
     const now = Date.now();
@@ -1763,9 +2764,7 @@ export default function DiscountsPage() {
         (discount) =>
           discount.status !== "ARCHIVED" &&
           discount.status !== "EXPIRED" &&
-          (discount.proofStatus === "NOT_CHECKED" ||
-            discount.proofStatus === "NEEDS_EVIDENCE" ||
-            discount.proofStatus === "BLOCKED"),
+          isDiscountProofAttentionRequired(discount.proofStatus),
       ).length,
     };
   }, [displayDiscounts]);
@@ -1827,15 +2826,6 @@ export default function DiscountsPage() {
       const next = current.filter((item) => item.discountId !== record.discountId);
       return [record, ...next].sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime());
     });
-    setProofOverrides((current) => {
-      if (!current[record.discountId]) {
-        return current;
-      }
-
-      const next = { ...current };
-      delete next[record.discountId];
-      return next;
-    });
     setSelectedDiscountId(record.discountId);
   }, []);
 
@@ -1884,7 +2874,12 @@ export default function DiscountsPage() {
         throw new Error(await readResponseMessage(response, "Discount could not be saved."));
       }
 
-      syncDiscountRecord(body.item);
+      const refreshedDiscounts = await loadDiscounts({ silent: true });
+      const savedRecord =
+        refreshedDiscounts?.find((record) => record.discountId === body.item.discountId) ??
+        body.item;
+
+      syncDiscountRecord(savedRecord);
       setEditorOpen(false);
       setEditorDiscount(null);
       toast.success(body.message ?? (editorMode === "edit" ? "Discount updated." : "Discount created."));
@@ -1970,8 +2965,16 @@ export default function DiscountsPage() {
 
   const handleRunProofCheck = async (
     discount: AdminDiscountRecord,
-    payload: { sku?: string; urgencyClaim?: string; secondStockSource?: string; secondStockQuantity?: string; secondStockEvidenceUrl?: string; secondStockCheckedAt?: string },
-  ) => {
+    payload: {
+      sku?: string;
+      urgencyClaim?: string;
+      secondStockSource?: string;
+      secondStockQuantity?: string;
+      secondStockEvidenceUrl?: string;
+      secondStockCheckedAt?: string;
+      proofScope?: ProofScopeSelection;
+    },
+  ): Promise<ProofRunResult | null> => {
     setBusyAction({ id: discount.discountId, kind: "CHECK_PROOF" });
 
     try {
@@ -1990,23 +2993,29 @@ export default function DiscountsPage() {
         throw new Error(await readResponseMessage(response, "Proof check failed."));
       }
 
-      const proof = mapProofResponseToDetail(body);
-      setProofOverrides((current) => ({
-        ...current,
-        [discount.discountId]: proof,
-      }));
+      const proof = mapProofResponseToDetail(discount, body);
+      const proofResult: ProofRunResult = {
+        ...proof,
+        summary: body.summary ?? null,
+        items: body.items ?? null,
+        blockedReasons: body.blockedReasons ?? null,
+      };
+      if (body.item) {
+        syncDiscountRecord(body.item);
+      }
       setSelectedDiscountId(discount.discountId);
 
       if (proof.status === "VERIFIED") {
         toast.success(body.message);
-      } else if (proof.status === "NEEDS_EVIDENCE") {
+      } else if (proof.status === "PARTIALLY_VERIFIED" || proof.status === "NEEDS_EVIDENCE") {
         toast.warning(body.message);
       } else {
         toast.error(body.message);
       }
-      setCheckProofDiscount(null);
+      return proofResult;
     } catch (checkError) {
       toast.error(checkError instanceof Error ? checkError.message : "Proof check failed.");
+      return null;
     } finally {
       setBusyAction(null);
     }
@@ -2049,7 +3058,7 @@ export default function DiscountsPage() {
     {
       label: "Needs proof",
       value: formatFilterCount(summary.needsProof),
-      helper: "Not checked yet or missing evidence.",
+      helper: "Needs proof or missing evidence.",
       icon: ShieldCheck,
       accentClass: "bg-amber-50/70",
       iconClass: "border-amber-200 bg-amber-50 text-amber-700",
@@ -2203,7 +3212,7 @@ export default function DiscountsPage() {
                                       <TableHead className="px-5 py-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">End date</TableHead>
                                       <TableHead className="px-5 py-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Status</TableHead>
                                       <TableHead className="px-5 py-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Used</TableHead>
-                                      <TableHead className="px-5 py-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">G7 proof</TableHead>
+                                      <TableHead className="px-5 py-4 text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Proof</TableHead>
                                       <TableHead className="px-5 py-4 text-right text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">Action</TableHead>
                                     </TableRow>
                                   </TableHeader>
@@ -2322,6 +3331,8 @@ export default function DiscountsPage() {
 
         <CheckProofDialog
           discount={checkProofDiscount}
+          products={products}
+          request={request}
           onOpenChange={(open) => {
             if (!open) setCheckProofDiscount(null);
           }}

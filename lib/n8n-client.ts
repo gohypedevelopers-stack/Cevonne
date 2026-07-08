@@ -99,7 +99,11 @@ const normalizeStatus = (value: unknown): N8nWebhookStatus => {
 
 const normalizeMessage = (status: N8nWebhookStatus, value: unknown) => {
   if (typeof value === "string" && value.trim()) {
-    return value.trim();
+    const text = value.trim();
+    if (text.includes("is not registered") && text.includes("webhook")) {
+      return "G7 proof check could not run because the proof endpoint is not configured correctly.";
+    }
+    return text;
   }
 
   switch (status) {

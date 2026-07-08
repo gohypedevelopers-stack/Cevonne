@@ -415,6 +415,14 @@ model cevonne_discounts {
   created_at               DateTime    @default(now()) @db.Timestamptz(6)
   updated_at               DateTime    @updatedAt @db.Timestamptz(6)
   archived_at              DateTime?   @db.Timestamptz(6)
+  g7_proof_status          String      @default("NOT_CHECKED")
+  g7_proof_scope           String?
+  g7_verified_count        Int         @default(0)
+  g7_needs_evidence_count  Int         @default(0)
+  g7_blocked_count         Int         @default(0)
+  g7_last_checked_at       DateTime?   @db.Timestamptz(6)
+  g7_last_summary          String?
+  g7_last_items            Json?
   collection               Collection? @relation(fields: [collection_id], references: [id], onUpdate: NoAction)
   product                  Product?    @relation(fields: [product_id], references: [id], onUpdate: NoAction)
 

@@ -1214,6 +1214,12 @@ export default function ProductsPage() {
 
   const deferredSearch = useDeferredValue(searchQuery.trim().toLowerCase());
 
+  useEffect(() => {
+    const handler = () => refresh?.();
+    window.addEventListener("dashboard:data:refresh", handler);
+    return () => window.removeEventListener("dashboard:data:refresh", handler);
+  }, [refresh]);
+
   const demoMode = !loading && !error && (!Array.isArray(products) || products.length === 0) && process.env.NODE_ENV !== "production";
   const sourceProducts = useMemo(() => {
     const list = Array.isArray(products) && products.length ? products : [];
@@ -1340,7 +1346,7 @@ export default function ProductsPage() {
   const totalProducts = demoMode ? DEMO_STATS.totalProducts : decoratedProducts.length;
   const inStockCount = demoMode
     ? DEMO_STATS.inStock
-    : decoratedProducts.filter((product) => product.status === "in-stock").length;
+    : decoratedProducts.filter((product) => product.stockCount > 0).length;
   const lowStockCount = demoMode
     ? DEMO_STATS.lowStock
     : decoratedProducts.filter((product) => product.status === "low-stock").length;

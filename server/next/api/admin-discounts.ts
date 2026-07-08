@@ -1,34 +1,47 @@
 import "server-only";
 
-import type { Prisma } from "@prisma/client";
+import { Prisma } from "@prisma/client";
 
 import { buildG7OfferProofPayload } from "@/lib/admin/g7-dashboard-summary";
 import {
   discountFormSchema,
   discountActionSchema,
   discountProofRequestSchema,
+  formatDiscountProofMessage,
   type AdminDiscountRecord,
   type DiscountAction,
   type DiscountAppliesToType,
   type DiscountFormValues,
+  type DiscountProofItemRecord,
   type DiscountProofStatusDetail,
+  type DiscountProofSummary,
+  type DiscountProofScope,
+  type DiscountProofStatus,
   type DiscountStatus,
   type DiscountSummary,
   type DiscountType,
+  isDiscountProofAttentionRequired,
+  isAllProductsAppliesToType,
   normalizeDiscountAppliesToType,
   normalizeDiscountStatus,
   normalizeDiscountType,
+  normalizeDiscountProofStatus,
   parseOptionalNumber,
   trimOrNull,
 } from "@/lib/admin/discounts";
-import { loadG7OfferSourceRecordByCode, loadG7OfferSourceRecordByDiscountId } from "@/server/next/api/g7-offer-source";
+import {
+  loadG7OfferSourceRecordByCode,
+  loadG7OfferSourceRecordByDiscountId,
+  loadG7OfferSourceRecordsByCollectionId,
+} from "@/server/next/api/g7-offer-source";
 import { postN8nWebhook } from "@/lib/n8n-client";
+import type { N8nWebhookResult } from "@/lib/n8n-client";
 import { env } from "@/server/config";
 import { getPrisma } from "@/server/db/prismaClient";
 import { getAuthUser, invalidJsonResponse, jsonResponse, methodNotAllowed, readJsonBody } from "@/server/next/route-utils";
 
-const G7_OFFER_CHANGE_EVENT_URL = "https://n8n.cevonne.com/webhook/g7-offer-change-event";
-const G7_OFFER_PROOF_URL = env.n8nG7OfferProofUrl || "https://n8n.cevonne.com/webhook/g7-offer-safety-check";
+const G7_OFFER_CHANGE_EVENT_URL = env.n8nG7OfferChangeEventUrl || "https://n8n.cevonne.com/webhook/g7-offer-change-event";
+const G7_OFFER_SAFETY_CHECK_URL = env.n8nG7OfferSafetyCheckUrl || "https://n8n.cevonne.com/webhook/g7-offer-safety-check";
 
 const unauthorizedResponse = () => jsonResponse({ message: "Unauthorized" }, 401);
 const forbiddenResponse = () => jsonResponse({ message: "Forbidden" }, 403);
@@ -96,6 +109,616 @@ const normalizeAppliesToType = (value: unknown): DiscountAppliesToType =>
 
 const normalizeText = (value: unknown) => trimOrNull(typeof value === "string" ? value : String(value ?? ""));
 
+const collectCatalogLabels = (value: unknown) => {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((item) => {
+      if (typeof item === "string") {
+        return item;
+      }
+
+      if (item && typeof item === "object") {
+        const record = item as Record<string, unknown>;
+        return (
+          (typeof record.label === "string" ? record.label : "") ||
+          (typeof record.name === "string" ? record.name : "") ||
+          (typeof record.title === "string" ? record.title : "") ||
+          (typeof record.value === "string" ? record.value : "")
+        );
+      }
+
+      return "";
+    })
+    .map((item) => String(item).trim())
+    .filter(Boolean);
+};
+
+const isArchivedOrDraftCatalogProduct = (product: { tags?: unknown; badges?: unknown }) => {
+  const tokens = [...collectCatalogLabels(product.tags), ...collectCatalogLabels(product.badges)]
+    .join(" ")
+    .toLowerCase();
+
+  return tokens.includes("draft") || tokens.includes("archived");
+};
+
+const normalizeProofItems = (value: unknown): DiscountProofItemRecord[] | null => {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const items = value
+    .map((entry) => {
+      if (typeof entry !== "object" || entry === null) {
+        return null;
+      }
+
+      const record = entry as Record<string, unknown>;
+      const failureReasons = Array.isArray(record.failure_reasons)
+        ? record.failure_reasons
+            .map((reason) => normalizeText(reason))
+            .filter((reason): reason is string => Boolean(reason))
+        : [];
+
+      const proofStatus = normalizeDiscountProofStatus(
+        typeof record.proof_status === "string" ? record.proof_status : null,
+      );
+
+      const g7Result =
+        record.g7_result === "PASS" || record.g7_result === "BLOCK" || record.g7_result === "NEEDS_EVIDENCE"
+          ? (record.g7_result as "PASS" | "BLOCK" | "NEEDS_EVIDENCE")
+          : proofStatus === "VERIFIED"
+            ? "PASS"
+            : proofStatus === "NEEDS_EVIDENCE"
+              ? "NEEDS_EVIDENCE"
+              : "BLOCK";
+
+      return {
+        product_name: normalizeText(record.product_name) ?? "",
+        sku: normalizeText(record.sku) ?? "",
+        variant_name: normalizeText(record.variant_name) ?? "",
+        stock_available: toNumber(record.stock_available),
+        product_status: normalizeText(record.product_status) ?? "ACTIVE",
+        variant_status: normalizeText(record.variant_status) ?? "ACTIVE",
+        discount_status: normalizeDiscountStatus(typeof record.discount_status === "string" ? record.discount_status : null),
+        proof_status: proofStatus,
+        g7_result: g7Result,
+        reason: normalizeText(record.reason) ?? "",
+        failure_reasons: failureReasons,
+      } satisfies DiscountProofItemRecord;
+    })
+    .filter((item): item is DiscountProofItemRecord => Boolean(item && item.sku));
+
+  return items.length ? items : null;
+};
+
+const buildSavedProofDetail = (discount: {
+  g7ProofStatus: DiscountProofStatus;
+  g7LastCheckedAt: string | null;
+  g7LastSummary: string | null;
+}): DiscountProofStatusDetail | null => {
+  if (!discount.g7LastCheckedAt) {
+    return null;
+  }
+
+  const status = normalizeDiscountProofStatus(discount.g7ProofStatus);
+  return {
+    status,
+    message: discount.g7LastSummary ?? formatDiscountProofMessage(status),
+    checkedAt: discount.g7LastCheckedAt,
+  };
+};
+
+const buildPersistedProofScope = (
+  discount: { appliesToType: DiscountAppliesToType },
+  proofScope: DiscountProofScope,
+) => {
+  if (discount.appliesToType === "SPECIFIC_COLLECTION") {
+    return proofScope === "ALL_PRODUCTS" ? "COLLECTION" : "COLLECTION_PRODUCT";
+  }
+
+  if (discount.appliesToType === "SPECIFIC_PRODUCT") {
+    return proofScope === "ALL_PRODUCTS" ? "PRODUCT_GROUP" : "PRODUCT";
+  }
+
+  if (discount.appliesToType === "SPECIFIC_SKU") {
+    return "SKU";
+  }
+
+  return proofScope;
+};
+
+type CollectionProofProduct = {
+  product_name: string;
+  sku: string;
+  variant_name: string;
+  stock_available: number | null;
+  product_status: string;
+  variant_status: string;
+};
+
+type CollectionProofItemResult = CollectionProofProduct & {
+  discount_status: DiscountStatus;
+  proof_status: DiscountProofStatus;
+  g7_result: "PASS" | "BLOCK" | "NEEDS_EVIDENCE";
+  reason: string;
+  failure_reasons: string[];
+};
+
+type CollectionBlockedReason = {
+  reason: string;
+  count: number;
+};
+
+const loadCollectionProofProducts = async (collectionId: string) => {
+  const prisma = await getPrisma();
+  const [rows, sourceRows] = await Promise.all([
+    prisma.product.findMany({
+      where: { collectionId },
+      orderBy: [{ name: "asc" }],
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        shades: {
+          orderBy: [{ name: "asc" }],
+          select: {
+            name: true,
+            sku: true,
+          },
+        },
+      },
+    }),
+    loadG7OfferSourceRecordsByCollectionId(collectionId),
+  ]);
+
+  const sourceBySku = new Map(
+    sourceRows
+      .map((row) => {
+        const sku = normalizeText(row.sku)?.toLowerCase() ?? "";
+        if (!sku) {
+          return null;
+        }
+
+        return [
+          sku,
+          {
+            stock_available: row.stockAvailable ?? null,
+            product_status: row.productStatus ?? "ACTIVE",
+            variant_status: row.variantStatus ?? "ACTIVE",
+          },
+        ] as const;
+      })
+      .filter((entry): entry is readonly [string, { stock_available: number | null; product_status: string; variant_status: string }] => Boolean(entry)),
+  );
+
+  const seen = new Set<string>();
+  const items: CollectionProofProduct[] = [];
+  let missingSkuProducts = 0;
+
+  for (const product of rows) {
+    const productName = normalizeText(product.name) ?? "Product";
+    const shades = Array.isArray(product.shades) ? product.shades : [];
+
+    if (shades.length > 0) {
+      for (const shade of shades) {
+        const sku = normalizeText(shade.sku) || normalizeText(product.slug) || "";
+        if (!sku) {
+          missingSkuProducts += 1;
+          continue;
+        }
+
+        const normalizedSku = sku.toLowerCase();
+        if (seen.has(normalizedSku)) {
+          continue;
+        }
+
+        const source = sourceBySku.get(normalizedSku) ?? null;
+        const stock = source?.stock_available ?? null;
+
+        seen.add(normalizedSku);
+        items.push({
+          product_name: productName,
+          sku,
+          variant_name: normalizeText(shade.name) ?? "Variant",
+          stock_available: stock,
+          product_status: source?.product_status ?? "ACTIVE",
+          variant_status: source?.variant_status ?? "ACTIVE",
+        });
+      }
+      continue;
+    }
+
+    const fallbackSku = normalizeText(product.slug) ?? "";
+    if (fallbackSku) {
+      const normalizedSku = fallbackSku.toLowerCase();
+      if (!seen.has(normalizedSku)) {
+        const source = sourceBySku.get(normalizedSku) ?? null;
+        seen.add(normalizedSku);
+        items.push({
+          product_name: productName,
+          sku: fallbackSku,
+          variant_name: "",
+          stock_available: source?.stock_available ?? null,
+          product_status: source?.product_status ?? "ACTIVE",
+          variant_status: source?.variant_status ?? "ACTIVE",
+        });
+      }
+      continue;
+    }
+
+    missingSkuProducts += 1;
+  }
+
+  if (missingSkuProducts > 0) {
+    console.log("Products missing SKU:", missingSkuProducts);
+  }
+
+  return items.sort((left, right) => {
+    const byProduct = left.product_name.localeCompare(right.product_name);
+    if (byProduct !== 0) {
+      return byProduct;
+    }
+
+    return left.variant_name.localeCompare(right.variant_name);
+  });
+};
+
+const loadAllProductsProofProducts = async () => {
+  const prisma = await getPrisma();
+  const rows = await prisma.product.findMany({
+    orderBy: [{ name: "asc" }],
+    select: {
+      name: true,
+      slug: true,
+      tags: true,
+      badges: true,
+      shades: {
+        orderBy: [{ name: "asc" }],
+        select: {
+          name: true,
+          sku: true,
+          inventory: {
+            select: {
+              quantity: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  const seen = new Set<string>();
+  const items: CollectionProofProduct[] = [];
+  let missingSkuProducts = 0;
+
+  for (const product of rows) {
+    if (isArchivedOrDraftCatalogProduct(product)) {
+      continue;
+    }
+
+    const productName = normalizeText(product.name) ?? "Product";
+    const shades = Array.isArray(product.shades) ? product.shades : [];
+
+    if (shades.length > 0) {
+      for (const shade of shades) {
+        const sku = normalizeText(shade.sku) || normalizeText(product.slug) || "";
+        if (!sku) {
+          missingSkuProducts += 1;
+          continue;
+        }
+
+        const normalizedSku = sku.toLowerCase();
+        if (seen.has(normalizedSku)) {
+          continue;
+        }
+
+        seen.add(normalizedSku);
+        items.push({
+          product_name: productName,
+          sku,
+          variant_name: normalizeText(shade.name) ?? "Variant",
+          stock_available: shade.inventory?.quantity ?? null,
+          product_status: "ACTIVE",
+          variant_status: "ACTIVE",
+        });
+      }
+      continue;
+    }
+
+    const fallbackSku = normalizeText(product.slug) ?? "";
+    if (fallbackSku) {
+      const normalizedSku = fallbackSku.toLowerCase();
+      if (!seen.has(normalizedSku)) {
+        seen.add(normalizedSku);
+        items.push({
+          product_name: productName,
+          sku: fallbackSku,
+          variant_name: "",
+          stock_available: null,
+          product_status: "ACTIVE",
+          variant_status: "ACTIVE",
+        });
+      }
+      continue;
+    }
+
+    missingSkuProducts += 1;
+  }
+
+  if (missingSkuProducts > 0) {
+    console.log("Products missing SKU:", missingSkuProducts);
+  }
+
+  return items.sort((left, right) => {
+    const byProduct = left.product_name.localeCompare(right.product_name);
+    if (byProduct !== 0) {
+      return byProduct;
+    }
+
+    return left.sku.localeCompare(right.sku);
+  });
+};
+
+const loadSpecificProductProofProducts = async (productId: string) => {
+  const id = productId.trim();
+  if (!id) {
+    return [];
+  }
+
+  const prisma = await getPrisma();
+  const product = await prisma.product.findUnique({
+    where: { id },
+    select: {
+      name: true,
+      slug: true,
+      tags: true,
+      badges: true,
+      shades: {
+        orderBy: [{ name: "asc" }],
+        select: {
+          name: true,
+          sku: true,
+          inventory: {
+            select: {
+              quantity: true,
+            },
+          },
+        },
+      },
+    },
+  });
+
+  if (!product || isArchivedOrDraftCatalogProduct(product)) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const items: CollectionProofProduct[] = [];
+
+  for (const shade of Array.isArray(product.shades) ? product.shades : []) {
+    const sku = normalizeText(shade.sku) || "";
+    if (!sku) {
+      continue;
+    }
+
+    const normalizedSku = sku.toLowerCase();
+    if (seen.has(normalizedSku)) {
+      continue;
+    }
+
+    seen.add(normalizedSku);
+    items.push({
+      product_name: normalizeText(product.name) ?? "Product",
+      sku,
+      variant_name: normalizeText(shade.name) ?? "Variant",
+      stock_available: shade.inventory?.quantity ?? null,
+      product_status: "ACTIVE",
+      variant_status: "ACTIVE",
+    });
+  }
+
+  if (!items.length) {
+    const fallbackSku = normalizeText(product.slug) ?? "";
+    if (fallbackSku) {
+      items.push({
+        product_name: normalizeText(product.name) ?? "Product",
+        sku: fallbackSku,
+        variant_name: normalizeText(product.name) ?? "Variant",
+        stock_available: null,
+        product_status: "ACTIVE",
+        variant_status: "ACTIVE",
+      });
+    }
+  }
+
+  return items.sort((left, right) => {
+    const byProduct = left.product_name.localeCompare(right.product_name);
+    if (byProduct !== 0) {
+      return byProduct;
+    }
+
+    return left.sku.localeCompare(right.sku);
+  });
+};
+
+const loadSpecificSkuProofProducts = async (sku: string) => {
+  const targetSku = sku.trim();
+  if (!targetSku) {
+    return [];
+  }
+
+  const prisma = await getPrisma();
+  const shade = await prisma.shade.findFirst({
+    where: {
+      sku: {
+        equals: targetSku,
+        mode: "insensitive",
+      },
+    },
+    select: {
+      name: true,
+      sku: true,
+      inventory: {
+        select: {
+          quantity: true,
+        },
+      },
+      product: {
+        select: {
+          name: true,
+          slug: true,
+          tags: true,
+          badges: true,
+        },
+      },
+    },
+  });
+
+  if (!shade?.product || isArchivedOrDraftCatalogProduct(shade.product)) {
+    return [];
+  }
+
+  const resolvedSku = normalizeText(shade.sku) ?? targetSku;
+  if (!resolvedSku) {
+    return [];
+  }
+
+  return [
+    {
+      product_name: normalizeText(shade.product.name) ?? "Product",
+      sku: resolvedSku,
+      variant_name: normalizeText(shade.name) ?? "Variant",
+      stock_available: shade.inventory?.quantity ?? null,
+      product_status: "ACTIVE",
+      variant_status: "ACTIVE",
+    },
+  ];
+};
+
+const loadDiscountProofProducts = async (discount: AdminDiscountRecord) => {
+  if (isAllProductsAppliesToType(discount.appliesToType)) {
+    return loadAllProductsProofProducts();
+  }
+
+  if (discount.appliesToType === "SPECIFIC_PRODUCT" && discount.productId) {
+    return loadSpecificProductProofProducts(discount.productId);
+  }
+
+  if (discount.appliesToType === "SPECIFIC_SKU" && discount.sku) {
+    return loadSpecificSkuProofProducts(discount.sku);
+  }
+
+  if (discount.appliesToType === "SPECIFIC_COLLECTION" && discount.collectionId) {
+    return loadCollectionProofProducts(discount.collectionId);
+  }
+
+  return [];
+};
+
+const COLLECTION_REASON_PATTERNS: Array<[RegExp, string]> = [
+  [/out of stock|stock unavailable|stock mismatch|inventory unavailable/i, "Product is out of stock."],
+  [/discount has expired|discount expired|offer expired|expired/i, "Discount has expired."],
+  [/discount is paused|paused discount|status paused|discount paused/i, "Discount is paused."],
+  [/not active yet|has not started yet|scheduled for a future start date|not started yet/i, "Discount is not active yet."],
+  [
+    /discount code not found in neon|product or variant not found in neon|discount not linked|offer url mismatch/i,
+    "Discount is not linked to this product/SKU.",
+  ],
+  [/second stock proof|low stock wording|stock proof/i, "Add second stock proof before using low-stock wording."],
+];
+
+const normalizeCollectionReason = (value: string | null | undefined) => {
+  const text = trimOrNull(value)?.replace(/\s+/g, " ") ?? "";
+  if (!text) {
+    return null;
+  }
+
+  for (const [pattern, message] of COLLECTION_REASON_PATTERNS) {
+    if (pattern.test(text)) {
+      return message;
+    }
+  }
+
+  return text;
+};
+
+const collectWebhookReasons = (response: N8nWebhookResult) => {
+  const rawReasons = [response.fail_reason, ...(response.failure_reasons ?? [])]
+    .map((reason) => normalizeCollectionReason(reason))
+    .filter((reason): reason is string => Boolean(reason));
+
+  return [...new Set(rawReasons)];
+};
+
+const summarizeCollectionBlockedReasons = (items: CollectionProofItemResult[]): CollectionBlockedReason[] => {
+  const counts = new Map<string, number>();
+
+  for (const item of items) {
+    if (item.proof_status !== "BLOCKED") {
+      continue;
+    }
+
+    counts.set(item.reason, (counts.get(item.reason) ?? 0) + 1);
+  }
+
+  return [...counts.entries()]
+    .map(([reason, count]) => ({ reason, count }))
+    .sort((left, right) => right.count - left.count || left.reason.localeCompare(right.reason));
+};
+
+const buildCollectionProofItem = (input: {
+  product: CollectionProofProduct;
+  discount: AdminDiscountRecord;
+  response?: N8nWebhookResult | null;
+  forcedReason?: string | null;
+  forcedStatus?: "BLOCKED" | "NEEDS_EVIDENCE" | "VERIFIED" | null;
+}): CollectionProofItemResult => {
+  const { product, discount, response, forcedReason, forcedStatus } = input;
+  const webhookStatus = response?.status ?? "ERROR";
+  const webhookReasons = response ? collectWebhookReasons(response) : [];
+  const rawReason = webhookReasons[0] ??
+    normalizeCollectionReason(response?.message ?? null) ??
+    (webhookStatus === "PASS"
+      ? "Verified for this product."
+      : webhookStatus === "NEEDS_EVIDENCE"
+        ? "Proof evidence is required for this product."
+        : "Discount is not linked to this product/SKU.");
+
+  if (rawReason === "PRODUCT_OR_VARIANT_NOT_FOUND_IN_NEON") {
+    console.log(`[proof-products] Blocked reason for developer: PRODUCT_OR_VARIANT_NOT_FOUND_IN_NEON for sku="${product.sku}"`);
+  }
+
+  const mappedReason =
+    forcedReason ??
+    (product.stock_available !== null && product.stock_available <= 0
+      ? "Product is out of stock."
+      : rawReason === "PRODUCT_OR_VARIANT_NOT_FOUND_IN_NEON"
+        ? "G7 could not find this product in the offer source data."
+        : rawReason);
+
+  const proofStatus =
+    forcedStatus ??
+    (product.stock_available !== null && product.stock_available <= 0
+      ? "BLOCKED"
+      : webhookStatus === "PASS"
+        ? "VERIFIED"
+        : webhookStatus === "NEEDS_EVIDENCE"
+          ? "NEEDS_EVIDENCE"
+          : "BLOCKED");
+
+  return {
+    ...product,
+    discount_status: discount.status,
+    proof_status: proofStatus,
+    g7_result: proofStatus === "VERIFIED" ? "PASS" : proofStatus === "NEEDS_EVIDENCE" ? "NEEDS_EVIDENCE" : "BLOCK",
+    reason: mappedReason,
+    failure_reasons: webhookReasons,
+  };
+};
+
 const parseIntValue = (value: string | number | null | undefined) => {
   const parsed = parseOptionalNumber(value);
   if (parsed === null) {
@@ -107,7 +730,7 @@ const parseIntValue = (value: string | number | null | undefined) => {
 
 const defaultProofDetail = (): DiscountProofStatusDetail => ({
   status: "NOT_CHECKED",
-  message: "Run offer proof before using this discount in content or ads.",
+  message: "Check Proof before using this discount in content or ads.",
   checkedAt: null,
 });
 
@@ -134,16 +757,14 @@ const isTargetMissing = (discount: {
 
 const deriveDiscountProofDetail = (
   discount: AdminDiscountRecord,
-  source: Awaited<ReturnType<typeof loadG7OfferSourceRecordByDiscountId>> | null,
 ): DiscountProofStatusDetail => {
-  const checkedAt = new Date().toISOString();
   const now = Date.now();
 
   if (discount.status === "ARCHIVED" || discount.archivedAt) {
     return {
       status: "EXPIRED",
       message: "Discount is archived.",
-      checkedAt,
+      checkedAt: null,
     };
   }
 
@@ -151,7 +772,7 @@ const deriveDiscountProofDetail = (
     return {
       status: "EXPIRED",
       message: "Discount has expired.",
-      checkedAt,
+      checkedAt: null,
     };
   }
 
@@ -159,7 +780,7 @@ const deriveDiscountProofDetail = (
     return {
       status: "BLOCKED",
       message: "Discount is paused.",
-      checkedAt,
+      checkedAt: null,
     };
   }
 
@@ -168,11 +789,7 @@ const deriveDiscountProofDetail = (
   }
 
   if (discount.status === "SCHEDULED" && discount.startsAt && new Date(discount.startsAt).getTime() > now) {
-    return {
-      status: "NOT_CHECKED",
-      message: "Discount is scheduled for a future start date.",
-      checkedAt,
-    };
+    return defaultProofDetail();
   }
 
   if (isTargetMissing(discount)) {
@@ -184,43 +801,11 @@ const deriveDiscountProofDetail = (
           : discount.appliesToType === "SPECIFIC_SKU"
             ? "Enter a SKU before activating this discount."
             : "Choose a collection before activating this discount.",
-      checkedAt,
+      checkedAt: null,
     };
   }
 
-  if (!source) {
-    return {
-      status: "NEEDS_EVIDENCE",
-      message: "Run offer proof before using this discount in content or ads.",
-      checkedAt,
-    };
-  }
-
-  if (discount.notes && /today only|ends?\s+soon|limited time|last chance|hurry|expires soon|ending soon|while supplies last/i.test(discount.notes) && !discount.endsAt) {
-    return {
-      status: "NEEDS_EVIDENCE",
-      message: "Add an end date before using urgency wording.",
-      checkedAt,
-    };
-  }
-
-  if (
-    discount.notes &&
-    /low stock|limited stock|few left|running low|almost gone|nearly sold out/i.test(discount.notes) &&
-    (!source?.secondStockEvidenceUrl || !source?.secondStockCheckedAt)
-  ) {
-    return {
-      status: "NEEDS_EVIDENCE",
-      message: "Add second stock proof before using low-stock wording.",
-      checkedAt,
-    };
-  }
-
-  return {
-    status: "VERIFIED",
-    message: "Discount is active and safe to use.",
-    checkedAt,
-  };
+  return defaultProofDetail();
 };
 
 const serializeDiscount = (row: Record<string, unknown>): Omit<AdminDiscountRecord, "proofStatus" | "proofMessage" | "proofCheckedAt"> => {
@@ -253,13 +838,50 @@ const serializeDiscount = (row: Record<string, unknown>): Omit<AdminDiscountReco
     createdAt: toIsoString(row.created_at) ?? new Date().toISOString(),
     updatedAt: toIsoString(row.updated_at) ?? new Date().toISOString(),
     archivedAt: toIsoString(row.archived_at),
+    g7ProofStatus: normalizeDiscountProofStatus(typeof row.g7_proof_status === "string" ? row.g7_proof_status : null),
+    g7ProofScope: normalizeText(row.g7_proof_scope),
+    g7VerifiedCount: Math.trunc(toNumber(row.g7_verified_count) ?? 0),
+    g7NeedsEvidenceCount: Math.trunc(toNumber(row.g7_needs_evidence_count) ?? 0),
+    g7BlockedCount: Math.trunc(toNumber(row.g7_blocked_count) ?? 0),
+    g7LastCheckedAt: toIsoString(row.g7_last_checked_at),
+    g7LastSummary: normalizeText(row.g7_last_summary),
+    g7LastItems: normalizeProofItems(row.g7_last_items),
   };
 };
 
 const hydrateDiscountRecord = async (row: Record<string, unknown>): Promise<AdminDiscountRecord> => {
   const base = serializeDiscount(row);
-  const source = await loadG7OfferSourceRecordByDiscountId(base.discountId);
-  const proof = deriveDiscountProofDetail(base as AdminDiscountRecord, source);
+  const currentProofStatus = normalizeDiscountProofStatus(base.g7ProofStatus);
+  const savedProof = buildSavedProofDetail(base);
+  if (savedProof) {
+    return {
+      ...base,
+      proofStatus: savedProof.status,
+      proofMessage: savedProof.message,
+      proofCheckedAt: savedProof.checkedAt,
+    };
+  }
+
+  if (currentProofStatus === "VERIFIED") {
+    const proof = defaultProofDetail();
+    return {
+      ...base,
+      proofStatus: proof.status,
+      proofMessage: proof.message,
+      proofCheckedAt: proof.checkedAt,
+    };
+  }
+
+  if (currentProofStatus !== "NOT_CHECKED") {
+    return {
+      ...base,
+      proofStatus: currentProofStatus,
+      proofMessage: base.g7LastSummary ?? formatDiscountProofMessage(currentProofStatus),
+      proofCheckedAt: null,
+    };
+  }
+
+  const proof = deriveDiscountProofDetail(base as AdminDiscountRecord);
 
   return {
     ...base,
@@ -313,9 +935,38 @@ const buildSummary = (items: AdminDiscountRecord[]): DiscountSummary => {
       (item) =>
         item.status !== "ARCHIVED" &&
         item.status !== "EXPIRED" &&
-        (item.proofStatus === "NOT_CHECKED" || item.proofStatus === "NEEDS_EVIDENCE" || item.proofStatus === "BLOCKED"),
+        isDiscountProofAttentionRequired(item.proofStatus),
     ).length,
   };
+};
+
+const persistDiscountProofResult = async (
+  discount: AdminDiscountRecord,
+  input: {
+    proofScope: DiscountProofScope;
+    status: DiscountProofStatus;
+    message: string;
+    summary: DiscountProofSummary;
+    items: DiscountProofItemRecord[];
+  },
+) => {
+  const prisma = await getPrisma();
+  const row = await prisma.cevonne_discounts.update({
+    where: { discount_id: discount.discountId },
+    data: {
+      g7_proof_status: input.status,
+      g7_proof_scope: buildPersistedProofScope(discount, input.proofScope),
+      g7_verified_count: input.summary.verified,
+      g7_needs_evidence_count: input.summary.needsEvidence,
+      g7_blocked_count: input.summary.blocked,
+      g7_last_checked_at: new Date(),
+      g7_last_summary: input.message,
+      g7_last_items: input.items as Prisma.InputJsonValue,
+    },
+    include: discountInclude,
+  });
+
+  return hydrateDiscountRecord(row as unknown as Record<string, unknown>);
 };
 
 const buildListResponse = async () => {
@@ -423,6 +1074,17 @@ const parseProofRequest = async (request: Request) => {
   return parsed.data;
 };
 
+const proofResetData = () => ({
+  g7_proof_status: "NOT_CHECKED" as const,
+  g7_proof_scope: null,
+  g7_verified_count: 0,
+  g7_needs_evidence_count: 0,
+  g7_blocked_count: 0,
+  g7_last_checked_at: null,
+  g7_last_summary: null,
+  g7_last_items: Prisma.DbNull,
+});
+
 const normalizeDiscountInput = (input: DiscountFormValues, existing?: AdminDiscountRecord | null) => {
   const code = input.code.trim().toUpperCase();
   const discountType = normalizeType(input.discountType);
@@ -510,6 +1172,28 @@ const validateLifecycleState = (
   return null;
 };
 
+const hasProofImpactingChange = (
+  existing: AdminDiscountRecord | null,
+  normalized: ReturnType<typeof normalizeDiscountInput>,
+) => {
+  if (!existing) {
+    return false;
+  }
+
+  return (
+    existing.code !== normalized.code ||
+    existing.discountType !== normalized.discount_type ||
+    (existing.discountValue ?? null) !== (normalized.discount_value ?? null) ||
+    existing.appliesToType !== normalized.applies_to_type ||
+    (existing.productId ?? null) !== (normalized.product_id ?? null) ||
+    (existing.collectionId ?? null) !== (normalized.collection_id ?? null) ||
+    (existing.sku ?? null) !== (normalized.sku ?? null) ||
+    toIsoString(existing.startsAt) !== toIsoString(normalized.starts_at) ||
+    toIsoString(existing.endsAt) !== toIsoString(normalized.ends_at) ||
+    existing.status !== normalized.status
+  );
+};
+
 const validateUniqueCode = async (code: string, currentId?: string | null) => {
   const existing = await getDiscountRowByCode(code);
   if (!existing) {
@@ -541,14 +1225,16 @@ const saveDiscount = async (
   }
 
   const auditActor = auth.email ?? auth.id;
+  const shouldResetProof = hasProofImpactingChange(existing, normalized);
+  const proofReset = shouldResetProof ? proofResetData() : {};
   const createData = {
     code: normalized.code,
     discount_type: normalized.discount_type,
     discount_value: normalized.discount_value,
     applies_to_type: normalized.applies_to_type,
-    product_id: normalized.product_id,
-    sku: normalized.sku,
-    collection_id: normalized.collection_id,
+    product_id: normalized.applies_to_type === "SPECIFIC_PRODUCT" ? normalized.product_id : null,
+    sku: normalized.applies_to_type === "SPECIFIC_SKU" ? normalized.sku : null,
+    collection_id: normalized.applies_to_type === "SPECIFIC_COLLECTION" ? normalized.collection_id : null,
     starts_at: normalized.starts_at,
     ends_at: normalized.ends_at,
     status: normalized.status,
@@ -556,6 +1242,7 @@ const saveDiscount = async (
     usage_limit_per_customer: normalized.usage_limit_per_customer,
     minimum_order_value: normalized.minimum_order_value,
     notes: normalized.notes,
+    ...proofReset,
     updated_by: auditActor,
     created_by: existing?.createdBy ?? auditActor,
   } satisfies Prisma.cevonne_discountsUncheckedCreateInput;
@@ -565,9 +1252,9 @@ const saveDiscount = async (
     discount_type: normalized.discount_type,
     discount_value: normalized.discount_value,
     applies_to_type: normalized.applies_to_type,
-    product_id: normalized.product_id,
-    sku: normalized.sku,
-    collection_id: normalized.collection_id,
+    product_id: normalized.applies_to_type === "SPECIFIC_PRODUCT" ? normalized.product_id : null,
+    sku: normalized.applies_to_type === "SPECIFIC_SKU" ? normalized.sku : null,
+    collection_id: normalized.applies_to_type === "SPECIFIC_COLLECTION" ? normalized.collection_id : null,
     starts_at: normalized.starts_at,
     ends_at: normalized.ends_at,
     status: normalized.status,
@@ -576,6 +1263,7 @@ const saveDiscount = async (
     minimum_order_value: normalized.minimum_order_value,
     notes: normalized.notes,
     updated_by: auditActor,
+    ...(shouldResetProof ? proofReset : {}),
   };
 
   const row = existing
@@ -624,6 +1312,7 @@ const updateDiscountAction = async (
   const now = new Date();
   const data: Prisma.cevonne_discountsUncheckedUpdateInput = {
     updated_by: auth.email ?? auth.id,
+    ...proofResetData(),
   };
 
   let changeType: "DISCOUNT_PAUSED" | "DISCOUNT_ACTIVATED" | "DISCOUNT_EXPIRED" | "DISCOUNT_ARCHIVED" | "DISCOUNT_RESTORED" =
@@ -803,10 +1492,307 @@ const buildProofStatusMessage = (
   }
 
   if (status === "NEEDS_EVIDENCE") {
-    return message || "Run offer proof before using this discount in content or ads.";
+    return message || "Check Proof before using this discount in content or ads.";
   }
 
-  return message || "Run offer proof before using this discount in content or ads.";
+  return message || "Check Proof before using this discount in content or ads.";
+};
+
+const PROOF_SAVE_FAILURE_MESSAGE = "Proof check could not be saved. Please try again.";
+
+const isProofSaveFailureText = (value: string | null | undefined) => {
+  const text = trimOrNull(value)?.toLowerCase() ?? "";
+  if (!text) {
+    return false;
+  }
+
+  return (
+    text.includes("violates check constraint") ||
+    text.includes("g7_offer_safety_checks_status_check") ||
+    text.includes('new row for relation "g7_offer_safety_checks"') ||
+    text.includes("proof check could not be saved") ||
+    text.includes("g7_offer_safety_checks")
+  );
+};
+
+const getProofSaveFailureMessage = (response: N8nWebhookResult) => {
+  const combined = [
+    response.message,
+    response.response_text,
+    response.fail_reason,
+    ...(response.failure_reasons ?? []),
+  ]
+    .map((value) => trimOrNull(value))
+    .filter((value): value is string => Boolean(value))
+    .join(" ");
+
+  if (response.status === "ERROR" || isProofSaveFailureText(combined)) {
+    return PROOF_SAVE_FAILURE_MESSAGE;
+  }
+
+  return null;
+};
+
+const toProofSaveFailureWebhookResult = (response: N8nWebhookResult): N8nWebhookResult => ({
+  ...response,
+  status: "ERROR",
+  message: PROOF_SAVE_FAILURE_MESSAGE,
+});
+
+const asRecord = (value: unknown): Record<string, unknown> | null =>
+  typeof value === "object" && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+
+const pickResponseText = (record: Record<string, unknown> | null | undefined, keys: string[]) => {
+  const candidates = [record, asRecord(record?.payload), asRecord(record?.body), asRecord(record?.data)];
+
+  for (const candidate of candidates) {
+    if (!candidate) {
+      continue;
+    }
+
+    for (const key of keys) {
+      const value = candidate[key];
+      if (typeof value === "string" || typeof value === "number" || typeof value === "boolean" || typeof value === "bigint") {
+        const text = trimOrNull(String(value));
+        if (text) {
+          return text;
+        }
+      }
+    }
+  }
+
+  return null;
+};
+
+const normalizeComparableText = (value: string | null | undefined) => trimOrNull(value)?.toLowerCase() ?? "";
+
+const isStaleG7ProofResponse = (
+  response: N8nWebhookResult,
+  expected: { sku: string; discountCode: string },
+) => {
+  const raw = asRecord(response.raw);
+  if (!raw) {
+    return false;
+  }
+
+  const responseSku = pickResponseText(raw, ["sku"]);
+  const responseDiscountCode = pickResponseText(raw, ["discount_code", "discountCode"]);
+  const expectedSku = normalizeComparableText(expected.sku);
+  const expectedDiscountCode = normalizeComparableText(expected.discountCode);
+  const actualSku = normalizeComparableText(responseSku);
+  const actualDiscountCode = normalizeComparableText(responseDiscountCode);
+
+  return (actualSku && actualSku !== expectedSku) || (actualDiscountCode && actualDiscountCode !== expectedDiscountCode);
+};
+
+const buildProofSaveFailureResponse = (proofScope: DiscountProofScope) =>
+  jsonResponse(
+    {
+      status: "NEEDS_EVIDENCE",
+      message: PROOF_SAVE_FAILURE_MESSAGE,
+      handledAt: new Date().toISOString(),
+      proofScope,
+    },
+  200,
+  );
+
+const buildG7DiscountProofPayload = (input: {
+  sku: string;
+  discountCode: string;
+  urgencyClaim: string;
+}) =>
+  buildG7OfferProofPayload({
+    sku: input.sku,
+    discount_code: input.discountCode,
+    urgency_claim: input.urgencyClaim,
+    requested_by_workflow: "WEBSITE_ADMIN",
+    actor: "website_admin",
+    intended_use: "ORGANIC_POST",
+  });
+
+const summarizeProofResults = (results: Array<{ status?: string; proof_status?: string }>): DiscountProofSummary => {
+  return results.reduce<DiscountProofSummary>(
+    (summary, result) => {
+      const status = result.proof_status ?? result.status ?? "";
+
+      if (status === "PASS" || status === "VERIFIED") {
+        summary.verified += 1;
+      } else if (status === "NEEDS_EVIDENCE") {
+        summary.needsEvidence += 1;
+      } else {
+        summary.blocked += 1;
+      }
+
+      summary.total += 1;
+      return summary;
+    },
+    {
+      verified: 0,
+      needsEvidence: 0,
+      blocked: 0,
+      total: 0,
+    },
+  );
+};
+
+const resolveCollectionProofStatus = (summary: DiscountProofSummary): "PASS" | "BLOCK" | "NEEDS_EVIDENCE" | "PARTIALLY_VERIFIED" => {
+  if (summary.total === 0) {
+    return "NEEDS_EVIDENCE";
+  }
+
+  if (summary.verified === summary.total) {
+    return "PASS";
+  }
+
+  if (summary.verified > 0) {
+    return "PARTIALLY_VERIFIED";
+  }
+
+  if (summary.blocked > 0) {
+    return "BLOCK";
+  }
+
+  return "NEEDS_EVIDENCE";
+};
+
+const buildCollectionProofMessage = (
+  summary: DiscountProofSummary,
+  collectionName: string | null,
+  status: "PASS" | "BLOCK" | "NEEDS_EVIDENCE" | "PARTIALLY_VERIFIED",
+  proofScope: DiscountProofScope,
+  blockedReasons: CollectionBlockedReason[] = [],
+) => {
+  const collectionLabel = collectionName ? `the ${collectionName} collection` : "this collection";
+
+  if (summary.total === 0) {
+    return "No active products are available in the catalog.";
+  }
+
+  if (status === "PASS") {
+    if (proofScope === "ONE_PRODUCT") {
+      return "Discount is active and safe to use.";
+    }
+
+    return `This discount is verified for all products in ${collectionLabel}.`;
+  }
+
+  if (status === "PARTIALLY_VERIFIED") {
+    return `Some products need attention before this discount can be used across ${collectionLabel}.`;
+  }
+
+  if (status === "BLOCK") {
+    if (summary.total > 0 && blockedReasons.length === 1 && blockedReasons[0].count === summary.total) {
+      const reason = blockedReasons[0].reason;
+      if (/product is out of stock/i.test(reason)) {
+        return "All products in this collection are currently out of stock.";
+      }
+
+      if (/discount is not linked to this product\/sku/i.test(reason)) {
+        return "Discount is not linked to these products in Neon.";
+      }
+
+      if (/discount is paused/i.test(reason)) {
+        return "This discount is paused.";
+      }
+
+      if (/discount has expired/i.test(reason)) {
+        return "This discount has expired.";
+      }
+
+      if (/discount is not active yet/i.test(reason)) {
+        return "This discount is not active yet.";
+      }
+    }
+
+    return `This discount is blocked for ${collectionLabel}.`;
+  }
+
+  return `This discount needs evidence before it can be used across ${collectionLabel}.`;
+};
+
+const resolveAllProductsProofStatus = (
+  summary: DiscountProofSummary,
+  proofScope: DiscountProofScope,
+): "PASS" | "BLOCK" | "NEEDS_EVIDENCE" | "PARTIALLY_VERIFIED" => {
+  if (summary.total === 0) {
+    return "NEEDS_EVIDENCE";
+  }
+
+  if (proofScope === "ONE_PRODUCT") {
+    if (summary.verified > 0) {
+      return "PARTIALLY_VERIFIED";
+    }
+
+    if (summary.blocked > 0) {
+      return "BLOCK";
+    }
+
+    return "NEEDS_EVIDENCE";
+  }
+
+  if (summary.verified === summary.total) {
+    return "PASS";
+  }
+
+  if (summary.verified > 0) {
+    return "PARTIALLY_VERIFIED";
+  }
+
+  if (summary.blocked > 0) {
+    return "BLOCK";
+  }
+
+  return "NEEDS_EVIDENCE";
+};
+
+const buildAllProductsProofMessage = (
+  summary: DiscountProofSummary,
+  status: "PASS" | "BLOCK" | "NEEDS_EVIDENCE" | "PARTIALLY_VERIFIED",
+  proofScope: DiscountProofScope,
+  blockedReasons: CollectionBlockedReason[] = [],
+) => {
+  if (summary.total === 0) {
+    return "No active products are linked to this discount yet. Add products before checking proof.";
+  }
+
+  if (status === "PASS") {
+    return proofScope === "ONE_PRODUCT"
+      ? "Single product checked. This discount still needs proof for the rest of the products."
+      : "This discount is verified for all active products.";
+  }
+
+  if (status === "PARTIALLY_VERIFIED") {
+    return "Some products need attention before this discount can be used across all active products.";
+  }
+
+  if (status === "BLOCK") {
+    if (summary.total > 0 && blockedReasons.length === 1 && blockedReasons[0].count === summary.total) {
+      const reason = blockedReasons[0].reason;
+      if (/product is out of stock/i.test(reason)) {
+        return "All products in this discount are currently out of stock.";
+      }
+
+      if (/discount is not linked to this product\/sku/i.test(reason)) {
+        return "Discount is not linked to these products in Neon.";
+      }
+
+      if (/discount is paused/i.test(reason)) {
+        return "This discount is paused.";
+      }
+
+      if (/discount has expired/i.test(reason)) {
+        return "This discount has expired.";
+      }
+
+      if (/discount is not active yet/i.test(reason)) {
+        return "This discount is not active yet.";
+      }
+    }
+
+    return "This discount is blocked for all active products.";
+  }
+
+  return "This discount needs evidence before it can be used across all active products.";
 };
 
 const runProofCheck = async (
@@ -889,6 +1875,40 @@ export async function dispatchAdminDiscountsRoute(request: Request, segments: st
     return methodNotAllowed(["GET", "POST"]);
   }
 
+  if (second === "proof-products" && request.method === "GET") {
+    const discount = await loadDiscountForEdit(first);
+    if (!discount) {
+      return jsonResponse({ message: "Discount not found." }, 404);
+    }
+
+    console.log("Discount proof-products route hit");
+    console.log("Discount:", discount);
+    console.log("Discount code:", discount.code);
+    console.log("applies_to_type:", discount.appliesToType);
+    console.log("collection_id:", discount.collectionId);
+    console.log("collection_name:", discount.collectionName);
+    console.log("collection_slug:", discount.collectionSlug);
+
+    const prisma = await getPrisma();
+
+    if (discount.appliesToType === "SPECIFIC_COLLECTION" && discount.collectionId) {
+      const collection = await prisma.collection.findUnique({
+        where: { id: discount.collectionId },
+        select: {
+          id: true,
+          name: true,
+          slug: true,
+        },
+      });
+      console.log("Collection record found in Neon:", collection);
+    }
+
+    const items = await loadDiscountProofProducts(discount);
+    console.log("Products found:", items.length);
+    console.log("Products:", items.map((item) => ({ name: item.product_name, sku: item.sku })));
+    return jsonResponse(items, 200);
+  }
+
   if (second === "check-proof" && request.method === "POST") {
     return jsonResponse({ message: "Use the dedicated proof route." }, 404);
   }
@@ -946,6 +1966,7 @@ export const runAdminDiscountProofCheck = async (
     secondStockQuantity?: string | null;
     secondStockEvidenceUrl?: string | null;
     secondStockCheckedAt?: string | null;
+    proofScope?: DiscountProofScope | null;
   },
 ) => {
   const current = await loadDiscountForEdit(discountId);
@@ -954,21 +1975,524 @@ export const runAdminDiscountProofCheck = async (
   }
 
   const source = await loadG7OfferSourceRecordByDiscountId(discountId);
-  const requestedTarget = trimOrNull(input.sku) ?? current.sku ?? source?.sku ?? "";
+  const proofScope = input.proofScope === "ALL_PRODUCTS" ? "ALL_PRODUCTS" : "ONE_PRODUCT";
   const urgencyClaim = trimOrNull(input.urgencyClaim) ?? "";
+  const requestedTarget = trimOrNull(input.sku) ?? "";
+  const isAllProductsDiscount = isAllProductsAppliesToType(current.appliesToType);
 
-  if (!requestedTarget) {
+  if (current.appliesToType === "SPECIFIC_COLLECTION" && proofScope === "ALL_PRODUCTS") {
+    if (!current.collectionId) {
+      return jsonResponse(
+        {
+          status: "NEEDS_EVIDENCE",
+          message: "Choose a collection before checking proof.",
+          handledAt: new Date().toISOString(),
+          proofScope,
+          summary: {
+            verified: 0,
+            needsEvidence: 0,
+            blocked: 0,
+            total: 0,
+          },
+        },
+        200,
+      );
+    }
+
+    const proofProducts = await loadCollectionProofProducts(current.collectionId);
+    if (!proofProducts.length) {
+      const summary: DiscountProofSummary = {
+        verified: 0,
+        needsEvidence: 0,
+        blocked: 0,
+        total: 0,
+      };
+      const message = buildCollectionProofMessage(summary, current.collectionName, "NEEDS_EVIDENCE", proofScope);
+      let persisted;
+      try {
+        persisted = await persistDiscountProofResult(current, {
+          proofScope,
+          status: "NEEDS_EVIDENCE",
+          message,
+          summary,
+          items: [],
+        });
+      } catch (error) {
+        console.error("[discounts] failed to persist collection proof result", error);
+        return buildProofSaveFailureResponse(proofScope);
+      }
+
+      return jsonResponse(
+        {
+          item: persisted,
+          status: "NEEDS_EVIDENCE",
+          message,
+          handledAt: new Date().toISOString(),
+          proofScope,
+          summary,
+          items: [],
+          blockedReasons: [],
+        },
+        200,
+      );
+    }
+
+    console.log("RUNNING G7 COLLECTION PROOF");
+    console.log("Discount code:", current.code);
+    console.log("Collection ID:", current.collectionId);
+    console.log("Proof SKUs:", proofProducts.map((product) => product.sku));
+
+    const localIssue = await runProofCheck(current, source, "", urgencyClaim);
+    if (localIssue) {
+      const forcedStatus = localIssue.status === "NEEDS_EVIDENCE" ? "NEEDS_EVIDENCE" : "BLOCKED";
+      const items = proofProducts.map((product) =>
+        buildCollectionProofItem({
+          product,
+          discount: current,
+          forcedReason: normalizeCollectionReason(localIssue.message) ?? localIssue.message,
+          forcedStatus,
+        }),
+      );
+      const summary = summarizeProofResults(items);
+      const blockedReasons = summarizeCollectionBlockedReasons(items);
+      const status = localIssue.status;
+      const message = buildCollectionProofMessage(summary, current.collectionName, status === "NEEDS_EVIDENCE" ? "NEEDS_EVIDENCE" : "BLOCK", proofScope, blockedReasons);
+      let persisted;
+      try {
+        persisted = await persistDiscountProofResult(current, {
+          proofScope,
+          status: forcedStatus,
+          message,
+          summary,
+          items,
+        });
+      } catch (error) {
+        console.error("[discounts] failed to persist collection proof result", error);
+        return buildProofSaveFailureResponse(proofScope);
+      }
+      return jsonResponse(
+        {
+          item: persisted,
+          status,
+          message,
+          handledAt: new Date().toISOString(),
+          proofScope,
+          summary,
+          items,
+          blockedReasons,
+        },
+        200,
+      );
+    }
+
+    const results = await Promise.allSettled(
+      proofProducts.map(async (product) => {
+        const payload = buildG7DiscountProofPayload({
+          sku: product.sku,
+          discountCode: current.code,
+          urgencyClaim: urgencyClaim || "",
+        });
+        console.log("G7 proof endpoint:", G7_OFFER_SAFETY_CHECK_URL);
+        console.log("Calling G7 with payload:", payload);
+
+        const data = await postN8nWebhook({
+          url: G7_OFFER_SAFETY_CHECK_URL,
+          payload,
+          source: "discounts",
+        });
+
+        if (isStaleG7ProofResponse(data, { sku: payload.sku, discountCode: current.code })) {
+          console.error("[discounts] G7 collection proof response payload mismatch", {
+            expectedSku: payload.sku,
+            expectedDiscountCode: current.code,
+            responseSku: pickResponseText(asRecord(data.raw), ["sku"]),
+            responseDiscountCode: pickResponseText(asRecord(data.raw), ["discount_code", "discountCode"]),
+          });
+          return toProofSaveFailureWebhookResult(data);
+        }
+
+        console.log("G7 response for SKU:", product.sku, data);
+        return data;
+      }),
+    );
+
+    const rejectedResponse = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    if (rejectedResponse) {
+      console.error("[discounts] G7 collection proof request failed", rejectedResponse.reason);
+      return buildProofSaveFailureResponse(proofScope);
+    }
+
+    const saveFailureResponse = results
+      .map((result) => (result.status === "fulfilled" ? result.value : null))
+      .find((response) => response && getProofSaveFailureMessage(response));
+    if (saveFailureResponse) {
+      console.error("[discounts] G7 collection proof save failed", saveFailureResponse);
+      return buildProofSaveFailureResponse(proofScope);
+    }
+
+    const items = proofProducts.map((product, index) => {
+      const result = results[index];
+      const response = result?.status === "fulfilled" ? result.value : null;
+      return buildCollectionProofItem({
+        product,
+        discount: current,
+        response,
+      });
+    });
+
+    const summary = summarizeProofResults(items);
+    const status = resolveCollectionProofStatus(summary);
+    const blockedReasons = summarizeCollectionBlockedReasons(items);
+    const persistedStatus = status === "PASS" ? "VERIFIED" : status === "BLOCK" ? "BLOCKED" : status;
+    const message = buildCollectionProofMessage(summary, current.collectionName, status, proofScope, blockedReasons);
+    let persisted;
+    try {
+      persisted = await persistDiscountProofResult(current, {
+        proofScope,
+        status: persistedStatus,
+        message,
+        summary,
+        items,
+      });
+    } catch (error) {
+      console.error("[discounts] failed to persist collection proof result", error);
+      return buildProofSaveFailureResponse(proofScope);
+    }
+
     return jsonResponse(
       {
-        status: "NEEDS_EVIDENCE",
-        message: "Add a SKU or linked target before checking offer proof.",
+        item: persisted,
+        status,
+        message,
         handledAt: new Date().toISOString(),
+        proofScope,
+        summary,
+        items,
+        blockedReasons,
       },
       200,
     );
   }
 
-  const localIssue = await runProofCheck(current, source, requestedTarget, urgencyClaim);
+  const singleTarget = requestedTarget || (current.appliesToType === "SPECIFIC_SKU" ? current.sku ?? source?.sku ?? "" : "");
+
+  if (isAllProductsDiscount) {
+    const proofProducts = await loadDiscountProofProducts(current);
+    if (!proofProducts.length) {
+      const summary: DiscountProofSummary = {
+        verified: 0,
+        needsEvidence: 0,
+        blocked: 0,
+        total: 0,
+      };
+      const message = buildAllProductsProofMessage(summary, "NEEDS_EVIDENCE", proofScope);
+      let persisted;
+      try {
+        persisted = await persistDiscountProofResult(current, {
+          proofScope,
+          status: "NEEDS_EVIDENCE",
+          message,
+          summary,
+          items: [],
+        });
+      } catch (error) {
+        console.error("[discounts] failed to persist all-products proof result", error);
+        return buildProofSaveFailureResponse(proofScope);
+      }
+
+      return jsonResponse(
+        {
+          item: persisted,
+          status: "NEEDS_EVIDENCE",
+          message,
+          handledAt: new Date().toISOString(),
+          proofScope,
+          summary,
+          items: [],
+          blockedReasons: [],
+        },
+        200,
+      );
+    }
+
+    if (proofScope === "ONE_PRODUCT" && !requestedTarget) {
+      return jsonResponse(
+        {
+          status: "NEEDS_EVIDENCE",
+          message: "Select a product from this discount before checking proof.",
+          handledAt: new Date().toISOString(),
+          proofScope,
+          summary: {
+            verified: 0,
+            needsEvidence: 0,
+            blocked: 0,
+            total: 0,
+          },
+        },
+        200,
+      );
+    }
+
+    const targetSku = proofScope === "ONE_PRODUCT" ? requestedTarget : "";
+    const selectedProduct =
+      proofScope === "ONE_PRODUCT"
+        ? proofProducts.find((product) => product.sku.trim().toLowerCase() === targetSku.trim().toLowerCase()) ?? null
+        : null;
+
+    const localIssue = await runProofCheck(current, source, targetSku, urgencyClaim);
+    if (localIssue) {
+      const forcedStatus = localIssue.status === "NEEDS_EVIDENCE" ? "NEEDS_EVIDENCE" : "BLOCKED";
+      const items =
+        proofScope === "ONE_PRODUCT"
+          ? selectedProduct
+            ? [
+                buildCollectionProofItem({
+                  product: selectedProduct,
+                  discount: current,
+                  forcedReason: normalizeCollectionReason(localIssue.message) ?? localIssue.message,
+                  forcedStatus,
+                }),
+              ]
+            : []
+          : proofProducts.map((product) =>
+              buildCollectionProofItem({
+                product,
+                discount: current,
+                forcedReason: normalizeCollectionReason(localIssue.message) ?? localIssue.message,
+                forcedStatus,
+              }),
+            );
+      const summary = summarizeProofResults(items);
+      const blockedReasons = summarizeCollectionBlockedReasons(items);
+      const status = localIssue.status;
+      const message = buildAllProductsProofMessage(summary, status, proofScope, blockedReasons);
+      let persisted;
+      try {
+        persisted = await persistDiscountProofResult(current, {
+          proofScope,
+          status: forcedStatus,
+          message,
+          summary,
+          items,
+        });
+      } catch (error) {
+        console.error("[discounts] failed to persist all-products proof result", error);
+        return buildProofSaveFailureResponse(proofScope);
+      }
+
+      return jsonResponse(
+        {
+          item: persisted,
+          status,
+          message,
+          handledAt: new Date().toISOString(),
+          proofScope,
+          summary,
+          items,
+          blockedReasons,
+        },
+        200,
+      );
+    }
+
+    if (proofScope === "ONE_PRODUCT") {
+      const payload = buildG7DiscountProofPayload({
+        sku: targetSku,
+        discountCode: current.code,
+        urgencyClaim: urgencyClaim || "",
+      });
+      console.log("RUNNING G7 ALL PRODUCTS SINGLE SKU PROOF");
+      console.log("G7 proof endpoint:", G7_OFFER_SAFETY_CHECK_URL);
+      console.log("Calling G7 with payload:", payload);
+
+      const response = await postN8nWebhook({
+        url: G7_OFFER_SAFETY_CHECK_URL,
+        payload,
+        source: "discounts",
+      });
+
+      console.log("G7 response for SKU:", payload.sku, response);
+
+      if (isStaleG7ProofResponse(response, { sku: payload.sku, discountCode: current.code })) {
+        console.error("[discounts] G7 all-products proof response payload mismatch", {
+          discountId,
+          expectedSku: payload.sku,
+          expectedDiscountCode: current.code,
+          responseSku: pickResponseText(asRecord(response.raw), ["sku"]),
+          responseDiscountCode: pickResponseText(asRecord(response.raw), ["discount_code", "discountCode"]),
+        });
+        return buildProofSaveFailureResponse(proofScope);
+      }
+
+      const saveFailureMessage = getProofSaveFailureMessage(response);
+      if (saveFailureMessage) {
+        console.error("[discounts] G7 all-products proof save failed", {
+          discountId,
+          sku: targetSku,
+          response,
+        });
+        return buildProofSaveFailureResponse(proofScope);
+      }
+
+      if (response.status === "PASS" || response.status === "BLOCK" || response.status === "NEEDS_EVIDENCE") {
+        const summary = {
+          verified: response.status === "PASS" ? 1 : 0,
+          needsEvidence: response.status === "NEEDS_EVIDENCE" ? 1 : 0,
+          blocked: response.status === "BLOCK" ? 1 : 0,
+          total: 1,
+        };
+        const supabaseStatus = response.status === "PASS" ? "PASS" : response.status === "NEEDS_EVIDENCE" ? "NEEDS_EVIDENCE" : "BLOCK";
+        const neonProofStatus = supabaseStatus === "PASS" ? "PARTIALLY_VERIFIED" : supabaseStatus === "NEEDS_EVIDENCE" ? "NEEDS_EVIDENCE" : "BLOCKED";
+        let persisted;
+        try {
+          persisted = await persistDiscountProofResult(current, {
+            proofScope,
+            status: neonProofStatus,
+            message:
+              response.status === "PASS"
+                ? "Single product checked. This discount still needs proof for the rest of the products."
+                : buildProofStatusMessage(supabaseStatus, response.message),
+            summary,
+            items: [],
+          });
+        } catch (error) {
+          console.error("[discounts] failed to persist all-products proof result", error);
+          return buildProofSaveFailureResponse(proofScope);
+        }
+
+        return jsonResponse(
+          {
+            item: persisted,
+            status: neonProofStatus,
+            message:
+              neonProofStatus === "PARTIALLY_VERIFIED"
+                ? "Single product checked. This discount still needs proof for the rest of the products."
+                : buildProofStatusMessage(supabaseStatus, response.message),
+            handledAt: response.handled_at ?? new Date().toISOString(),
+            proofScope,
+            summary,
+          },
+          200,
+        );
+      }
+
+      return jsonResponse(
+        {
+          status: "BLOCK",
+          message: "Check Proof before using this discount in content or ads.",
+          handledAt: new Date().toISOString(),
+          proofScope,
+        },
+        200,
+      );
+    }
+
+    console.log("RUNNING G7 ALL PRODUCTS PROOF");
+    console.log("Discount code:", current.code);
+    console.log("Proof SKUs:", proofProducts.map((product) => product.sku));
+
+    const results = await Promise.allSettled(
+      proofProducts.map(async (product) => {
+        const payload = buildG7DiscountProofPayload({
+          sku: product.sku,
+          discountCode: current.code,
+          urgencyClaim: urgencyClaim || "",
+        });
+        console.log("G7 proof endpoint:", G7_OFFER_SAFETY_CHECK_URL);
+        console.log("Calling G7 with payload:", payload);
+
+        const data = await postN8nWebhook({
+          url: G7_OFFER_SAFETY_CHECK_URL,
+          payload,
+          source: "discounts",
+        });
+
+        if (isStaleG7ProofResponse(data, { sku: payload.sku, discountCode: current.code })) {
+          console.error("[discounts] G7 all-products proof response payload mismatch", {
+            expectedSku: payload.sku,
+            expectedDiscountCode: current.code,
+            responseSku: pickResponseText(asRecord(data.raw), ["sku"]),
+            responseDiscountCode: pickResponseText(asRecord(data.raw), ["discount_code", "discountCode"]),
+          });
+          return toProofSaveFailureWebhookResult(data);
+        }
+
+        console.log("G7 response for SKU:", product.sku, data);
+        return data;
+      }),
+    );
+
+    const rejectedResponse = results.find((result): result is PromiseRejectedResult => result.status === "rejected");
+    if (rejectedResponse) {
+      console.error("[discounts] G7 all-products proof request failed", rejectedResponse.reason);
+      return buildProofSaveFailureResponse(proofScope);
+    }
+
+    const saveFailureResponse = results
+      .map((result) => (result.status === "fulfilled" ? result.value : null))
+      .find((response) => response && getProofSaveFailureMessage(response));
+    if (saveFailureResponse) {
+      console.error("[discounts] G7 all-products proof save failed", saveFailureResponse);
+      return buildProofSaveFailureResponse(proofScope);
+    }
+
+    const items = proofProducts.map((product, index) => {
+      const result = results[index];
+      const response = result?.status === "fulfilled" ? result.value : null;
+      return buildCollectionProofItem({
+        product,
+        discount: current,
+        response,
+      });
+    });
+
+    const summary = summarizeProofResults(items);
+    const status = resolveAllProductsProofStatus(summary, proofScope);
+    const blockedReasons = summarizeCollectionBlockedReasons(items);
+    const persistedStatus = status === "PASS" ? "VERIFIED" : status === "BLOCK" ? "BLOCKED" : status;
+    const message = buildAllProductsProofMessage(summary, status, proofScope, blockedReasons);
+    let persisted;
+    try {
+      persisted = await persistDiscountProofResult(current, {
+        proofScope,
+        status: persistedStatus,
+        message,
+        summary,
+        items,
+      });
+    } catch (error) {
+      console.error("[discounts] failed to persist all-products proof result", error);
+      return buildProofSaveFailureResponse(proofScope);
+    }
+
+    return jsonResponse(
+      {
+        item: persisted,
+        status,
+        message,
+        handledAt: new Date().toISOString(),
+        proofScope,
+        summary,
+        items,
+        blockedReasons,
+      },
+      200,
+    );
+  }
+
+  if (!singleTarget) {
+    return jsonResponse(
+      {
+        status: "NEEDS_EVIDENCE",
+        message: "Select a product or SKU before running proof check.",
+        handledAt: new Date().toISOString(),
+        proofScope,
+      },
+      200,
+    );
+  }
+
+  const localIssue = await runProofCheck(current, source, singleTarget, urgencyClaim);
   if (localIssue) {
     const status = localIssue.status;
     return jsonResponse(
@@ -976,34 +2500,85 @@ export const runAdminDiscountProofCheck = async (
         status,
         message: buildProofStatusMessage(status, localIssue.message),
         handledAt: new Date().toISOString(),
+        proofScope,
       },
       200,
     );
   }
 
+  const payload = buildG7DiscountProofPayload({
+    sku: singleTarget || source?.sku || current.sku || "",
+    discountCode: current.code,
+    urgencyClaim: urgencyClaim || "",
+  });
+  console.log("RUNNING G7 SINGLE SKU PROOF");
+  console.log("G7 proof endpoint:", G7_OFFER_SAFETY_CHECK_URL);
+  console.log("Calling G7 with payload:", payload);
+
   const response = await postN8nWebhook({
-    url: G7_OFFER_PROOF_URL,
-    payload: buildG7OfferProofPayload({
-      sku: requestedTarget || source?.sku || current.sku || "",
-      urgency_claim: urgencyClaim || null,
-      discount_code: current.code,
-      second_stock_source: input.secondStockSource || null,
-      second_stock_available: input.secondStockQuantity || null,
-      second_stock_evidence_url: input.secondStockEvidenceUrl || null,
-      second_stock_checked_at: input.secondStockCheckedAt || null,
-    }),
+    url: G7_OFFER_SAFETY_CHECK_URL,
+    payload,
     source: "discounts",
   });
 
+  console.log("G7 response for SKU:", payload.sku, response);
+
+  if (isStaleG7ProofResponse(response, { sku: payload.sku, discountCode: current.code })) {
+    console.error("[discounts] G7 proof response payload mismatch", {
+      discountId,
+      expectedSku: payload.sku,
+      expectedDiscountCode: current.code,
+      responseSku: pickResponseText(asRecord(response.raw), ["sku"]),
+      responseDiscountCode: pickResponseText(asRecord(response.raw), ["discount_code", "discountCode"]),
+    });
+    return buildProofSaveFailureResponse(proofScope);
+  }
+
+  const saveFailureMessage = getProofSaveFailureMessage(response);
+  if (saveFailureMessage) {
+      console.error("[discounts] G7 proof save failed", {
+      discountId: discountId,
+      sku: singleTarget,
+      response,
+    });
+    return buildProofSaveFailureResponse(proofScope);
+  }
+
   if (response.status === "PASS" || response.status === "BLOCK" || response.status === "NEEDS_EVIDENCE") {
-    return jsonResponse(
-      {
-        status: response.status,
+    const summary = {
+      verified: response.status === "PASS" ? 1 : 0,
+      needsEvidence: response.status === "NEEDS_EVIDENCE" ? 1 : 0,
+      blocked: response.status === "BLOCK" ? 1 : 0,
+      total: 1,
+    };
+    const supabaseStatus = response.status === "PASS" ? "PASS" : response.status === "NEEDS_EVIDENCE" ? "NEEDS_EVIDENCE" : "BLOCK";
+    const neonProofStatus = supabaseStatus === "PASS" ? "VERIFIED" : supabaseStatus === "NEEDS_EVIDENCE" ? "NEEDS_EVIDENCE" : "BLOCKED";
+    let persisted;
+    try {
+      persisted = await persistDiscountProofResult(current, {
+        proofScope,
+        status: neonProofStatus,
         message:
           response.status === "PASS"
             ? "Discount is active and safe to use."
-            : buildProofStatusMessage(response.status, response.message),
+            : buildProofStatusMessage(supabaseStatus, response.message),
+        summary,
+        items: [],
+      });
+    } catch (error) {
+      console.error("[discounts] failed to persist proof result", error);
+      return buildProofSaveFailureResponse(proofScope);
+    }
+
+    return jsonResponse(
+      {
+        item: persisted,
+        status: supabaseStatus,
+        message:
+          supabaseStatus === "PASS" ? "Discount is active and safe to use." : buildProofStatusMessage(supabaseStatus, response.message),
         handledAt: response.handled_at ?? new Date().toISOString(),
+        proofScope,
+        summary,
       },
       200,
     );
@@ -1012,8 +2587,9 @@ export const runAdminDiscountProofCheck = async (
   return jsonResponse(
     {
       status: "BLOCK",
-      message: "Run offer proof before using this discount in content or ads.",
+      message: "Check Proof before using this discount in content or ads.",
       handledAt: new Date().toISOString(),
+      proofScope,
     },
     200,
   );

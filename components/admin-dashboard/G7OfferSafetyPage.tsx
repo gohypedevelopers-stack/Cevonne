@@ -302,7 +302,7 @@ function EmptyStateCard({ message }: { message: string }) {
 }
 
 function getProofActionButtonLabel(submitting: boolean) {
-  return submitting ? "Checking..." : "Check Offer Proof";
+  return submitting ? "Checking..." : "Check Proof";
 }
 
 function getSubmissionDisplayTone(status: SubmissionFeedback["status"], message: string) {
@@ -401,7 +401,7 @@ export default function G7OfferSafetyPage() {
 
     const sku = form.sku.trim();
     if (!sku) {
-      setFormError("Please add a SKU before checking offer proof.");
+      setFormError("Please add a SKU before checking proof.");
       return;
     }
 
@@ -429,11 +429,11 @@ export default function G7OfferSafetyPage() {
 
       const body = await parseJsonResponse<G7RunResponse>(response);
       if (!response.ok || !body) {
-        throw new Error("Offer proof check failed. No claim was approved.");
+        throw new Error("Proof check failed. No claim was approved.");
       }
 
       if (body.status === "ERROR") {
-        throw new Error(body.message || "Offer proof check failed. No claim was approved.");
+        throw new Error(body.message || "Proof check failed. No claim was approved.");
       }
 
       setSubmissionFeedback({
@@ -444,7 +444,7 @@ export default function G7OfferSafetyPage() {
 
       await loadDashboard({ silent: true });
     } catch (submitError) {
-      const message = submitError instanceof Error ? submitError.message : "Offer proof check failed. No claim was approved.";
+      const message = submitError instanceof Error ? submitError.message : "Proof check failed. No claim was approved.";
       setFormError(message);
       setSubmissionFeedback(null);
     } finally {
@@ -489,7 +489,7 @@ export default function G7OfferSafetyPage() {
         disabled={loading || refreshing || submitting || !dashboard}
       >
         <Play data-icon="inline-start" />
-        Check Offer Proof
+        Check Proof
       </Button>
     </>
   );
@@ -500,13 +500,13 @@ export default function G7OfferSafetyPage() {
     </Badge>
   );
 
-  const topActionNeeded = hasRecentChecks ? dashboard?.actionNeeded ?? "Offer proof needs attention." : dashboard?.emptyStateCopy ?? "Offer proof needs attention.";
+  const topActionNeeded = hasRecentChecks ? dashboard?.actionNeeded ?? "Proof needs attention." : dashboard?.emptyStateCopy ?? "Proof needs attention.";
 
   return (
     <WorkflowDashboardShell
       eyebrow="Workflow detail"
       title="G7 — Inventory + Offer Safety"
-      description="Verifies stock, discount, expiry, and offer proof before claims are used."
+      description="Verifies stock, discount, expiry, and proof before claims are used."
       badges={headerBadges}
       actions={headerActions}
     >
@@ -546,10 +546,10 @@ export default function G7OfferSafetyPage() {
                   {latestResult}
                 </Badge>
               }
-              helper="Value from the latest offer proof."
+              helper="Value from the latest proof."
             />
             <SummaryCard
-              label="Valid Offer Proofs"
+              label="Verified Proofs"
               value={dashboard.counts.pass}
               helper="Checks that were verified safely."
             />
@@ -571,7 +571,7 @@ export default function G7OfferSafetyPage() {
               <CardHeader className="space-y-2 p-6 pb-0 md:p-8 md:pb-0">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div className="space-y-2">
-                    <CardTitle className="font-serif text-2xl tracking-tight text-primary">Latest Offer Proof</CardTitle>
+                    <CardTitle className="font-serif text-2xl tracking-tight text-primary">Latest Proof</CardTitle>
                     <CardDescription className="max-w-2xl text-sm leading-6 text-muted-foreground">
                       The most recent proof, shown in plain language and without backend details.
                     </CardDescription>
@@ -647,7 +647,7 @@ export default function G7OfferSafetyPage() {
                     disabled={loading || refreshing || submitting}
                   >
                     <Play data-icon="inline-start" />
-                    Check Offer Proof
+                    Check Proof
                   </Button>
                 </div>
               </CardContent>
@@ -656,9 +656,9 @@ export default function G7OfferSafetyPage() {
 
           <Card className="rounded-[28px] border-border/60 bg-white shadow-sm">
             <CardHeader className="space-y-2 p-6 pb-0 md:p-8 md:pb-0">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="space-y-2">
-                  <CardTitle className="font-serif text-2xl tracking-tight text-primary">Recent Offer Checks</CardTitle>
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div className="space-y-2">
+                  <CardTitle className="font-serif text-2xl tracking-tight text-primary">Recent Proof Checks</CardTitle>
                   <CardDescription className="text-sm leading-6 text-muted-foreground">Latest checks, newest first.</CardDescription>
                 </div>
                 {refreshing ? (
@@ -759,7 +759,7 @@ export default function G7OfferSafetyPage() {
           <form className="flex min-h-0 flex-1 flex-col" onSubmit={handleRunSubmit}>
             <div className="border-b border-border/60 bg-muted/20 px-6 py-5">
               <DialogHeader className="items-start text-left">
-                <DialogTitle className="font-serif text-2xl tracking-tight text-primary">Check Offer Proof</DialogTitle>
+                <DialogTitle className="font-serif text-2xl tracking-tight text-primary">Check Proof</DialogTitle>
                 <DialogDescription className="max-w-prose text-sm leading-6 text-muted-foreground">
                   Use the smallest safe set of fields. The result will stay client-friendly and the dashboard will refresh after the check.
                 </DialogDescription>
@@ -771,7 +771,7 @@ export default function G7OfferSafetyPage() {
                 {formError ? (
                   <Alert variant="destructive" className="rounded-[22px] border-rose-200 bg-rose-50">
                     <AlertTriangle />
-                    <AlertTitle className="text-foreground">Offer proof check failed</AlertTitle>
+                    <AlertTitle className="text-foreground">Proof check failed</AlertTitle>
                     <AlertDescription className="text-rose-900">{formError}</AlertDescription>
                   </Alert>
                 ) : null}
@@ -934,7 +934,7 @@ export default function G7OfferSafetyPage() {
       <Sheet open={!!selectedProofDrawer} onOpenChange={(open) => !open && setSelectedProofDrawer(null)}>
         <SheetContent className="w-full sm:max-w-md overflow-y-auto bg-white p-6 sm:p-8">
           <SheetHeader className="mb-6 px-0 pt-0">
-            <SheetTitle className="font-serif text-2xl text-primary">Offer Proof Details</SheetTitle>
+            <SheetTitle className="font-serif text-2xl text-primary">Proof Details</SheetTitle>
             <SheetDescription>
               Details of the safety check run on {selectedProofDrawer?.checkedAt ? formatDateTime(selectedProofDrawer.checkedAt) : "unknown"}.
             </SheetDescription>

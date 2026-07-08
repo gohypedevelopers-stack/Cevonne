@@ -572,7 +572,7 @@ const deriveG7Issues = (input: {
   const issues: Array<{ status: WorkflowUiStatus; message: string }> = [];
 
   if (!input.productOrSku) {
-    issues.push({ status: "NEEDS_EVIDENCE", message: "Add a product ID or SKU before checking offer proof." });
+    issues.push({ status: "NEEDS_EVIDENCE", message: "Add a product ID or SKU before checking proof." });
   }
 
   if (!input.discountCode) {
@@ -719,7 +719,7 @@ const buildG7OfferProofRecord = (
   const primaryIssue = issues[0]?.message ?? null;
   const actionNeeded =
     finalResult === "PASS"
-      ? "No action needed. The offer proof can be used."
+      ? "No action needed. The proof can be used."
       : primaryIssue ?? getWorkflowActionNeeded({ workflowId: "G7", status: finalResult, reason: null, rowHints: [productOrSku, offerCode, resolvedOfferUrl].filter(Boolean) as string[] });
 
   const whatWasChecked = [productOrSku, stockStatus, discountCodeLabel(offerCode), discountStatus, expiryDate ? `Expires ${formatShortDate(expiryDate)}` : null, resolvedOfferUrl ? "Offer URL" : null]
@@ -728,9 +728,9 @@ const buildG7OfferProofRecord = (
 
   const whatHappened =
     finalResult === "PASS"
-      ? "Offer proof was verified safely."
+      ? "Proof was verified safely."
       : finalResult === "BLOCK"
-        ? "Offer proof was blocked safely."
+        ? "Proof was blocked safely."
         : finalResult === "NEEDS_EVIDENCE"
           ? "More proof is needed before this offer can be used."
           : getWorkflowStatusMessage(finalResult);
@@ -794,11 +794,11 @@ const buildWorkflowViewFromProofs = (proofs: G7OfferProofRecord[]): WorkflowDeta
     lastRunAt: latestProof?.checkedAt ?? null,
     latestOutcome: latestProof ? toWorkflowOutcome(latestProof) : null,
     recentOutcomes: proofs.slice(0, 10).map(toWorkflowOutcome),
-    runLabel: "Check Offer Proof",
+    runLabel: "Check Proof",
     runEnabled: true,
     runDisabledReason: null,
     emptyStateCopy: G7_EMPTY_STATE_COPY,
-    mainActionNeeded: latestProof?.actionNeeded ?? "Click Check Offer Proof to verify a stock, discount, or urgency claim.",
+    mainActionNeeded: latestProof?.actionNeeded ?? "Click Check Proof to verify a stock, discount, or urgency claim.",
   };
 };
 
@@ -907,10 +907,10 @@ export const runG7OfferProof = async (input: G7OfferProofSubmission) => {
   const latestProof = detail.latestProof;
   const message =
     status === "ERROR"
-      ? "Unable to check offer proof right now."
+      ? "Unable to check proof right now."
       : status === "PASS"
-        ? latestProof?.whatHappened ?? "Offer proof checked."
-        : latestProof?.actionNeeded ?? latestProof?.whatHappened ?? (status === "BLOCK" ? "Offer proof was blocked." : "More proof is required.");
+        ? latestProof?.whatHappened ?? "Proof checked."
+        : latestProof?.actionNeeded ?? latestProof?.whatHappened ?? (status === "BLOCK" ? "Proof was blocked." : "More proof is required.");
 
   return {
     status: status as WorkflowUiStatus,

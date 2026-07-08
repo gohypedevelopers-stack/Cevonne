@@ -174,7 +174,7 @@ const getSavedOutputBlock = (workflowId: AdminWorkflowId, outcome: WorkflowOutco
       };
     case "G7":
       return {
-        label: "Offer proof",
+        label: "Proof",
         value: outcome.whatHappened,
         helper: outcome.actionNeeded,
       };

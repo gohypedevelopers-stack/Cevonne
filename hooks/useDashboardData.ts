@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { usePathname } from "next/navigation";
 import { API_BASE } from "@/lib/api";
 import { normalizeOrderStatus, type Order } from "@/types/order";
 import type { Product } from "@/types/product";
@@ -65,6 +66,7 @@ export function useDashboardData(
   request: (url: string, options?: RequestInit) => Promise<Response> = defaultRequest,
   isAdmin = false
 ) {
+  const pathname = usePathname();
   const [data, setData] = useState<DashboardState>(emptyState);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<unknown>(null);
@@ -87,7 +89,7 @@ export function useDashboardData(
       try {
         const fetchArray = async (path: string, fallback: any[] = []) => {
           try {
-            const response = await request(`${API_BASE}${path}`);
+            const response = await request(`${API_BASE}${path}`, { cache: "no-store" });
             if (!response.ok) {
               const message = await response.text().catch(() => response.statusText);
               throw new Error(`${response.status} ${message}`);
@@ -102,7 +104,7 @@ export function useDashboardData(
 
         const fetchJson = async (path: string, fallback: any = null) => {
           try {
-            const response = await request(`${API_BASE}${path}`);
+            const response = await request(`${API_BASE}${path}`, { cache: "no-store" });
             if (!response.ok) {
               const message = await response.text().catch(() => response.statusText);
               throw new Error(`${response.status} ${message}`);
@@ -175,7 +177,7 @@ export function useDashboardData(
     return () => {
       cancelled = true;
     };
-  }, [request, enabled, version, isAdmin]);
+  }, [request, enabled, version, isAdmin, pathname]);
 
   const stats = useMemo(() => {
     const shades = Array.isArray(data.shades) ? data.shades : [];

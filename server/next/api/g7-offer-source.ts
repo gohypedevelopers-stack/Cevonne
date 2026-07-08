@@ -87,7 +87,7 @@ const normalizeRow = (row: Record<string, unknown>): G7OfferSourceRecord => ({
   discountValue: toNumber(row.discount_value),
   discountPercent: toNumber(row.discount_percent),
   appliesToType: toText(row.applies_to_type) ?? "",
-  productId: toText(row.product_id),
+  productId: toText(row.product_id) ?? toText(row.product_ref_id),
   sku: toText(row.sku),
   collectionId: toText(row.collection_id),
   discountStatus: toText(row.discount_status) ?? "",
@@ -143,6 +143,21 @@ const loadSourceRecord = async (query: Prisma.Sql): Promise<G7OfferSourceRecord 
   }
 };
 
+const loadSourceRecords = async (query: Prisma.Sql): Promise<G7OfferSourceRecord[]> => {
+  const prisma = await getPrisma();
+
+  try {
+    const rows = await prisma.$queryRaw<Record<string, unknown>[]>(query);
+    return Array.isArray(rows) ? rows.map((row) => normalizeRow(row)) : [];
+  } catch (error) {
+    if (isMissingViewError(error)) {
+      return [];
+    }
+
+    throw error;
+  }
+};
+
 export const loadG7OfferSourceRecordByCode = async (discountCode: string) => {
   const code = discountCode.trim();
   if (!code) {
@@ -171,3 +186,32 @@ export const loadG7OfferSourceRecordByDiscountId = async (discountId: string) =>
   `);
 };
 
+export const loadG7OfferSourceRecordsByCollectionId = async (collectionId: string) => {
+  const id = collectionId.trim();
+  if (!id) {
+    return [];
+  }
+
+  return loadSourceRecords(Prisma.sql`
+    SELECT *
+    FROM public.g7_offer_source_view
+    WHERE collection_id = ${id}
+      AND discount_status = 'ACTIVE'
+    ORDER BY product_name ASC, sku ASC
+  `);
+};
+
+export const loadG7OfferSourceRecordsByDiscountCode = async (discountCode: string) => {
+  const code = discountCode.trim();
+  if (!code) {
+    return [];
+  }
+
+  return loadSourceRecords(Prisma.sql`
+    SELECT *
+    FROM public.g7_offer_source_view
+    WHERE discount_code = ${code}
+      AND discount_status = 'ACTIVE'
+    ORDER BY product_name ASC, sku ASC
+  `);
+};

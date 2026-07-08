@@ -3,7 +3,7 @@ import type { WorkflowDetailView, WorkflowUiStatus } from "@/lib/admin/workflows
 export const G7_WORKFLOW_TITLE = "G7 - Inventory + Offer Safety";
 export const G7_WORKFLOW_PURPOSE = "Verifies inventory, discount expiry, offer URLs, and urgency claims.";
 export const G7_EMPTY_STATE_COPY =
-  "No offer checks have been run yet. Click Check Offer Proof to verify a stock, discount, or urgency claim.";
+  "No proof checks have been run yet. Click Check Proof to verify a stock, discount, or urgency claim.";
 
 export type G7StockStatus = "In stock" | "Low stock" | "Out of stock" | "Needs proof" | "Unknown";
 export type G7DiscountStatus = "Active" | "Expired" | "Scheduled" | "Inactive" | "Needs proof" | "Unknown";

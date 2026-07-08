@@ -2098,14 +2098,14 @@ export function ProductEditorPage({
       ])).filter(Boolean);
 
       const shadePayload = (values.shades || [])
-        .map((shade) => ({
-          name: shade.name.trim(),
-          hexColor: shade.hexColor.trim(),
+        .filter((shade) => shade.name.trim() || shade.quantity !== "" || shade.price !== "" || shade.sku?.trim())
+        .map((shade, index) => ({
+          name: shade.name.trim() || `Shade ${index + 1}`,
+          hexColor: shade.hexColor.trim() || "#a21caf",
           sku: optionalString(shade.sku),
           price: optionalNumber(shade.price),
           quantity: optionalNumber(shade.quantity) != null ? Math.max(0, Math.round(optionalNumber(shade.quantity) || 0)) : undefined,
-        }))
-        .filter((shade) => shade.name && shade.hexColor);
+        }));
 
       const ingredientsPayload = (values.heroIngredients || [])
         .map((ingredient) => ({

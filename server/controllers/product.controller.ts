@@ -664,34 +664,27 @@ exports.updateProduct = async (req, res, next) => {
       });
 
       if (payload.shades.length) {
-        const createdShades = await prisma.shade.createMany({
-          data: payload.shades.map((shade) => ({
-            name: shade.name,
-            hexColor: shade.hexColor.toUpperCase(),
-            sku: shade.sku ?? null,
-            arAssetUrl: shade.arAssetUrl ?? null,
-            arPreviewUrl: shade.arPreviewUrl ?? null,
-            arCode: shade.arCode ?? null,
-            price: toDecimalString(shade.price),
-            productId: product.id,
-          })),
-        });
-
-        if (createdShades.count) {
-          const shades = await prisma.shade.findMany({
-            where: { productId: product.id },
-          });
-          await Promise.all(
-            shades.map((shade, index) =>
-              prisma.inventory.create({
-                data: {
-                  shadeId: shade.id,
-                  quantity: payload.shades?.[index]?.quantity ?? 0,
+        await Promise.all(
+          payload.shades.map((shade) =>
+            prisma.shade.create({
+              data: {
+                name: shade.name,
+                hexColor: shade.hexColor.toUpperCase(),
+                sku: shade.sku ?? null,
+                arAssetUrl: shade.arAssetUrl ?? null,
+                arPreviewUrl: shade.arPreviewUrl ?? null,
+                arCode: shade.arCode ?? null,
+                price: toDecimalString(shade.price),
+                productId: product.id,
+                inventory: {
+                  create: {
+                    quantity: shade.quantity ?? 0,
+                  },
                 },
-              })
-            )
-          );
-        }
+              },
+            })
+          )
+        );
       }
     }
 

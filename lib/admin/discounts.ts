@@ -3,12 +3,42 @@ import { z } from "zod";
 export const DISCOUNT_STATUS_VALUES = ["DRAFT", "SCHEDULED", "ACTIVE", "PAUSED", "EXPIRED", "ARCHIVED"] as const;
 export const DISCOUNT_TYPE_VALUES = ["PERCENTAGE", "FIXED_AMOUNT", "FREE_SHIPPING"] as const;
 export const DISCOUNT_APPLIES_TO_VALUES = ["ALL_PRODUCTS", "SPECIFIC_PRODUCT", "SPECIFIC_SKU", "SPECIFIC_COLLECTION"] as const;
-export const DISCOUNT_PROOF_STATUS_VALUES = ["NOT_CHECKED", "VERIFIED", "NEEDS_EVIDENCE", "BLOCKED", "EXPIRED"] as const;
+export const DISCOUNT_PROOF_SCOPE_VALUES = ["ONE_PRODUCT", "ALL_PRODUCTS"] as const;
+export const DISCOUNT_PROOF_STATUS_VALUES = [
+  "NOT_CHECKED",
+  "VERIFIED",
+  "PARTIALLY_VERIFIED",
+  "NEEDS_EVIDENCE",
+  "BLOCKED",
+  "EXPIRED",
+] as const;
 
 export type DiscountStatus = (typeof DISCOUNT_STATUS_VALUES)[number];
 export type DiscountType = (typeof DISCOUNT_TYPE_VALUES)[number];
 export type DiscountAppliesToType = (typeof DISCOUNT_APPLIES_TO_VALUES)[number];
+export type DiscountProofScope = (typeof DISCOUNT_PROOF_SCOPE_VALUES)[number];
 export type DiscountProofStatus = (typeof DISCOUNT_PROOF_STATUS_VALUES)[number];
+
+export type DiscountProofSummary = {
+  verified: number;
+  needsEvidence: number;
+  blocked: number;
+  total: number;
+};
+
+export type DiscountProofItemRecord = {
+  product_name: string;
+  sku: string;
+  variant_name: string;
+  stock_available: number | null;
+  product_status: string;
+  variant_status: string;
+  discount_status: DiscountStatus;
+  proof_status: DiscountProofStatus;
+  g7_result: "PASS" | "BLOCK" | "NEEDS_EVIDENCE";
+  reason: string;
+  failure_reasons: string[];
+};
 
 export type DiscountSummary = {
   total: number;
@@ -47,6 +77,14 @@ export type AdminDiscountRecord = {
   createdAt: string;
   updatedAt: string;
   archivedAt: string | null;
+  g7ProofStatus: DiscountProofStatus;
+  g7ProofScope: string | null;
+  g7VerifiedCount: number;
+  g7NeedsEvidenceCount: number;
+  g7BlockedCount: number;
+  g7LastCheckedAt: string | null;
+  g7LastSummary: string | null;
+  g7LastItems: DiscountProofItemRecord[] | null;
   proofStatus: DiscountProofStatus;
   proofMessage: string | null;
   proofCheckedAt: string | null;
@@ -206,6 +244,7 @@ export const discountProofRequestSchema = z.object({
   secondStockQuantity: z.string().trim().optional().default(""),
   secondStockEvidenceUrl: z.string().trim().optional().default(""),
   secondStockCheckedAt: z.string().trim().optional().default(""),
+  proofScope: z.enum(DISCOUNT_PROOF_SCOPE_VALUES).optional().default("ONE_PRODUCT"),
 });
 
 const discountStatusLabels: Record<DiscountStatus, string> = {
@@ -231,8 +270,9 @@ const discountAppliesToLabels: Record<DiscountAppliesToType, string> = {
 };
 
 const discountProofStatusLabels: Record<DiscountProofStatus, string> = {
-  NOT_CHECKED: "Not checked",
+  NOT_CHECKED: "Needs proof",
   VERIFIED: "Verified",
+  PARTIALLY_VERIFIED: "Partially verified",
   NEEDS_EVIDENCE: "Needs evidence",
   BLOCKED: "Blocked",
   EXPIRED: "Expired",
@@ -241,6 +281,7 @@ const discountProofStatusLabels: Record<DiscountProofStatus, string> = {
 const discountProofStatusToneClasses: Record<DiscountProofStatus, string> = {
   NOT_CHECKED: "border-border/70 bg-muted/30 text-muted-foreground",
   VERIFIED: "border-emerald-200 bg-emerald-50 text-emerald-700",
+  PARTIALLY_VERIFIED: "border-amber-200 bg-amber-50 text-amber-700",
   NEEDS_EVIDENCE: "border-amber-200 bg-amber-50 text-amber-700",
   BLOCKED: "border-rose-200 bg-rose-50 text-rose-700",
   EXPIRED: "border-slate-200 bg-slate-100 text-slate-700",
@@ -331,15 +372,17 @@ export const formatDiscountProofMessage = (status: DiscountProofStatus) => {
   switch (status) {
     case "VERIFIED":
       return "Discount is active and safe to use.";
+    case "PARTIALLY_VERIFIED":
+      return "This discount is only partially verified. Check the rest of the products before using it broadly.";
     case "NEEDS_EVIDENCE":
-      return "Run offer proof before using this discount in content or ads.";
+      return "Check Proof before using this discount in content or ads.";
     case "BLOCKED":
       return "Discount cannot be used yet.";
     case "EXPIRED":
       return "Discount has expired.";
     case "NOT_CHECKED":
     default:
-      return "Run offer proof before using this discount in content or ads.";
+      return "Check Proof before using this discount in content or ads.";
   }
 };
 
@@ -361,6 +404,12 @@ export const buildDiscountAppliesToLabel = (discount: {
       return "All products";
   }
 };
+
+export const isDiscountProofAttentionRequired = (value: DiscountProofStatus) =>
+  value === "NOT_CHECKED" ||
+  value === "NEEDS_EVIDENCE" ||
+  value === "BLOCKED" ||
+  value === "PARTIALLY_VERIFIED";
 
 export const parseOptionalNumber = (value: string | number | null | undefined) => {
   if (value === null || value === undefined) {
@@ -405,6 +454,10 @@ export const normalizeDiscountType = (value: string | null | undefined): Discoun
 
 export const normalizeDiscountAppliesToType = (value: string | null | undefined): DiscountAppliesToType => {
   const normalized = String(value ?? "").trim().toUpperCase();
+  if (normalized === "GLOBAL" || normalized === "ALL") {
+    return "ALL_PRODUCTS";
+  }
+
   if ((DISCOUNT_APPLIES_TO_VALUES as readonly string[]).includes(normalized)) {
     return normalized as DiscountAppliesToType;
   }
@@ -412,8 +465,29 @@ export const normalizeDiscountAppliesToType = (value: string | null | undefined)
   return "ALL_PRODUCTS";
 };
 
+export const isAllProductsAppliesToType = (value: string | null | undefined) => {
+  const normalized = String(value ?? "").trim().toUpperCase();
+  return normalized === "ALL_PRODUCTS" || normalized === "GLOBAL" || normalized === "ALL";
+};
+
 export const normalizeDiscountProofStatus = (value: string | null | undefined): DiscountProofStatus => {
   const normalized = String(value ?? "").trim().toUpperCase();
+  if (normalized === "PASS") {
+    return "VERIFIED";
+  }
+
+  if (normalized === "BLOCK") {
+    return "BLOCKED";
+  }
+
+  if (normalized === "NEEDS_PROOF") {
+    return "NEEDS_EVIDENCE";
+  }
+
+  if (normalized.startsWith("VERIFIED")) {
+    return "VERIFIED";
+  }
+
   if ((DISCOUNT_PROOF_STATUS_VALUES as readonly string[]).includes(normalized)) {
     return normalized as DiscountProofStatus;
   }

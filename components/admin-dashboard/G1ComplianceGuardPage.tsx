@@ -131,9 +131,9 @@ const REVIEW_ROUTES = {
     helper: "Open G8 UGC proof and upload rights evidence.",
   },
   offer: {
-    label: "Open Offer Proof",
+    label: "Open G7 Proof",
     href: getWorkflowDetailHref("G7"),
-    helper: "Open G7 offer proof and confirm stock or discount proof.",
+    helper: "Open G7 proof and confirm stock or discount proof.",
   },
 } satisfies Record<string, ReviewRoute>;
 
@@ -473,7 +473,7 @@ const getReasonNarrative = (status: G1Status, reason: string | null) => {
       narrative: {
         reasonText: "Offer, stock, or discount proof is required before this action can continue.",
         whatHappened: "The offer change was paused safely.",
-        nextStep: "Open offer proof and verify the change.",
+        nextStep: "Open G7 proof and verify the change.",
       },
     },
   ];

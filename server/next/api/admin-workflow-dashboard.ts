@@ -1751,7 +1751,7 @@ const buildG11DecisionSummary = (
   }
 
   if (offerStatus === "BLOCK") {
-    return `G11 recommends fixing offer proof before touching ${target}.`;
+    return `G11 recommends fixing proof before touching ${target}.`;
   }
 
   if (accountHealthStatus === "WARNING") {

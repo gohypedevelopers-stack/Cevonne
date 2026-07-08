@@ -681,10 +681,10 @@ export const WORKFLOW_CATALOG: Record<AdminWorkflowId, WorkflowCatalogEntry> = {
     title: "G7 - Inventory + Offer Safety",
     purpose: "Verifies inventory, discount expiry, offer URLs, and urgency claims.",
     detailHref: "/dashboard/n8n-automations/g7",
-    runLabel: "Check Offer Proof",
+    runLabel: "Check Proof",
     runEnabled: true,
     runDisabledReason: null,
-    emptyStateCopy: "No offer checks have been run yet. Click Check Offer Proof to verify a stock, discount, or urgency claim.",
+    emptyStateCopy: "No proof checks have been run yet. Click Check Proof to verify a stock, discount, or urgency claim.",
     fallbackStatus: "NEEDS_EVIDENCE",
     runFields: [
       ...commonRunFields,
@@ -1431,7 +1431,7 @@ export const getWorkflowEmptyStateActionNeeded = (workflowId: AdminWorkflowId) =
     case "G6":
       return "Run Quiz Dry Run to check the safe messaging route.";
     case "G7":
-      return "Click Check Offer Proof to verify a stock, discount, or urgency claim.";
+      return "Click Check Proof to verify a stock, discount, or urgency claim.";
     case "G8":
       return "Check UGC Rights before reusing creator content.";
     case "G9":
@@ -1591,8 +1591,8 @@ export const getWorkflowOutcomeSectionTitles = (workflowId: AdminWorkflowId) => 
       };
     case "G7":
       return {
-        latest: "Latest Offer Proof",
-        recent: "Recent Offer Checks",
+        latest: "Latest Proof",
+        recent: "Recent Proof Checks",
       };
     case "G8":
       return {

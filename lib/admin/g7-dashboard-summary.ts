@@ -89,7 +89,7 @@ export type G7OfferProofSubmissionInput = {
 };
 
 const EMPTY_STATE_COPY =
-  "G7 is ready, but no offer checks have been run yet. Click Check Offer Proof to verify a stock, discount, or urgency claim.";
+  "G7 is ready, but no proof checks have been run yet. Click Check Proof to verify a stock, discount, or urgency claim.";
 
 const EVIDENCE_MISSING_REASONS = new Set([
   "SECOND_STOCK_SOURCE_REQUIRED_FOR_URGENCY",
@@ -259,7 +259,7 @@ const getClientSummary = (proof: {
   urgencyClaim: string | null;
 }) => {
   if (proof.rawResult === "PASS") {
-    return "G7 verified this offer and it can be used safely before expiry.";
+    return "G7 verified this proof and it can be used safely before expiry.";
   }
 
   if (proof.displayResult === "NEEDS_EVIDENCE" && proof.urgencyClaim) {
@@ -270,7 +270,7 @@ const getClientSummary = (proof: {
     return "G7 blocked this offer claim until proof is fixed.";
   }
 
-  return "G7 is ready, but no offer checks have been run yet.";
+  return "G7 is ready, but no proof checks have been run yet.";
 };
 
 const normalizeProof = (value: unknown): G7ProofView | null => {
@@ -285,9 +285,9 @@ const normalizeProof = (value: unknown): G7ProofView | null => {
   const displayResult = getProofDisplayResult(rawResult, failureReasons);
   const actionNeeded =
     rawResult === "PASS"
-      ? "No action needed. Offer proof is safe to use until expiry."
-      : mapReasonToMessage(primaryReason) ?? "Offer proof needs attention.";
-  const otherProofIssues = failureReasons.slice(1).map((reason) => mapReasonToMessage(reason) ?? "Review this proof before using the offer.").filter(Boolean);
+      ? "No action needed. Proof is safe to use until expiry."
+    : mapReasonToMessage(primaryReason) ?? "Proof needs attention.";
+  const otherProofIssues = failureReasons.slice(1).map((reason) => mapReasonToMessage(reason) ?? "Review this proof before using it.").filter(Boolean);
   const urgencyClaim = cleanText(value.urgency_claim);
   const clientSummary = getClientSummary({ rawResult, displayResult, urgencyClaim });
 
@@ -376,28 +376,36 @@ export const normalizeG7DashboardSummary = (payload: unknown): G7DashboardSummar
       ...counts,
       latestCheckedAt: counts.latestCheckedAt ?? latestOfferProof?.checkedAt ?? cleanDate(payload.checked_at),
     },
-    actionNeeded: latestOfferProof?.actionNeeded ?? topLevelActionNeeded ?? "Offer proof needs attention.",
+    actionNeeded: latestOfferProof?.actionNeeded ?? topLevelActionNeeded ?? "Proof needs attention.",
     emptyStateCopy: EMPTY_STATE_COPY,
     checkedAt: cleanDate(payload.checked_at),
   };
 };
 
-export const buildG7OfferProofPayload = (input: G7OfferProofSubmissionInput) => ({
-  requested_by_workflow: cleanText(input.requested_by_workflow) || "WEBSITE_ADMIN",
-  actor: cleanText(input.actor) || "website_admin",
-  sku: cleanText(input.sku) || "",
-  discount_code: cleanText(input.discount_code) || null,
-  urgency_claim: input.urgency_claim === null || input.urgency_claim === undefined ? null : cleanText(input.urgency_claim) || "",
-  second_stock_source: cleanText(input.second_stock_source) || null,
-  second_stock_available: cleanText(input.second_stock_available) || null,
-  second_stock_evidence_url: cleanText(input.second_stock_evidence_url) || null,
-  second_stock_checked_at: cleanText(input.second_stock_checked_at) || null,
-  platform: "WEBSITE",
-  offer_type: "OFFER_SAFETY_CHECK",
-  intended_use: cleanText(input.intended_use) || "ORGANIC_POST",
-  source_platform: "CUSTOM_WEBSITE",
-  source_event: "WEBSITE_G7_OFFER_PROOF_CHECK",
-});
+export const buildG7OfferProofPayload = (input: G7OfferProofSubmissionInput) => {
+  const payload = {
+    requested_by_workflow: cleanText(input.requested_by_workflow) || "WEBSITE_ADMIN",
+    actor: cleanText(input.actor) || "website_admin",
+    sku: cleanText(input.sku) || "",
+    discount_code: cleanText(input.discount_code) || null,
+    urgency_claim: input.urgency_claim === null || input.urgency_claim === undefined ? null : cleanText(input.urgency_claim) || "",
+    second_stock_source: cleanText(input.second_stock_source) || null,
+    second_stock_available: cleanText(input.second_stock_available) || null,
+    second_stock_evidence_url: cleanText(input.second_stock_evidence_url) || null,
+    second_stock_checked_at: cleanText(input.second_stock_checked_at) || null,
+    platform: "WEBSITE",
+    offer_type: "OFFER_SAFETY_CHECK",
+    intended_use: cleanText(input.intended_use) || "ORGANIC_POST",
+    source_platform: "CUSTOM_WEBSITE",
+    source_event: "WEBSITE_G7_OFFER_PROOF_CHECK",
+  };
+
+  return {
+    ...payload,
+    payload: { ...payload },
+    body: { ...payload },
+  };
+};
 
 export const getG7SubmissionDisplayResult = (status: string | null | undefined, message: string | null | undefined) => {
   const normalizedStatus = cleanText(status)?.toUpperCase() ?? "";
@@ -432,7 +440,7 @@ export const buildG7SubmissionMessage = (input: {
   const primaryReasonMessage = mapReasonToMessage(input.failReason ?? reasons[0] ?? null);
 
   if (status === "PASS") {
-    return "Offer proof verified.";
+    return "Proof verified.";
   }
 
   if (status === "BLOCK" || status === "NEEDS_EVIDENCE") {
@@ -444,12 +452,12 @@ export const buildG7SubmissionMessage = (input: {
       return reasonMessages[0];
     }
 
-    return "Offer proof needs attention.";
+    return "Proof needs attention.";
   }
 
   if (status === "ERROR") {
-    return "Offer proof check failed. No claim was approved.";
+    return "Proof check failed. No claim was approved.";
   }
 
-  return cleanText(input.message) ?? "Offer proof check failed. No claim was approved.";
+  return cleanText(input.message) ?? "Proof check failed. No claim was approved.";
 };

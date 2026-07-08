@@ -43,7 +43,7 @@ export default function ProductEdit() {
       setLoadingProduct(true);
       setError(null);
       try {
-        const response = await request(`${API_BASE}/products/${id}`);
+        const response = await request(`${API_BASE}/products/${id}`, { cache: "no-store" });
         if (!response.ok) {
           throw new Error("Failed to load product");
         }
