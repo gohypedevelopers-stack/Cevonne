@@ -233,17 +233,17 @@ function matchesFilter(row: InventoryRow, query: string, levelFilter: InventoryF
 
 function normalizeInventoryRows(liveRows: any[] | null | undefined) {
   if (!Array.isArray(liveRows) || !liveRows.length) {
-    return SAMPLE_INVENTORY_ROWS;
+    return [];
   }
 
   return liveRows.slice(0, 8).map((item: any, index: number) => {
     const fallback = SAMPLE_INVENTORY_ROWS[index % SAMPLE_INVENTORY_ROWS.length];
-    const productName = item?.product?.name || item?.productName || fallback.product;
+    const productName = item?.shade?.product?.name || item?.product?.name || item?.productName || fallback.product;
     const shadeName = item?.shade?.name || item?.shadeName || fallback.shade;
-    const collectionName = item?.product?.collection?.name || item?.collection?.name || fallback.collection;
+    const collectionName = item?.shade?.product?.collection?.name || item?.product?.collection?.name || item?.collection?.name || fallback.collection;
     const quantity = Number(item?.quantity ?? item?.stock ?? item?.inventory?.quantity ?? fallback.quantity) || 0;
     const threshold = Number(item?.threshold ?? item?.lowStockThreshold ?? fallback.threshold) || fallback.threshold;
-    const productId = item?.product?.id || item?.productId || fallback.productId;
+    const productId = item?.shade?.product?.id || item?.product?.id || item?.productId || fallback.productId;
 
     return {
       id: item?.id || `inv-${index}`,
@@ -255,7 +255,7 @@ function normalizeInventoryRows(liveRows: any[] | null | undefined) {
       threshold,
       status: getInventoryStatus(quantity, threshold),
       color: item?.hexColor || item?.shade?.hexColor || fallback.color,
-      sku: item?.sku || fallback.sku,
+      sku: item?.shade?.sku || item?.sku || fallback.sku,
       updatedAt: item?.updatedAt || item?.createdAt || fallback.updatedAt,
     } satisfies InventoryRow;
   });

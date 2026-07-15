@@ -827,17 +827,19 @@ export default function Dashboard() {
 
     const liveAlerts = lowStockSource.slice(0, 4).map((item: any, index: number) => ({
       id: item.id || `alert-${index}`,
-      product: item?.product?.name || SAMPLE_INVENTORY_ALERTS[index]?.product || "Lipstick product",
-      shade: item?.shade?.name || SAMPLE_INVENTORY_ALERTS[index]?.shade || "Shade",
+      // Inventory records belong to a shade, and the product is nested below it.
+      // Reading from `item.product` here made the dashboard fall back to demo labels.
+      product: item?.shade?.product?.name || "Unnamed product",
+      shade: item?.shade?.name || "Unnamed shade",
       collection:
-        item?.product?.collection?.name ||
-        item?.product?.collection?.slug ||
-        SAMPLE_INVENTORY_ALERTS[index]?.collection ||
+        item?.shade?.product?.collection?.name ||
+        item?.shade?.product?.collection?.slug ||
         "Unassigned",
-      stock: Number(item?.quantity ?? 0) || SAMPLE_INVENTORY_ALERTS[index]?.stock || 0,
+      // Keep a genuine zero quantity as zero instead of replacing it with demo stock.
+      stock: Number(item?.quantity ?? 0),
     }));
 
-    return liveAlerts.length ? liveAlerts : SAMPLE_INVENTORY_ALERTS;
+    return liveAlerts;
   }, [inventory, loading, lowInventory]);
 
   const filteredAlerts = visibleAlerts.filter((item) =>

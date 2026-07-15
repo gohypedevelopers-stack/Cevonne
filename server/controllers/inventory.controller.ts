@@ -18,7 +18,12 @@ exports.listInventory = async (_req, res, next) => {
         shade: {
           include: {
             product: {
-              select: { id: true, name: true, slug: true },
+              select: {
+                id: true,
+                name: true,
+                slug: true,
+                collection: { select: { id: true, name: true, slug: true } },
+              },
             },
           },
         },
@@ -41,7 +46,12 @@ exports.listLowStock = async (req, res, next) => {
         shade: {
           include: {
             product: {
-              select: { id: true, name: true, slug: true },
+              select: {
+                id: true,
+                name: true,
+                slug: true,
+                collection: { select: { id: true, name: true, slug: true } },
+              },
             },
           },
         },
@@ -71,7 +81,12 @@ exports.updateInventory = async (req, res, next) => {
         shade: {
           include: {
             product: {
-              select: { id: true, name: true, slug: true },
+              select: {
+                id: true,
+                name: true,
+                slug: true,
+                collection: { select: { id: true, name: true, slug: true } },
+              },
             },
           },
         },
