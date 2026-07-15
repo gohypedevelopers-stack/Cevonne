@@ -20,6 +20,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@/components/ui/sidebar"
+import { useAuth } from "@/context/AuthContext"
 
 type NavUserProps = {
   user: {
@@ -31,6 +32,7 @@ type NavUserProps = {
 
 export function NavUser({ user }: NavUserProps) {
   const { isMobile } = useSidebar()
+  const { logout } = useAuth()
   const initials = user?.name
     ?.split(" ")
     .filter(Boolean)
@@ -68,7 +70,10 @@ export function NavUser({ user }: NavUserProps) {
             side={isMobile ? "bottom" : "right"}
             align="end"
             sideOffset={10}>
-            <DropdownMenuItem className="cursor-pointer rounded-xl px-3 py-2.5 text-sm text-[#8b1630] transition-colors hover:bg-rose-50 focus:bg-rose-50 data-[highlighted]:bg-rose-50 data-[highlighted]:text-[#8b1630]">
+            <DropdownMenuItem
+              onSelect={logout}
+              className="cursor-pointer rounded-xl px-3 py-2.5 text-sm text-[#8b1630] transition-colors hover:bg-rose-50 focus:bg-rose-50 data-[highlighted]:bg-rose-50 data-[highlighted]:text-[#8b1630]"
+            >
               <LogOut />
               Log out
             </DropdownMenuItem>

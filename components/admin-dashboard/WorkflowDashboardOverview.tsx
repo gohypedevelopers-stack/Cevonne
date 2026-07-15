@@ -1,20 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowRight, Ban, Clock3, RefreshCcw, ShieldAlert, Sparkles, Workflow } from "lucide-react";
+import { ArrowRight, Ban, Clock3, ShieldAlert, Sparkles, Workflow } from "lucide-react";
 import Link from "next/link";
 
 import WorkflowDashboardShell from "@/components/admin-dashboard/WorkflowDashboardShell";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/context/AuthContext";
 import {
-  formatWorkflowDateTime,
   formatWorkflowRelativeTime,
-  getWorkflowStatusLabel,
-  getWorkflowStatusTone,
   type WorkflowOverviewCard,
 } from "@/lib/admin/workflows";
 import { cn } from "@/lib/utils";
@@ -57,14 +53,24 @@ const lastRunLabel = (value?: string | null) => {
     return "Not run yet";
   }
 
-  return `${formatWorkflowDateTime(value)} · ${formatWorkflowRelativeTime(value)}`;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return "Unknown";
+  }
+
+  const dateLabel = new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "short",
+  }).format(date);
+
+  return `${dateLabel} · ${formatWorkflowRelativeTime(value)}`;
 };
 
 function OverviewSkeleton() {
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
       {Array.from({ length: 12 }).map((_, index) => (
-        <Card key={index} className="overflow-hidden rounded-[24px] border-border/60 bg-white shadow-sm">
+        <Card key={index} className="gap-0 overflow-hidden rounded-[24px] border-border/60 bg-white py-0 shadow-sm">
           <CardContent className="space-y-4 p-5">
             <Skeleton className="h-1.5 w-full rounded-full" />
             <div className="space-y-3">
@@ -84,24 +90,15 @@ function OverviewSkeleton() {
 }
 
 function WorkflowCard({ workflow }: { workflow: WorkflowOverviewCard }) {
-  const statusTone = getWorkflowStatusTone(workflow.status);
-  const statusLabel = getWorkflowStatusLabel(workflow.status);
   const detailHref = workflow.detailHref;
   const urgentAction = workflow.mainActionNeeded || workflow.emptyStateCopy || "Nothing needed right now.";
 
   return (
-    <Card className="group overflow-hidden rounded-[24px] border-border/60 bg-white shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
+    <Card className="group gap-0 overflow-hidden rounded-[24px] border-border/60 bg-white py-0 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md">
       <CardContent className="flex h-full flex-col gap-4 p-5">
-        <div className="h-1.5 w-full rounded-full bg-primary/80" />
-
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0 space-y-1">
-            <h3 className="font-serif text-xl leading-tight tracking-tight text-primary">{workflow.title}</h3>
-            <p className="text-sm leading-6 text-muted-foreground">{workflow.purpose}</p>
-          </div>
-          <Badge variant="outline" className={cn("rounded-full border px-3 py-1 text-[11px] font-semibold", statusTone)}>
-            {statusLabel}
-          </Badge>
+        <div className="min-w-0 space-y-1">
+          <h3 className="font-serif text-xl leading-tight tracking-tight text-primary">{workflow.title}</h3>
+          <p className="text-sm leading-6 text-muted-foreground">{workflow.purpose}</p>
         </div>
 
         <div className="grid gap-2 sm:grid-cols-2">
@@ -134,9 +131,7 @@ export default function WorkflowDashboardOverview() {
 
   const [overview, setOverview] = useState<WorkflowDashboardOverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [refreshNonce, setRefreshNonce] = useState(0);
   const hasLoadedOverviewRef = useRef(false);
 
   useEffect(() => {
@@ -147,9 +142,7 @@ export default function WorkflowDashboardOverview() {
     let active = true;
 
     const loadOverview = async () => {
-      if (hasLoadedOverviewRef.current) {
-        setRefreshing(true);
-      } else {
+      if (!hasLoadedOverviewRef.current) {
         setLoading(true);
       }
       setError(null);
@@ -185,7 +178,6 @@ export default function WorkflowDashboardOverview() {
       } finally {
         if (active) {
           setLoading(false);
-          setRefreshing(false);
         }
       }
     };
@@ -195,7 +187,7 @@ export default function WorkflowDashboardOverview() {
     return () => {
       active = false;
     };
-  }, [authFetch, refreshNonce, request]);
+  }, [authFetch, request]);
 
   const workflows = overview?.workflows ?? [];
 
@@ -237,43 +229,15 @@ export default function WorkflowDashboardOverview() {
     },
   ];
 
-  const badges = (
-    <>
-      <Badge variant="outline" className="rounded-full border-border/70 bg-secondary/20 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
-        Supabase source of truth
-      </Badge>
-      <Badge variant="outline" className="rounded-full border-border/70 bg-secondary/20 px-3 py-1 text-[11px] font-semibold text-muted-foreground">
-        {overview?.status === "PASS" ? "Live workflow data" : "No run data yet"}
-      </Badge>
-    </>
-  );
-
-  const actions = (
-    <Button
-      type="button"
-      variant="outline"
-      className="h-10 min-w-[132px] justify-center rounded-full border-border/70 bg-white px-3.5 text-[11px] font-medium shadow-sm"
-      onClick={() => {
-        setRefreshing(true);
-        setRefreshNonce((value) => value + 1);
-      }}
-      disabled={loading || refreshing}
-    >
-      <RefreshCcw data-icon="inline-start" className={cn((loading || refreshing) && "animate-spin")} />
-      {loading ? "Loading..." : refreshing ? "Refreshing..." : "Refresh"}
-    </Button>
-  );
-
   return (
     <WorkflowDashboardShell
       eyebrow="Cevonne Admin"
       title="Workflow Dashboard"
       description="One-page summaries for every workflow. Open a workflow to inspect its latest outcome and next safe action."
-      badges={badges}
-      actions={actions}
+      descriptionClassName="max-w-none whitespace-nowrap"
     >
       {error ? (
-        <Card role="alert" className="rounded-[24px] border-rose-200 bg-rose-50 shadow-sm">
+        <Card role="alert" className="gap-0 rounded-[24px] border-rose-200 bg-rose-50 py-0 shadow-sm">
           <CardContent className="p-4 text-sm leading-6 text-rose-900">{error}</CardContent>
         </Card>
       ) : null}
@@ -281,7 +245,7 @@ export default function WorkflowDashboardOverview() {
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-5">
         {loading
           ? Array.from({ length: 5 }).map((_, index) => (
-              <Card key={index} className="overflow-hidden rounded-2xl border-border/60 bg-white shadow-sm">
+              <Card key={index} className="gap-0 overflow-hidden rounded-2xl border-border/60 bg-white py-0 shadow-sm">
                 <CardContent className="space-y-3 p-5">
                   <Skeleton className="h-1.5 w-full rounded-full" />
                   <Skeleton className="h-4 w-24 rounded-full" />
@@ -290,7 +254,7 @@ export default function WorkflowDashboardOverview() {
               </Card>
             ))
           : stats.map((stat) => (
-              <Card key={stat.label} className="overflow-hidden rounded-2xl border-border/60 bg-white shadow-sm">
+              <Card key={stat.label} className="gap-0 overflow-hidden rounded-2xl border-border/60 bg-white py-0 shadow-sm">
                 <CardContent className="space-y-3 p-5">
                   <div className={cn("h-1.5 w-full rounded-full", stat.toneClass)} />
                   <div className="flex items-start justify-between gap-4">

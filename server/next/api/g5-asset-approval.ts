@@ -36,9 +36,10 @@ type G5ClientStatus =
   | "Ready to publish"
   | "Published manually"
   | "Rejected"
-  | "Blocked";
+  | "Blocked"
+  | "Deleted";
 
-type G5ClientTab = "approved_content" | "pending_approval" | "ready_to_publish" | "published_manually" | "blocked_rejected";
+type G5ClientTab = "approved_content" | "pending_approval" | "ready_to_publish" | "published_manually" | "blocked_rejected" | "archived";
 
 type G5OriginalPostDetails = {
   platform: string | null;
@@ -831,6 +832,11 @@ const upperText = (value: unknown) => toText(value)?.toUpperCase() ?? null;
 
 const normalizeStateKey = (value: unknown) => upperText(value)?.replace(/[\s-]+/g, "_") ?? null;
 
+const isArchivedStateKey = (value: string | null | undefined) => {
+  const normalized = normalizeStateKey(value);
+  return normalized === "DELETED" || normalized === "ARCHIVED" || normalized === "PURGED" || normalized === "REMOVED";
+};
+
 const pickTextFromCandidates = (row: JsonRecord | null | undefined, keys: string[]) => readJsonRecordTextFromCandidates([row], keys);
 
 const pickDateFromCandidates = (row: JsonRecord | null | undefined, keys: string[]) => {
@@ -1043,6 +1049,16 @@ const getG5ClientStatusInfo = (asset: Pick<
   const publishStateStatus = normalizeStateKey(asset.asset_status);
   const manualPublishStatus = normalizeStateKey(asset.manual_publish_status);
   const hasManualPublishResult = Boolean(asset.last_manual_publish_result_id || (asset.post_url && asset.published_at));
+
+  if (isArchivedStateKey(contentApprovalStatus) || isArchivedStateKey(publishStateStatus) || isArchivedStateKey(manualPublishStatus)) {
+    return {
+      contentApprovalStatus,
+      publishStateStatus,
+      manualPublishStatus,
+      clientStatus: "Deleted" as const,
+      clientTab: "archived" as const,
+    };
+  }
 
   if (hasManualPublishResult || manualPublishStatus === "PUBLISHED_MANUALLY" || publishStateStatus === "PUBLISHED_MANUALLY" || publishStateStatus === "PUBLISHED") {
     return {
@@ -1739,13 +1755,14 @@ const finalizeG5AssetRecord = (asset: G5DashboardAssetRecord): G5DashboardAssetR
 };
 
 const buildDashboardSummary = (assets: G5DashboardAssetRecord[]): G5DashboardSummary => {
-  const published = assets.filter(isPublishedManually).length;
-  const ready = assets.filter((asset) => !isPublishedManually(asset) && isReadyToPublish(asset) && !isBlocked(asset)).length;
-  const blocked = assets.filter(isBlocked).length;
-  const pending = assets.filter((asset) => asset.client_tab === "pending_approval").length;
+  const visibleAssets = assets.filter((asset) => asset.client_tab !== "archived");
+  const published = visibleAssets.filter(isPublishedManually).length;
+  const ready = visibleAssets.filter((asset) => !isPublishedManually(asset) && isReadyToPublish(asset) && !isBlocked(asset)).length;
+  const blocked = visibleAssets.filter(isBlocked).length;
+  const pending = visibleAssets.filter((asset) => asset.client_tab === "pending_approval").length;
 
   return {
-    total: assets.length,
+    total: visibleAssets.length,
     pending_approval: pending,
     ready_to_publish: ready,
     published_manually: published,
@@ -1968,17 +1985,202 @@ export async function loadG5DashboardAssets(): Promise<G5DashboardResponse> {
   mergeRows(mergedRows);
 
   const assets = sortAssets([...merged.values()].map(finalizeG5AssetRecord));
-  logG5NormalizedAssetStatuses(assets);
+  const visibleAssets = assets.filter((asset) => asset.client_tab !== "archived");
+  logG5NormalizedAssetStatuses(visibleAssets);
   return {
-    status: assets.length ? "PASS" : "EMPTY",
+    status: visibleAssets.length ? "PASS" : "EMPTY",
     source: viewResult.error === null ? "VIEW" : "FALLBACK",
-    message: assets.length
+    message: visibleAssets.length
       ? viewResult.error === null
         ? "G5 dashboard loaded from the consolidated view."
         : "G5 dashboard loaded from fallback tables."
       : "No G5 assets have been stored yet.",
-    summary: buildDashboardSummary(assets),
-    assets,
+    summary: buildDashboardSummary(visibleAssets),
+    assets: visibleAssets,
+  };
+}
+
+type G5AssetArchiveInput = {
+  asset_id?: string | null;
+  approval_id?: string | null;
+  client_tabs?: G5ClientTab[] | null;
+  actor?: string | null;
+};
+
+const updateRowsByColumn = async (client: ReturnType<typeof getN8nSupabaseAdmin>, table: string, column: string, values: string[], patch: JsonRecord) => {
+  if (!values.length) {
+    return 0;
+  }
+
+  const { data, error } = await client!
+    .schema("public")
+    .from(table)
+    .update(patch)
+    .in(column, values)
+    .select(column);
+
+  if (error) {
+    if (isMissingRelationError(error) || isMissingColumnError(error)) {
+      console.info("[g5-asset-approval] skipping archive update for missing table/column", {
+        table,
+        column,
+        code: error.code,
+        message: error.message,
+      });
+      return 0;
+    }
+
+    throw error;
+  }
+
+  return Array.isArray(data) ? data.length : 0;
+};
+
+export async function archiveG5Assets(input: G5AssetArchiveInput): Promise<G5WebhookResponse> {
+  const client = getN8nSupabaseAdmin();
+  if (!client) {
+    return {
+      status: "ERROR",
+      message: "G5 dashboard data source is not configured yet.",
+      response_type: "ASSET_DELETED",
+      handled_at: null,
+      request_id: randomUUID(),
+      sent_at: new Date().toISOString(),
+      webhook_url: "local://g5/delete-asset",
+      http_status: 503,
+      response_text: null,
+      raw: null,
+    };
+  }
+
+  const dashboard = await loadG5DashboardAssets();
+  if (dashboard.status === "ERROR") {
+    return {
+      status: "ERROR",
+      message: dashboard.message,
+      response_type: "ASSET_DELETED",
+      handled_at: new Date().toISOString(),
+      request_id: randomUUID(),
+      sent_at: new Date().toISOString(),
+      webhook_url: "local://g5/delete-asset",
+      http_status: 502,
+      response_text: null,
+      raw: null,
+    };
+  }
+
+  const normalizedAssetId = input.asset_id?.trim() ?? "";
+  const normalizedApprovalId = normalizeG5ApprovalIdText(input.approval_id) ?? input.approval_id?.trim() ?? "";
+  const targetTabs = new Set((input.client_tabs ?? []).filter((value): value is G5ClientTab => Boolean(value)));
+
+  if (!normalizedAssetId && !normalizedApprovalId && !targetTabs.size) {
+    return {
+      status: "ERROR",
+      message: "Provide an asset_id, approval_id, or client_tabs to remove G5 assets.",
+      response_type: "ASSET_DELETED",
+      handled_at: new Date().toISOString(),
+      request_id: randomUUID(),
+      sent_at: new Date().toISOString(),
+      webhook_url: "local://g5/delete-asset",
+      http_status: 400,
+      response_text: null,
+      raw: null,
+    };
+  }
+
+  const targetAssets = dashboard.assets.filter((asset) => {
+    if (targetTabs.size > 0 && !targetTabs.has(asset.client_tab)) {
+      return false;
+    }
+
+    const assetMatches = normalizedAssetId
+      ? normalizeG4ApprovedContentKeyText(asset.asset_id) === normalizeG4ApprovedContentKeyText(normalizedAssetId)
+      : false;
+    const approvalMatches = normalizedApprovalId
+      ? normalizeG4ApprovedContentKeyText(asset.approval_id) === normalizeG4ApprovedContentKeyText(normalizedApprovalId)
+      : false;
+
+    if (!normalizedAssetId && !normalizedApprovalId) {
+      return true;
+    }
+
+    return assetMatches || approvalMatches;
+  });
+
+  if (!targetAssets.length) {
+    return {
+      status: "EMPTY",
+      message: "No matching G5 assets found to remove.",
+      response_type: "ASSET_DELETED",
+      handled_at: new Date().toISOString(),
+      request_id: randomUUID(),
+      sent_at: new Date().toISOString(),
+      webhook_url: "local://g5/delete-asset",
+      http_status: 200,
+      response_text: null,
+      raw: {
+        deleted_asset_ids: [],
+        deleted_approval_ids: [],
+      },
+    };
+  }
+
+  const handledAt = new Date().toISOString();
+  const actor = input.actor?.trim() || "admin";
+  const assetIds = [...new Set(targetAssets.map((asset) => asset.asset_id).filter(Boolean))];
+  const approvalIds = [...new Set(targetAssets.map((asset) => normalizeG5ApprovalIdText(asset.approval_id) ?? asset.approval_id?.trim() ?? "").filter(Boolean))];
+  const archivePatch = {
+    approval_status: "DELETED",
+    asset_status: "ARCHIVED",
+    state_updated_at: handledAt,
+  };
+  const approvalArchivePatch = {
+    decision: "DELETED",
+    reviewer: actor,
+    reason: "Removed from the G5 dashboard.",
+    approved_at: null,
+    expires_at: null,
+    locked: false,
+    created_at: handledAt,
+  };
+
+  const updates: Record<string, number> = {};
+  updates.content_assets = 0;
+  updates.content_assets += await updateRowsByColumn(client, "content_assets", "asset_id", assetIds, archivePatch);
+  updates.content_assets += await updateRowsByColumn(client, "content_assets", "approval_id", approvalIds, archivePatch);
+
+  updates.g5_asset_publish_state = 0;
+  updates.g5_asset_publish_state += await updateRowsByColumn(client, G5_ASSET_STATE_TABLE, "asset_id", assetIds, archivePatch);
+  updates.g5_asset_publish_state += await updateRowsByColumn(client, G5_ASSET_STATE_TABLE, "approval_id", approvalIds, archivePatch);
+
+  updates.g5_manual_publish_results = 0;
+  updates.g5_manual_publish_results += await updateRowsByColumn(client, "g5_manual_publish_results", "asset_id", assetIds, archivePatch);
+  updates.g5_manual_publish_results += await updateRowsByColumn(client, "g5_manual_publish_results", "approval_id", approvalIds, archivePatch);
+
+  updates.g5_manual_publish_dashboard_view = 0;
+  updates.g5_manual_publish_dashboard_view += await updateRowsByColumn(client, "g5_manual_publish_dashboard_view", "asset_id", assetIds, archivePatch);
+  updates.g5_manual_publish_dashboard_view += await updateRowsByColumn(client, "g5_manual_publish_dashboard_view", "approval_id", approvalIds, archivePatch);
+
+  updates.g5_approvals = 0;
+  updates.g5_approvals += await updateRowsByColumn(client, G5_APPROVALS_TABLE, "approval_id", approvalIds, approvalArchivePatch);
+  updates.g5_approvals += await updateRowsByColumn(client, G5_APPROVALS_TABLE, "asset_id", assetIds, approvalArchivePatch);
+
+  return {
+    status: "PASS",
+    message: targetTabs.size > 0 ? "Selected G5 tabs were cleared." : "G5 asset removed from the queue.",
+    response_type: "ASSET_DELETED",
+    handled_at: handledAt,
+    request_id: randomUUID(),
+    sent_at: handledAt,
+    webhook_url: "local://g5/delete-asset",
+    http_status: 200,
+    response_text: null,
+    raw: {
+      deleted_asset_ids: assetIds,
+      deleted_approval_ids: approvalIds,
+      target_tabs: [...targetTabs],
+      updated_rows: updates,
+    },
   };
 }
 

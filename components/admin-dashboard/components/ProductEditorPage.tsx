@@ -14,7 +14,6 @@ import {
   AlertTriangle,
   ArrowRight,
   Bold,
-  Check,
   Eye,
   EyeOff,
   ImageIcon,
@@ -604,54 +603,28 @@ const buildMediaGallery = (
   return deduped;
 };
 
-const uploadFileToR2 = async (
+const uploadProductMedia = async (
   request: ProductEditorPageProps["request"],
   file: File,
-  productId?: string,
   onProgress?: (progress: number) => void
 ) => {
-  const presignResponse = await request("/api/uploads/r2/presign", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      filename: file.name,
-      contentType: file.type,
-      size: file.size,
-      productId: productId || undefined,
-    }),
-  });
+  const formData = new FormData();
+  formData.append("file", file);
+  formData.append("kind", inferMediaKind(file).toUpperCase());
+  onProgress?.(15);
 
-  if (!presignResponse.ok) {
-    const body = await presignResponse.json().catch(() => null);
-    throw new Error(body?.message || "Failed to prepare upload");
+  const response = await request("/api/uploads", { method: "POST", body: formData });
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(body?.message || "Upload failed");
   }
 
-  const { uploadUrl, publicUrl, key } = (await presignResponse.json()) as {
-    uploadUrl: string;
-    publicUrl: string;
-    key: string;
-  };
+  if (!body?.url || !body?.storageKey) {
+    throw new Error("Upload did not return a media URL");
+  }
 
-  await new Promise<void>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    xhr.open("PUT", uploadUrl, true);
-    xhr.setRequestHeader("Content-Type", file.type);
-    xhr.upload.onprogress = (event) => {
-      if (!event.lengthComputable || !onProgress) return;
-      onProgress(Math.max(0, Math.min(100, Math.round((event.loaded / event.total) * 100))));
-    };
-    xhr.onload = () => {
-      if (xhr.status >= 200 && xhr.status < 300) {
-        resolve();
-        return;
-      }
-      reject(new Error("Upload failed"));
-    };
-    xhr.onerror = () => reject(new Error("Upload failed"));
-    xhr.send(file);
-  });
-
-  return { publicUrl, key };
+  onProgress?.(100);
+  return { publicUrl: String(body.url), key: String(body.storageKey) };
 };
 
 function RichTextEditor({
@@ -728,12 +701,12 @@ function RichTextEditor({
   );
 }
 
-function ProductMediaPreview({ item }: { item: ProductMediaItem }) {
+function ProductMediaPreview({ item, className }: { item: ProductMediaItem; className?: string }) {
   const [failed, setFailed] = useState(false);
 
   if (item.kind === "video") {
     return (
-      <div className="flex h-32 w-full items-center justify-center rounded-xl border border-border/60 bg-[#fbf7f4] text-[#4b0d4b]">
+      <div className={cn("flex items-center justify-center rounded-xl border border-border/60 bg-[#fbf7f4] text-[#4b0d4b]", className || "h-32 w-full")}>
         <div className="text-center">
           <Video className="mx-auto mb-2 h-5 w-5" />
           <p className="text-xs font-medium">{item.fileName || "Video"}</p>
@@ -744,7 +717,7 @@ function ProductMediaPreview({ item }: { item: ProductMediaItem }) {
 
   if (failed) {
     return (
-      <div className="flex h-32 w-full items-center justify-center rounded-xl border border-border/60 bg-[#fbf7f4] text-muted-foreground">
+      <div className={cn("flex items-center justify-center rounded-xl border border-border/60 bg-[#fbf7f4] text-muted-foreground", className || "h-32 w-full")}>
         <div className="text-center">
           <ImageIcon className="mx-auto mb-2 h-5 w-5" />
           <p className="text-xs font-medium">Preview unavailable</p>
@@ -757,110 +730,9 @@ function ProductMediaPreview({ item }: { item: ProductMediaItem }) {
     <img
       src={item.url}
       alt={item.alt || item.fileName || "Product media"}
-      className="h-32 w-full rounded-xl border border-border/60 object-cover"
+      className={cn("rounded-xl border border-border/60 object-cover", className || "h-32 w-full")}
       onError={() => setFailed(true)}
     />
-  );
-}
-
-function ProductImageCard({
-  item,
-  index,
-  total,
-  onRemove,
-  onMove,
-  onSetPrimary,
-  onAltChange,
-}: {
-  item: ProductMediaItem;
-  index: number;
-  total: number;
-  onRemove: (index: number) => void;
-  onMove: (index: number, delta: number) => void;
-  onSetPrimary: (index: number) => void;
-  onAltChange: (index: number, value: string) => void;
-}) {
-  return (
-    <div className="rounded-2xl border border-border/60 bg-white p-3 shadow-sm">
-      <div className="mb-3 flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-foreground">{item.fileName || `Media ${index + 1}`}</p>
-          <p className="text-xs text-muted-foreground">{item.kind === "video" ? "Video" : "Image"}</p>
-        </div>
-        <div className="flex items-center gap-1">
-          {item.isPrimary ? (
-            <Badge className="rounded-full bg-[#fbf7f4] px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#4b0d4b]">
-              Primary
-            </Badge>
-          ) : null}
-        </div>
-      </div>
-
-      <ProductMediaPreview item={item} />
-
-      <div className="mt-3 space-y-3">
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-9 rounded-xl"
-            onClick={() => onSetPrimary(index)}
-            disabled={item.kind === "video"}
-          >
-            <Check className="mr-2 h-4 w-4" />
-            Set as hero
-          </Button>
-          <div className="flex items-center gap-1">
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="h-9 w-9 rounded-xl"
-              onClick={() => onMove(index, -1)}
-              disabled={index === 0}
-              aria-label="Move media up"
-            >
-              <MoveUp className="h-4 w-4" />
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="icon"
-              className="h-9 w-9 rounded-xl"
-              onClick={() => onMove(index, 1)}
-              disabled={index === total - 1}
-              aria-label="Move media down"
-            >
-              <MoveDown className="h-4 w-4" />
-            </Button>
-          </div>
-        </div>
-
-        <div className="space-y-1.5">
-          <Label className="text-xs font-medium uppercase tracking-[0.18em] text-muted-foreground">Alt text</Label>
-          <Input
-            value={item.alt || ""}
-            onChange={(event) => onAltChange(index, event.target.value)}
-            placeholder="Soft matte lipstick in velvet berry"
-            className="h-10 rounded-xl"
-          />
-        </div>
-
-        <div className="flex items-center justify-end">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-8 px-2 text-red-600 hover:bg-red-50 hover:text-red-700"
-            onClick={() => onRemove(index)}
-          >
-            <Trash2 className="mr-2 h-4 w-4" />
-            Remove
-          </Button>
-        </div>
-      </div>
-    </div>
   );
 }
 
@@ -868,10 +740,12 @@ function R2UploadDropzone({
   disabled,
   isUploading,
   onFiles,
+  compact = false,
 }: {
   disabled?: boolean;
   isUploading?: boolean;
   onFiles: (files: File[]) => void;
+  compact?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const [isDragging, setIsDragging] = useState(false);
@@ -926,18 +800,25 @@ function R2UploadDropzone({
         handleFiles(event.dataTransfer.files);
       }}
       className={cn(
-        "flex min-h-[180px] cursor-pointer flex-col items-center justify-center rounded-2xl border border-dashed p-6 text-center transition",
+        "flex cursor-pointer flex-col items-center justify-center border border-dashed text-center transition",
+        compact ? "h-24 w-24 shrink-0 rounded-lg p-3" : "min-h-[180px] rounded-2xl p-6",
         isDragging ? "border-[#4b0d4b] bg-[#fbf7f4]" : "border-border/70 bg-[#fbf7f4]",
         disabled ? "cursor-not-allowed opacity-60" : "hover:border-[#4b0d4b]/40 hover:bg-[#f8f3ef]"
       )}
     >
-      <UploadCloud className="h-8 w-8 text-[#4b0d4b]" />
-      <p className="mt-3 text-sm font-semibold text-[#4b0d4b]">
-        {isUploading ? "Uploading media..." : "Click or drag files to upload"}
-      </p>
-      <p className="mt-1 text-xs text-muted-foreground">
-        Supports PNG, JPG, WEBP, GIF, and MP4 up to 10MB each.
-      </p>
+      {compact ? (
+        <Plus className="h-5 w-5 text-foreground" aria-label={isUploading ? "Uploading media" : "Add media"} />
+      ) : (
+        <>
+          <UploadCloud className="h-8 w-8 text-[#4b0d4b]" />
+          <p className="mt-3 text-sm font-semibold text-[#4b0d4b]">
+            {isUploading ? "Uploading media..." : "Click or drag files to upload"}
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Supports PNG, JPG, WEBP, GIF, and MP4 up to 10MB each.
+          </p>
+        </>
+      )}
       <input
         ref={inputRef}
         type="file"
@@ -970,19 +851,27 @@ function ProductDetailsCard({
   const { register, setValue, watch, getValues } = form;
 
   return (
-    <Card className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-      <CardHeader className="border-b px-6 py-5">
-        <CardTitle className="text-base font-semibold text-foreground">Product details</CardTitle>
-        <CardDescription>Title, description, and search-friendly slug.</CardDescription>
+    <Card className="gap-0 overflow-hidden rounded-2xl border bg-white py-0 shadow-sm">
+      <CardHeader className="border-b bg-[#fcfaf9] px-6 !py-3">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <CardTitle className="text-base font-semibold text-foreground">Product details</CardTitle>
+            <CardDescription>Set the essentials customers see first.</CardDescription>
+          </div>
+          <Badge variant="outline" className="shrink-0 rounded-full border-[#4b0d4b]/20 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#4b0d4b]">
+            Core
+          </Badge>
+        </div>
       </CardHeader>
       <CardContent className="space-y-5 px-6 py-5">
         <div className="grid gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="product-name">Product name</Label>
+          <div className="rounded-2xl border border-border/60 bg-[#fcfaf9] p-4">
+            <div className="space-y-2">
+            <Label htmlFor="product-name" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Product name</Label>
             <Input
               id="product-name"
               autoComplete="off"
-              className="h-11 rounded-xl bg-white"
+              className="h-12 rounded-xl bg-white text-base font-medium"
               {...register("name", {
                 onChange: (event) => {
                   if (!manualSlug) {
@@ -990,23 +879,27 @@ function ProductDetailsCard({
                   }
                 },
               })}
-              placeholder="Caramel Éclair — Velvet Power™ Bullet Lipstick"
+              placeholder="Product name"
+            />
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-border/60 bg-[#fcfaf9] p-4">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Product description</p>
+            <RichTextEditor
+              label="Product description"
+              value={descriptionValue}
+              onChange={onDescriptionChange}
+              placeholder="Product description"
             />
           </div>
 
-          <RichTextEditor
-            label="Product description"
-            value={descriptionValue}
-            onChange={onDescriptionChange}
-            placeholder="Write a clean product description that helps customers understand the finish, feel, and promise."
-          />
-
-          <div className="space-y-2">
+          <div className="rounded-2xl border border-border/60 bg-[#fcfaf9] p-4">
             <div className="flex items-center justify-between gap-3">
-              <Label htmlFor="product-slug">Slug</Label>
+              <Label htmlFor="product-slug" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">URL handle</Label>
               <button
                 type="button"
-                className="text-xs font-semibold text-[#4b0d4b]"
+                className="rounded-full border border-[#4b0d4b]/20 bg-white px-3 py-1 text-xs font-semibold text-[#4b0d4b] transition-colors hover:bg-[#fbf7f4]"
                 onClick={() => {
                   onManualSlugChange(!manualSlug);
                   if (manualSlug) {
@@ -1020,16 +913,16 @@ function ProductDetailsCard({
             <Input
               id="product-slug"
               autoComplete="off"
-              className="h-11 rounded-xl bg-white"
+              className="mt-3 h-11 rounded-xl bg-white font-medium"
               {...register("slug", {
                 onChange: (event) => {
                   onManualSlugChange(true);
                   setValue("slug", slugify(event.target.value), { shouldDirty: true });
                 },
               })}
-              placeholder="velvet-power-caramel-eclair"
+              placeholder="product-name"
             />
-            <p className="text-xs text-muted-foreground">Used in the product URL and SEO metadata.</p>
+            <p className="mt-2 text-xs text-muted-foreground">Used in the product URL and SEO metadata.</p>
           </div>
         </div>
       </CardContent>
@@ -1039,57 +932,74 @@ function ProductDetailsCard({
 
 function ProductPricingCard({ form }: { form: ReturnType<typeof useForm<ProductEditorValues>> }) {
   const { register, watch } = form;
+  const price = optionalNumber(watch("price")) ?? 0;
+  const compareAtPrice = optionalNumber(watch("originalValue")) ?? 0;
+  const savings = compareAtPrice > price ? compareAtPrice - price : 0;
+
   return (
-    <Card className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-      <CardHeader className="border-b px-6 py-5">
-        <CardTitle className="text-base font-semibold text-foreground">Pricing</CardTitle>
-        <CardDescription>Retail price and compare-at value.</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4 px-6 py-5">
-        <div className="grid gap-4 md:grid-cols-3">
-          <div className="space-y-2 md:col-span-2">
-            <Label htmlFor="product-price">Price</Label>
-            <Input
-              id="product-price"
-              type="number"
-              min="0"
-              step="0.01"
-              className="h-11 rounded-xl bg-white"
-              {...register("price")}
-              placeholder="999.00"
-            />
+    <Card className="gap-0 overflow-hidden rounded-2xl border bg-white py-0 shadow-sm">
+      <CardHeader className="border-b bg-[#fcfaf9] px-6 !py-3">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <CardTitle className="text-base font-semibold text-foreground">Pricing</CardTitle>
+            <CardDescription>Set the storefront price and optional original value.</CardDescription>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="product-currency">Currency</Label>
-            <Input
-              id="product-currency"
-              className="h-11 rounded-xl bg-white"
-              {...register("currency")}
-              placeholder="INR"
-            />
+          <Badge variant="outline" className="shrink-0 rounded-full border-[#4b0d4b]/20 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#4b0d4b]">
+            Storefront
+          </Badge>
+        </div>
+      </CardHeader>
+      <CardContent className="grid gap-5 px-6 py-5 lg:grid-cols-[minmax(0,1fr)_250px]">
+        <div className="rounded-2xl border border-border/60 bg-white p-4">
+          <div className="grid gap-4 sm:grid-cols-3">
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="product-price" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Selling price</Label>
+              <div className="relative">
+                <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-lg font-serif text-[#4b0d4b]">₹</span>
+                <Input
+                  id="product-price"
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  className="h-12 rounded-xl bg-[#fcfaf9] pl-9 text-base font-semibold text-foreground"
+                  {...register("price")}
+                  placeholder="999.00"
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="product-currency" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Currency</Label>
+              <Input
+                id="product-currency"
+                className="h-12 rounded-xl bg-[#fcfaf9] font-medium uppercase"
+                {...register("currency")}
+                placeholder="INR"
+              />
+            </div>
+          </div>
+          <div className="mt-4 border-t border-border/60 pt-4">
+            <div className="space-y-2">
+              <Label htmlFor="product-original-value" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Compare-at price <span className="normal-case tracking-normal">(optional)</span></Label>
+              <Input
+                id="product-original-value"
+                type="number"
+                min="0"
+                step="0.01"
+                className="h-11 rounded-xl bg-[#fcfaf9]"
+                {...register("originalValue")}
+                placeholder="1299.00"
+              />
+            </div>
           </div>
         </div>
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2">
-            <Label htmlFor="product-original-value">Compare-at price</Label>
-            <Input
-              id="product-original-value"
-              type="number"
-              min="0"
-              step="0.01"
-              className="h-11 rounded-xl bg-white"
-              {...register("originalValue")}
-              placeholder="1299.00"
-            />
+        <div className="flex min-h-[196px] flex-col justify-between rounded-2xl bg-[#4b0d4b] p-5 text-white shadow-sm">
+          <div>
+            <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-white/65">Storefront preview</p>
+            <p className="mt-3 font-serif text-3xl leading-none tracking-tight">{formatCurrency(price)}</p>
           </div>
-          <div className="rounded-2xl border border-border/60 bg-[#fbf7f4] p-4">
-            <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">Preview</p>
-            <p className="mt-2 text-2xl font-serif text-[#4b0d4b]">
-              {formatCurrency(optionalNumber(watch("price")) ?? 0)}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              Compare-at {formatCurrency(optionalNumber(watch("originalValue")) ?? 0)}
-            </p>
+          <div className="border-t border-white/15 pt-3 text-sm">
+            {compareAtPrice > 0 ? <p className="text-white/60 line-through">{formatCurrency(compareAtPrice)}</p> : <p className="text-white/60">No compare-at price</p>}
+            {savings > 0 ? <p className="mt-1 font-medium text-[#f7d7a5]">Save {formatCurrency(savings)}</p> : null}
           </div>
         </div>
       </CardContent>
@@ -1098,51 +1008,57 @@ function ProductPricingCard({ form }: { form: ReturnType<typeof useForm<ProductE
 }
 
 function ProductInventoryCard({ form }: { form: ReturnType<typeof useForm<ProductEditorValues>> }) {
-  const { register, watch, setValue } = form;
+  const { watch, setValue } = form;
   const trackInventory = watch("trackInventory");
   const sellWhenOut = watch("sellWhenOutOfStock");
   return (
-    <Card className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-      <CardHeader className="border-b px-6 py-5">
-        <CardTitle className="text-base font-semibold text-foreground">Inventory</CardTitle>
-        <CardDescription>Inventory is managed through shade variants.</CardDescription>
+    <Card className="gap-0 overflow-hidden rounded-2xl border bg-white py-0 shadow-sm">
+      <CardHeader className="border-b bg-[#fcfaf9] px-6 !py-3">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <CardTitle className="text-base font-semibold text-foreground">Inventory</CardTitle>
+            <CardDescription>Set how each shade behaves when stock changes.</CardDescription>
+          </div>
+          <Badge variant="outline" className="shrink-0 rounded-full border-[#4b0d4b]/20 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#4b0d4b]">
+            Shade-based
+          </Badge>
+        </div>
       </CardHeader>
       <CardContent className="space-y-4 px-6 py-5">
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <div className="flex items-start gap-3">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <p>Track stock per shade. Use this section for control settings and identifiers.</p>
-          </div>
+        <div className="flex items-center gap-3 rounded-2xl border border-[#4b0d4b]/10 bg-[#fbf7f4] px-4 py-3 text-sm text-[#4b0d4b]">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <p>Stock quantities are managed on individual shade variants.</p>
         </div>
-        <div className="grid gap-4">
-          <div className="flex items-center justify-between rounded-2xl border border-border/60 bg-white px-4 py-3">
-            <div>
-              <p className="text-sm font-medium text-foreground">Track inventory</p>
-              <p className="text-xs text-muted-foreground">Enable stock awareness for this product.</p>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex min-h-32 flex-col justify-between rounded-2xl border border-border/60 bg-white p-4 transition-colors hover:border-[#4b0d4b]/25">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Track inventory</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">Keep each shade’s available quantity in sync.</p>
+              </div>
+              <Checkbox
+                checked={trackInventory}
+                onCheckedChange={(checked) => setValue("trackInventory", Boolean(checked), { shouldDirty: true })}
+              />
             </div>
-            <Checkbox
-              checked={trackInventory}
-              onCheckedChange={(checked) => setValue("trackInventory", Boolean(checked), { shouldDirty: true })}
-            />
+            <p className={cn("text-[10px] font-semibold uppercase tracking-[0.18em]", trackInventory ? "text-[#4b0d4b]" : "text-muted-foreground")}>
+              {trackInventory ? "Tracking on" : "Tracking off"}
+            </p>
           </div>
-          <div className="flex items-center justify-between rounded-2xl border border-border/60 bg-white px-4 py-3">
-            <div>
-              <p className="text-sm font-medium text-foreground">Sell when out of stock</p>
-              <p className="text-xs text-muted-foreground">Allow orders to continue when shade stock hits zero.</p>
+          <div className="flex min-h-32 flex-col justify-between rounded-2xl border border-border/60 bg-white p-4 transition-colors hover:border-[#4b0d4b]/25">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-foreground">Continue selling</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">Allow orders when a shade reaches zero stock.</p>
+              </div>
+              <Checkbox
+                checked={sellWhenOut}
+                onCheckedChange={(checked) => setValue("sellWhenOutOfStock", Boolean(checked), { shouldDirty: true })}
+              />
             </div>
-            <Checkbox
-              checked={sellWhenOut}
-              onCheckedChange={(checked) => setValue("sellWhenOutOfStock", Boolean(checked), { shouldDirty: true })}
-            />
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="product-barcode">Barcode</Label>
-            <Input
-              id="product-barcode"
-              className="h-11 rounded-xl bg-white"
-              {...register("barcode")}
-              placeholder="Optional barcode"
-            />
+            <p className={cn("text-[10px] font-semibold uppercase tracking-[0.18em]", sellWhenOut ? "text-[#4b0d4b]" : "text-muted-foreground")}>
+              {sellWhenOut ? "Backorders on" : "Backorders off"}
+            </p>
           </div>
         </div>
       </CardContent>
@@ -1159,21 +1075,26 @@ function ProductOrganizationCard({
 }) {
   const { register, watch, setValue } = form;
   return (
-    <Card className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-      <CardHeader className="border-b px-6 py-5">
-        <CardTitle className="text-base font-semibold text-foreground">Product organization</CardTitle>
-        <CardDescription>Brand, type, finish, collection, and tags.</CardDescription>
+    <Card className="gap-0 overflow-hidden rounded-2xl border bg-white py-0 shadow-sm">
+      <CardHeader className="border-b bg-[#fcfaf9] px-6 !py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-base font-semibold text-foreground">Product organization</CardTitle>
+            <CardDescription>Classify and group this product for your catalogue.</CardDescription>
+          </div>
+          <Badge variant="outline" className="shrink-0 rounded-full border-[#4b0d4b]/20 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#4b0d4b]">Catalog</Badge>
+        </div>
       </CardHeader>
-      <CardContent className="space-y-4 px-6 py-5">
+      <CardContent className="space-y-3 px-6 py-4">
         <div className="space-y-2">
-          <Label htmlFor="product-brand">Brand</Label>
-          <Input id="product-brand" className="h-11 rounded-xl bg-white" {...register("brand")} placeholder="CEVONNE" />
+          <Label htmlFor="product-brand" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Brand</Label>
+          <Input id="product-brand" className="h-11 rounded-xl bg-[#fcfaf9]" {...register("brand")} placeholder="Brand" />
         </div>
 
         <div className="space-y-2">
-          <Label>Type</Label>
+          <Label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Type</Label>
           <Select value={watch("type")} onValueChange={(value) => setValue("type", value, { shouldDirty: true })}>
-            <SelectTrigger className="h-11 rounded-xl bg-white">
+            <SelectTrigger className="h-11 rounded-xl bg-[#fcfaf9]">
               <SelectValue placeholder="Choose a type" />
             </SelectTrigger>
             <SelectContent>
@@ -1187,17 +1108,17 @@ function ProductOrganizationCard({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="product-finish">Finish</Label>
-          <Input id="product-finish" className="h-11 rounded-xl bg-white" {...register("finish")} placeholder="Matte, satin, glossy..." />
+          <Label htmlFor="product-finish" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Finish</Label>
+          <Input id="product-finish" className="h-11 rounded-xl bg-[#fcfaf9]" {...register("finish")} placeholder="Finish" />
         </div>
 
         <div className="space-y-2">
-          <Label>Collection</Label>
+          <Label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Collection</Label>
           <Select
             value={watch("collectionId") || "__none__"}
             onValueChange={(value) => setValue("collectionId", value === "__none__" ? "" : value, { shouldDirty: true })}
           >
-            <SelectTrigger className="h-11 rounded-xl bg-white">
+            <SelectTrigger className="h-11 rounded-xl bg-[#fcfaf9]">
               <SelectValue placeholder="All collections" />
             </SelectTrigger>
             <SelectContent>
@@ -1212,12 +1133,12 @@ function ProductOrganizationCard({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="product-tags">Tags</Label>
+          <Label htmlFor="product-tags" className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Tags</Label>
           <Input
             id="product-tags"
-            className="h-11 rounded-xl bg-white"
+            className="h-11 rounded-xl bg-[#fcfaf9]"
             {...register("tags")}
-            placeholder="lipstick, matte, rose"
+            placeholder="Tags"
           />
         </div>
       </CardContent>
@@ -1235,14 +1156,19 @@ function ProductStatusCard({
   const visibility = watch("visibility");
 
   return (
-    <Card className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-      <CardHeader className="border-b px-6 py-5">
-        <CardTitle className="text-base font-semibold text-foreground">Status</CardTitle>
-        <CardDescription>Draft, publish, and storefront visibility.</CardDescription>
+    <Card className="gap-0 overflow-hidden rounded-2xl border bg-white py-0 shadow-sm">
+      <CardHeader className="border-b bg-[#fcfaf9] px-6 !py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <CardTitle className="text-base font-semibold text-foreground">Status</CardTitle>
+            <CardDescription>Control publishing and storefront visibility.</CardDescription>
+          </div>
+          <Badge variant="outline" className="shrink-0 rounded-full border-[#4b0d4b]/20 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#4b0d4b]">Publish</Badge>
+        </div>
       </CardHeader>
-      <CardContent className="space-y-4 px-6 py-5">
-        <div className="space-y-2">
-          <Label>Status</Label>
+      <CardContent className="space-y-3 px-6 py-4">
+        <div className="space-y-2 rounded-2xl border border-border/60 bg-[#fcfaf9] p-3">
+          <Label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Status</Label>
           <Select value={status} onValueChange={(value) => setValue("productStatus", value as ProductEditorValues["productStatus"], { shouldDirty: true })}>
             <SelectTrigger className="h-11 rounded-xl bg-white">
               <SelectValue placeholder="Select status" />
@@ -1257,8 +1183,8 @@ function ProductStatusCard({
           </Select>
         </div>
 
-        <div className="space-y-2">
-          <Label>Visibility</Label>
+        <div className="space-y-2 rounded-2xl border border-border/60 bg-[#fcfaf9] p-3">
+          <Label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Visibility</Label>
           <Select value={visibility} onValueChange={(value) => setValue("visibility", value as ProductEditorValues["visibility"], { shouldDirty: true })}>
             <SelectTrigger className="h-11 rounded-xl bg-white">
               <SelectValue placeholder="Select visibility" />
@@ -1273,11 +1199,11 @@ function ProductStatusCard({
           </Select>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Badge variant="outline" className="rounded-full uppercase tracking-[0.22em]">
+        <div className="flex flex-wrap items-center gap-2">
+          <Badge variant="outline" className="rounded-full border-[#4b0d4b]/20 bg-[#fbf7f4] px-3 py-1 uppercase tracking-[0.18em] text-[#4b0d4b]">
             {status}
           </Badge>
-          <Badge variant="outline" className="rounded-full uppercase tracking-[0.22em]">
+          <Badge variant="outline" className="rounded-full border-border/60 bg-white px-3 py-1 uppercase tracking-[0.18em]">
             {visibility}
           </Badge>
         </div>
@@ -1289,14 +1215,14 @@ function ProductStatusCard({
 function ProductCategoryCard({ form }: { form: ReturnType<typeof useForm<ProductEditorValues>> }) {
   const { watch, setValue } = form;
   return (
-    <Card className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-      <CardHeader className="border-b px-6 py-5">
+    <Card className="gap-0 overflow-hidden rounded-2xl border bg-white py-0 shadow-sm">
+      <CardHeader className="border-b bg-[#fcfaf9] px-6 !py-3">
         <CardTitle className="text-base font-semibold text-foreground">Category</CardTitle>
-        <CardDescription>Used for storefront filters, search, and merchandising.</CardDescription>
+        <CardDescription>Choose how customers discover this product.</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4 px-6 py-5">
-        <div className="space-y-2">
-          <Label>Product category</Label>
+      <CardContent className="space-y-3 px-6 py-4">
+        <div className="space-y-2 rounded-2xl border border-border/60 bg-[#fcfaf9] p-3">
+          <Label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Product category</Label>
           <Select value={watch("categoryPath")} onValueChange={(value) => setValue("categoryPath", value, { shouldDirty: true })}>
             <SelectTrigger className="h-11 rounded-xl bg-white">
               <SelectValue placeholder="Choose a product category" />
@@ -1310,49 +1236,31 @@ function ProductCategoryCard({ form }: { form: ReturnType<typeof useForm<Product
             </SelectContent>
           </Select>
         </div>
-        <p className="text-xs text-muted-foreground">This keeps lipstick products easy to filter on the storefront.</p>
+        <p className="text-xs leading-5 text-muted-foreground">This controls storefront filters, search, and merchandising.</p>
       </CardContent>
     </Card>
   );
 }
 
-function SeoPreviewCard({ form, mediaItems }: { form: ReturnType<typeof useForm<ProductEditorValues>>; mediaItems: ProductMediaItem[] }) {
+function SeoPreviewCard({ form }: { form: ReturnType<typeof useForm<ProductEditorValues>> }) {
   const { watch } = form;
   const title = watch("name") || "Product title";
   const slug = watch("slug") || "product-slug";
   const description = plainTextFromHtml(watch("description") || "") || "A premium beauty product made for Cevonne.";
-  const primaryMedia = mediaItems.find((item) => item.isPrimary && item.kind !== "video") || mediaItems[0];
+  const price = optionalNumber(watch("price")) ?? 0;
 
   return (
-    <Card className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-      <CardHeader className="border-b px-6 py-5">
+    <Card className="gap-0 overflow-hidden rounded-2xl border bg-white py-0 shadow-sm">
+      <CardHeader className="border-b bg-[#fcfaf9] px-6 !py-3">
         <CardTitle className="text-base font-semibold text-foreground">SEO preview</CardTitle>
         <CardDescription>How the product may appear in search and previews.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 px-6 py-5">
-        <div className="rounded-2xl border border-border/60 bg-[#fbf7f4] p-4">
+        <div className="rounded-2xl border border-[#4b0d4b]/10 bg-[#fbf7f4] p-5">
           <p className="text-xs font-medium uppercase tracking-[0.2em] text-muted-foreground">cevonne.com/products/{slug}</p>
           <p className="mt-1 font-serif text-xl text-[#4b0d4b]">{title}</p>
           <p className="mt-1 text-sm text-muted-foreground">{description}</p>
-          {primaryMedia ? (
-            <div className="mt-4 flex items-center gap-3 rounded-xl border border-border/60 bg-white p-3">
-              {primaryMedia.kind === "video" ? (
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-[#fbf7f4] text-[#4b0d4b]">
-                  <Video className="h-4 w-4" />
-                </div>
-              ) : (
-                <img
-                  src={primaryMedia.url}
-                  alt={primaryMedia.alt || title}
-                  className="h-12 w-12 rounded-xl object-cover"
-                />
-              )}
-              <div className="min-w-0">
-                <p className="truncate text-sm font-medium text-foreground">{primaryMedia.fileName || "Primary media"}</p>
-                <p className="truncate text-xs text-muted-foreground">{primaryMedia.url}</p>
-              </div>
-            </div>
-          ) : null}
+          <p className="mt-3 font-serif text-lg text-[#4b0d4b]">{formatCurrency(price)}</p>
         </div>
       </CardContent>
     </Card>
@@ -1367,16 +1275,23 @@ function ProductAdvancedContent({
   const { register, watch, setValue } = form;
 
   return (
-    <Card className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-      <CardHeader className="border-b px-6 py-5">
-        <CardTitle className="text-base font-semibold text-foreground">Advanced content</CardTitle>
-        <CardDescription>Collapsed by default to keep the editor clean.</CardDescription>
+    <Card className="gap-0 overflow-hidden rounded-2xl border bg-white py-0 shadow-sm">
+      <CardHeader className="border-b bg-[#fcfaf9] px-6 !py-3">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <CardTitle className="text-base font-semibold text-foreground">Advanced content</CardTitle>
+            <CardDescription>Optional details for a richer storefront experience.</CardDescription>
+          </div>
+          <Badge variant="outline" className="shrink-0 rounded-full border-[#4b0d4b]/20 bg-white px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[#4b0d4b]">
+            Optional
+          </Badge>
+        </div>
       </CardHeader>
       <CardContent className="px-6 py-5">
-        <Accordion type="multiple" className="w-full space-y-3" defaultValue={[]}>
-          <AccordionItem value="story" className="overflow-hidden rounded-2xl border border-border/60 bg-[#fbf7f4] px-4">
-            <AccordionTrigger className="text-left text-base font-semibold text-foreground">Product story</AccordionTrigger>
-            <AccordionContent className="space-y-4 pb-4">
+        <Accordion type="multiple" className="w-full space-y-2" defaultValue={[]}>
+          <AccordionItem value="story" className="overflow-hidden rounded-2xl border border-[#4b0d4b]/10 bg-[#fcfaf9] px-5 transition-colors data-[state=open]:bg-white data-[state=open]:shadow-sm">
+            <AccordionTrigger className="py-5 text-left font-serif text-base font-semibold text-foreground hover:no-underline">Product story</AccordionTrigger>
+            <AccordionContent className="space-y-4 border-t border-border/60 pb-5 pt-4">
               <div className="grid gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="product-headline">Headline</Label>
@@ -1404,43 +1319,9 @@ function ProductAdvancedContent({
             </AccordionContent>
           </AccordionItem>
 
-          <AccordionItem value="media" className="overflow-hidden rounded-2xl border border-border/60 bg-[#fbf7f4] px-4">
-            <AccordionTrigger className="text-left text-base font-semibold text-foreground">Advanced media URLs</AccordionTrigger>
-            <AccordionContent className="space-y-4 pb-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="hero-image-url">Hero image URL</Label>
-                  <Input id="hero-image-url" className="h-11 rounded-xl bg-white" {...register("heroImageUrl")} placeholder="https://..." />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="hero-object-position">Image focal point</Label>
-                  <Input id="hero-object-position" className="h-11 rounded-xl bg-white" {...register("heroObjectPosition")} placeholder="50% 50%" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="gallery-urls">Gallery URLs</Label>
-                <Textarea id="gallery-urls" rows={3} className="rounded-xl bg-white" {...register("galleryUrls")} placeholder="One URL per line" />
-              </div>
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="video-url">Product video URL</Label>
-                  <Input id="video-url" className="h-11 rounded-xl bg-white" {...register("videoUrl")} placeholder="https://..." />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="video-title">Video title</Label>
-                  <Input id="video-title" className="h-11 rounded-xl bg-white" {...register("videoTitle")} placeholder="Cevonne" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="video-description">Video description</Label>
-                <Textarea id="video-description" rows={2} className="rounded-xl bg-white" {...register("videoDescription")} placeholder="Velvet matte color..." />
-              </div>
-            </AccordionContent>
-          </AccordionItem>
-
-          <AccordionItem value="trust" className="overflow-hidden rounded-2xl border border-border/60 bg-[#fbf7f4] px-4">
-            <AccordionTrigger className="text-left text-base font-semibold text-foreground">Highlights & trust</AccordionTrigger>
-            <AccordionContent className="space-y-4 pb-4">
+          <AccordionItem value="trust" className="overflow-hidden rounded-2xl border border-[#4b0d4b]/10 bg-[#fcfaf9] px-5 transition-colors data-[state=open]:bg-white data-[state=open]:shadow-sm">
+            <AccordionTrigger className="py-5 text-left font-serif text-base font-semibold text-foreground hover:no-underline">Highlights & trust</AccordionTrigger>
+            <AccordionContent className="space-y-4 border-t border-border/60 pb-5 pt-4">
               <div className="grid gap-4 lg:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="badges">Badges</Label>
@@ -1474,9 +1355,9 @@ function ProductAdvancedContent({
             </AccordionContent>
           </AccordionItem>
 
-          <AccordionItem value="ingredients" className="overflow-hidden rounded-2xl border border-border/60 bg-[#fbf7f4] px-4">
-            <AccordionTrigger className="text-left text-base font-semibold text-foreground">Ingredients & FAQs</AccordionTrigger>
-            <AccordionContent className="space-y-4 pb-4">
+          <AccordionItem value="ingredients" className="overflow-hidden rounded-2xl border border-[#4b0d4b]/10 bg-[#fcfaf9] px-5 transition-colors data-[state=open]:bg-white data-[state=open]:shadow-sm">
+            <AccordionTrigger className="py-5 text-left font-serif text-base font-semibold text-foreground hover:no-underline">Ingredients & FAQs</AccordionTrigger>
+            <AccordionContent className="space-y-4 border-t border-border/60 pb-5 pt-4">
               <div className="space-y-2">
                 <Label htmlFor="ingredients-title">Section title</Label>
                 <Input id="ingredients-title" className="h-11 rounded-xl bg-white" {...register("ingredientsTitle")} placeholder="Powered by Science" />
@@ -1623,9 +1504,9 @@ function ProductAdvancedContent({
             </AccordionContent>
           </AccordionItem>
 
-          <AccordionItem value="size" className="overflow-hidden rounded-2xl border border-border/60 bg-[#fbf7f4] px-4">
-            <AccordionTrigger className="text-left text-base font-semibold text-foreground">Displayed size</AccordionTrigger>
-            <AccordionContent className="space-y-4 pb-4">
+          <AccordionItem value="size" className="last:!border-b overflow-hidden rounded-2xl border border-[#4b0d4b]/10 bg-[#fcfaf9] px-5 transition-colors data-[state=open]:bg-white data-[state=open]:shadow-sm">
+            <AccordionTrigger className="py-5 text-left font-serif text-base font-semibold text-foreground hover:no-underline">Displayed size</AccordionTrigger>
+            <AccordionContent className="space-y-4 border-t border-border/60 pb-5 pt-4">
               <div className="grid gap-4 md:grid-cols-3">
                 <div className="space-y-2">
                   <Label htmlFor="unit-count">Unit count</Label>
@@ -1662,14 +1543,14 @@ function ProductVariantsCard({
   const totalShadeQuantity = shades.reduce((sum: number, shade: ShadeFormValue) => sum + (Number(shade.quantity) || 0), 0);
 
   return (
-    <Card className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-      <CardHeader className="border-b px-6 py-5">
+    <Card className="gap-0 overflow-hidden rounded-2xl border bg-white py-0 shadow-sm">
+      <CardHeader className="border-b bg-[#fcfaf9] px-6 !py-3">
         <div className="flex items-start justify-between gap-3">
           <div>
             <CardTitle className="text-base font-semibold text-foreground">Shade variants</CardTitle>
             <CardDescription>Add shades with color, SKU, price, and stock.</CardDescription>
           </div>
-          <Button type="button" variant="outline" className="h-11 rounded-xl" onClick={() => append(createEmptyShade())}>
+          <Button type="button" className="h-10 rounded-xl bg-[#4b0d4b] px-4 text-white hover:bg-[#3a083a]" onClick={() => append(createEmptyShade())}>
             <Plus className="mr-2 h-4 w-4" />
             Add shade
           </Button>
@@ -1677,24 +1558,27 @@ function ProductVariantsCard({
       </CardHeader>
       <CardContent className="space-y-4 px-6 py-5">
         <div className="flex flex-wrap items-center gap-2">
-          <Badge variant="outline" className="rounded-full uppercase tracking-[0.22em]">
+          <Badge variant="outline" className="rounded-full border-[#4b0d4b]/20 bg-[#fbf7f4] px-3 py-1 uppercase tracking-[0.18em] text-[#4b0d4b]">
             {fields.length} shade{fields.length === 1 ? "" : "s"}
           </Badge>
-          <Badge variant="outline" className="rounded-full uppercase tracking-[0.22em]">
+          <Badge variant="outline" className="rounded-full border-border/60 bg-white px-3 py-1 uppercase tracking-[0.18em]">
             {formatNumber(totalShadeQuantity)} units
           </Badge>
         </div>
         {fields.length ? (
           <div className="space-y-4">
             {fields.map((field, index) => (
-              <div key={field.id} className="rounded-2xl border border-border/60 bg-[#fbf7f4] p-4">
+              <div key={field.id} className="rounded-2xl border border-[#4b0d4b]/10 bg-[#fcfaf9] p-5">
                 <div className="mb-3 flex items-center justify-between gap-3">
-                  <p className="text-sm font-semibold text-foreground">Shade {index + 1}</p>
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-muted-foreground">Variant {index + 1}</p>
+                    <p className="mt-1 text-sm font-semibold text-foreground">{shades[index]?.name || `Shade ${index + 1}`}</p>
+                  </div>
                   <div className="flex items-center gap-1">
-                    <Button type="button" variant="outline" size="icon" className="h-9 w-9 rounded-xl" onClick={() => move(index, Math.max(0, index - 1))} disabled={index === 0}>
+                    <Button type="button" variant="outline" size="icon" className="h-9 w-9 rounded-xl bg-white" onClick={() => move(index, Math.max(0, index - 1))} disabled={index === 0}>
                       <MoveUp className="h-4 w-4" />
                     </Button>
-                    <Button type="button" variant="outline" size="icon" className="h-9 w-9 rounded-xl" onClick={() => move(index, Math.min(fields.length - 1, index + 1))} disabled={index === fields.length - 1}>
+                    <Button type="button" variant="outline" size="icon" className="h-9 w-9 rounded-xl bg-white" onClick={() => move(index, Math.min(fields.length - 1, index + 1))} disabled={index === fields.length - 1}>
                       <MoveDown className="h-4 w-4" />
                     </Button>
                     <Button type="button" variant="ghost" className="h-9 px-3 text-red-600 hover:bg-red-50" onClick={() => remove(index)}>
@@ -1706,22 +1590,22 @@ function ProductVariantsCard({
 
                 <div className="grid gap-4 md:grid-cols-4">
                   <div className="space-y-1.5 md:col-span-2">
-                    <Label htmlFor={`shade-${index}-name`}>Shade name</Label>
+                    <Label htmlFor={`shade-${index}-name`} className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Shade name</Label>
                     <Input id={`shade-${index}-name`} className="h-11 rounded-xl bg-white" {...register(`shades.${index}.name`)} placeholder="Velvet berry" />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor={`shade-${index}-sku`}>SKU</Label>
+                    <Label htmlFor={`shade-${index}-sku`} className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">SKU</Label>
                     <Input id={`shade-${index}-sku`} className="h-11 rounded-xl bg-white" {...register(`shades.${index}.sku`)} placeholder="SKU-001" />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor={`shade-${index}-price`}>Price</Label>
+                    <Label htmlFor={`shade-${index}-price`} className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Price</Label>
                     <Input id={`shade-${index}-price`} type="number" min="0" step="0.01" className="h-11 rounded-xl bg-white" {...register(`shades.${index}.price`)} placeholder="799" />
                   </div>
                 </div>
 
                 <div className="mt-4 grid gap-4 md:grid-cols-4">
                   <div className="space-y-1.5">
-                    <Label>Hex color</Label>
+                    <Label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Hex color</Label>
                     <Controller
                       control={control}
                       name={`shades.${index}.hexColor`}
@@ -1744,13 +1628,16 @@ function ProductVariantsCard({
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor={`shade-${index}-quantity`}>Initial quantity</Label>
+                    <Label htmlFor={`shade-${index}-quantity`} className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">Initial quantity</Label>
                     <Input id={`shade-${index}-quantity`} type="number" min="0" className="h-11 rounded-xl bg-white" {...register(`shades.${index}.quantity`)} placeholder="150" />
                   </div>
-                  <div className="md:col-span-2 rounded-2xl border border-border/60 bg-white px-4 py-3">
-                    <p className="text-xs font-semibold uppercase tracking-[0.2em] text-muted-foreground">Preview</p>
-                    <p className="mt-1 text-sm font-medium text-foreground">{fields[index]?.name || "Unnamed shade"}</p>
-                    <p className="text-xs text-muted-foreground">{fields[index]?.sku || "No SKU"}</p>
+                  <div className="md:col-span-2 flex items-center gap-3 rounded-2xl bg-[#4b0d4b] px-4 py-3 text-white">
+                    <span className="h-10 w-10 shrink-0 rounded-xl border border-white/25" style={{ backgroundColor: shades[index]?.hexColor || "#a21caf" }} />
+                    <div className="min-w-0">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-white/65">Storefront shade</p>
+                      <p className="mt-1 truncate text-sm font-semibold">{shades[index]?.name || "Unnamed shade"}</p>
+                      <p className="text-xs text-white/65">{shades[index]?.sku || "No SKU"}</p>
+                    </div>
                   </div>
                 </div>
               </div>
@@ -1768,37 +1655,21 @@ function ProductVariantsCard({
 }
 
 function ProductMediaCard({
-  form,
-  productId,
   productName,
   mediaItems,
   uploadQueue,
   onFiles,
-  onRemove,
-  onMove,
-  onSetPrimary,
-  onAltChange,
-  onMediaFieldChange,
   isUploading,
 }: {
-  form: ReturnType<typeof useForm<ProductEditorValues>>;
-  productId?: string;
   productName: string;
   mediaItems: ProductMediaItem[];
   uploadQueue: UploadQueueItem[];
   onFiles: (files: File[]) => void;
-  onRemove: (index: number) => void;
-  onMove: (index: number, delta: number) => void;
-  onSetPrimary: (index: number) => void;
-  onAltChange: (index: number, value: string) => void;
-  onMediaFieldChange: (field: "heroImageUrl" | "heroObjectPosition" | "galleryUrls" | "videoUrl" | "videoTitle" | "videoDescription", value: string) => void;
   isUploading: boolean;
 }) {
-  const { watch } = form;
-
   return (
-    <Card className="overflow-hidden rounded-2xl border bg-white shadow-sm">
-      <CardHeader className="border-b px-6 py-5">
+    <Card className="gap-0 overflow-hidden rounded-2xl border bg-white py-0 shadow-sm">
+      <CardHeader className="border-b px-6 !py-3">
         <div className="flex items-start justify-between gap-3">
           <div>
             <CardTitle className="text-base font-semibold text-foreground">Media</CardTitle>
@@ -1809,8 +1680,18 @@ function ProductMediaCard({
           </Badge>
         </div>
       </CardHeader>
-      <CardContent className="space-y-5 px-6 py-5">
-        <R2UploadDropzone disabled={isUploading} isUploading={isUploading} onFiles={onFiles} />
+      <CardContent className="space-y-3 px-6 py-3">
+        {mediaItems.length ? (
+          <div className="flex flex-wrap items-start gap-2">
+            <ProductMediaPreview item={mediaItems[0]} className="h-48 w-48 shrink-0 rounded-lg bg-white" />
+            {mediaItems.slice(1).map((item, index) => (
+              <ProductMediaPreview key={mediaItemKey(item, index + 1)} item={item} className="h-24 w-24 shrink-0 rounded-lg bg-white" />
+            ))}
+            <R2UploadDropzone compact disabled={isUploading} isUploading={isUploading} onFiles={onFiles} />
+          </div>
+        ) : (
+          <R2UploadDropzone disabled={isUploading} isUploading={isUploading} onFiles={onFiles} />
+        )}
 
         {uploadQueue.length ? (
           <div className="space-y-2 rounded-2xl border border-border/60 bg-[#fbf7f4] p-4">
@@ -1832,102 +1713,12 @@ function ProductMediaCard({
           </div>
         ) : null}
 
-        {mediaItems.length ? (
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-            {mediaItems.map((item, index) => (
-              <ProductImageCard
-                key={mediaItemKey(item, index)}
-                item={item}
-                index={index}
-                total={mediaItems.length}
-                onRemove={onRemove}
-                onMove={onMove}
-                onSetPrimary={onSetPrimary}
-                onAltChange={onAltChange}
-              />
-            ))}
-          </div>
-        ) : (
+        {!mediaItems.length ? (
           <div className="rounded-2xl border border-dashed border-border/60 bg-white px-4 py-8 text-center">
             <p className="text-sm font-medium text-foreground">No media uploaded yet.</p>
             <p className="mt-1 text-xs text-muted-foreground">Upload product images or videos to build the storefront gallery.</p>
           </div>
-        )}
-
-        <Accordion type="single" collapsible className="w-full">
-          <AccordionItem value="advanced-media" className="rounded-2xl border border-border/60 px-4">
-            <AccordionTrigger className="text-base font-semibold text-foreground">Advanced media URLs</AccordionTrigger>
-            <AccordionContent className="space-y-4 pb-4">
-              <div className="grid gap-4 md:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="hero-image-url-duplicate">Hero image URL</Label>
-                  <Input
-                    id="hero-image-url-duplicate"
-                    className="h-11 rounded-xl bg-white"
-                    value={watch("heroImageUrl")}
-                    onChange={(event) => onMediaFieldChange("heroImageUrl", event.target.value)}
-                    placeholder="https://..."
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="hero-object-position-duplicate">Image focal point</Label>
-                  <Input
-                    id="hero-object-position-duplicate"
-                    className="h-11 rounded-xl bg-white"
-                    value={watch("heroObjectPosition")}
-                    onChange={(event) => onMediaFieldChange("heroObjectPosition", event.target.value)}
-                    placeholder="50% 50%"
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="gallery-urls-duplicate">Gallery URLs</Label>
-                <Textarea
-                  id="gallery-urls-duplicate"
-                  rows={3}
-                  className="rounded-xl bg-white"
-                  value={watch("galleryUrls")}
-                  onChange={(event) => onMediaFieldChange("galleryUrls", event.target.value)}
-                  placeholder="One URL per line"
-                />
-              </div>
-              <div className="grid gap-4 md:grid-cols-3">
-                <div className="space-y-2 md:col-span-2">
-                  <Label htmlFor="video-url-duplicate">Product video URL</Label>
-                  <Input
-                    id="video-url-duplicate"
-                    className="h-11 rounded-xl bg-white"
-                    value={watch("videoUrl")}
-                    onChange={(event) => onMediaFieldChange("videoUrl", event.target.value)}
-                    placeholder="https://..."
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="video-title-duplicate">Video title</Label>
-                  <Input
-                    id="video-title-duplicate"
-                    className="h-11 rounded-xl bg-white"
-                    value={watch("videoTitle")}
-                    onChange={(event) => onMediaFieldChange("videoTitle", event.target.value)}
-                    placeholder="Cevonne"
-                  />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="video-description-duplicate">Video description</Label>
-                <Textarea
-                  id="video-description-duplicate"
-                  rows={2}
-                  className="rounded-xl bg-white"
-                  value={watch("videoDescription")}
-                  onChange={(event) => onMediaFieldChange("videoDescription", event.target.value)}
-                  placeholder="Velvet matte color..."
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">Media uploads use Cloudflare R2. Manual URLs stay available for legacy content.</p>
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
+        ) : null}
       </CardContent>
     </Card>
   );
@@ -2269,7 +2060,7 @@ export function ProductEditorPage({
           throw new Error(`File too large: ${file.name}`);
         }
 
-        const upload = await uploadFileToR2(request, file, productId || product?.id, (progress) => {
+        const upload = await uploadProductMedia(request, file, (progress) => {
           setUploadQueue((prev) => prev.map((item) => (item.id === queueId ? { ...item, progress, status: "uploading" } : item)));
         });
 
@@ -2298,76 +2089,6 @@ export function ProductEditorPage({
       window.setTimeout(() => setUploadQueue([]), 1200);
       setIsUploading(false);
     }
-  };
-
-  const handleMediaFieldChange = (
-    field: "heroImageUrl" | "heroObjectPosition" | "galleryUrls" | "videoUrl" | "videoTitle" | "videoDescription",
-    value: string
-  ) => {
-    form.setValue(field, value, { shouldDirty: true });
-  };
-
-  const deleteMediaAsset = async (storageKey: string) => {
-    try {
-      const response = await request("/api/uploads/r2/delete", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ storageKey }),
-      });
-
-      if (!response.ok && response.status !== 204) {
-        const body = await response.json().catch(() => null);
-        throw new Error(body?.message || "Unable to delete uploaded media");
-      }
-    } catch (error) {
-      console.error(error);
-      toast.error("Media was removed from the form, but the stored file could not be deleted.");
-    }
-  };
-
-  const handleMediaRemove = (index: number) => {
-    const item = mediaItems[index];
-    setMediaItems((prev) => {
-      const next = prev.filter((_, itemIndex) => itemIndex !== index);
-      if (!next.length || next.some((media) => media.isPrimary)) {
-        return next;
-      }
-
-      return next.map((media, itemIndex) => ({
-        ...media,
-        isPrimary: itemIndex === 0,
-      }));
-    });
-
-    if (item?.key) {
-      void deleteMediaAsset(item.key);
-    }
-  };
-
-  const handleMediaMove = (index: number, delta: number) => {
-    setMediaItems((prev) => {
-      const next = [...prev];
-      const target = index + delta;
-      if (target < 0 || target >= next.length) return prev;
-      [next[index], next[target]] = [next[target], next[index]];
-      return next.map((item, itemIndex) => ({
-        ...item,
-        isPrimary: itemIndex === 0 ? true : item.isPrimary,
-      }));
-    });
-  };
-
-  const handleMediaPrimary = (index: number) => {
-    setMediaItems((prev) =>
-      prev.map((item, itemIndex) => ({
-        ...item,
-        isPrimary: itemIndex === index,
-      }))
-    );
-  };
-
-  const handleMediaAltChange = (index: number, value: string) => {
-    setMediaItems((prev) => prev.map((item, itemIndex) => (itemIndex === index ? { ...item, alt: value } : item)));
   };
 
   const submitPublish = () => {
@@ -2419,17 +2140,10 @@ export function ProductEditorPage({
                 />
 
                 <ProductMediaCard
-                  form={form}
-                  productId={productId || product?.id}
                   productName={watch("name") || product?.name || "Cevonne product"}
                   mediaItems={mediaItems}
                   uploadQueue={uploadQueue}
                   onFiles={handleMediaFiles}
-                  onRemove={handleMediaRemove}
-                  onMove={handleMediaMove}
-                  onSetPrimary={handleMediaPrimary}
-                  onAltChange={handleMediaAltChange}
-                  onMediaFieldChange={handleMediaFieldChange}
                   isUploading={isUploading}
                 />
 
@@ -2437,13 +2151,13 @@ export function ProductEditorPage({
                 <ProductInventoryCard form={form} />
                 <ProductVariantsCard form={form} />
                 <ProductAdvancedContent form={form} />
+                <SeoPreviewCard form={form} />
               </div>
 
               <aside className="space-y-6 lg:sticky lg:top-24 lg:self-start">
                 <ProductStatusCard form={form} />
                 <ProductOrganizationCard form={form} collections={collections} />
                 <ProductCategoryCard form={form} />
-                <SeoPreviewCard form={form} mediaItems={mediaItems} />
               </aside>
             </div>
 

@@ -282,7 +282,7 @@ type G5UploadedMedia = {
   size: number;
 };
 
-type BusyAction = "upload" | "register" | "save" | "approve" | "reject" | "readiness" | "publish" | null;
+type BusyAction = "upload" | "register" | "save" | "approve" | "reject" | "delete" | "readiness" | "publish" | null;
 
 type ComposerMode = "register" | "edit";
 
@@ -1598,11 +1598,11 @@ const AssetCard = ({ asset, onApprove, onRunReadinessCheck, onEdit, onDelete, bu
             <Button
               type="button"
               onClick={() => onDelete(asset.asset_id)}
-              disabled={isBusy && busyAction === "reject"}
+              disabled={isBusy && busyAction === "delete"}
               variant="outline"
               className="h-9 w-full rounded-[12px] px-2 text-xs shadow-none border-rose-200 text-rose-600 hover:bg-rose-50 hover:text-rose-700"
             >
-              {isBusy && busyAction === "reject" ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <XCircle className="mr-1.5 size-3.5" />}
+              {isBusy && busyAction === "delete" ? <Loader2 className="mr-1.5 size-3.5 animate-spin" /> : <XCircle className="mr-1.5 size-3.5" />}
               Delete
             </Button>
           </div>
@@ -2924,7 +2924,7 @@ export default function G5AssetApprovalPage() {
           throw new Error(message);
         }
 
-        toast.success(decision === "APPROVED" ? "Asset approved." : "Asset deleted.");
+        toast.success(decision === "APPROVED" ? "Asset approved." : "Asset rejected.");
         if (decision === "APPROVED") {
           setActiveTab("ready-to-publish");
         }
@@ -2939,6 +2939,49 @@ export default function G5AssetApprovalPage() {
       }
     },
     [authFetch, refreshData, selectedAsset, allAssets, user?.email, user?.id, user?.name]
+  );
+
+  const handleDeleteAsset = useCallback(
+    async (targetAssetId?: string) => {
+      const assetToDelete = targetAssetId ? allAssets.find((asset) => asset.asset_id === targetAssetId) : selectedAsset;
+      if (!assetToDelete) {
+        return;
+      }
+
+      const actor = user?.name?.trim() || user?.email?.trim() || user?.id?.trim() || "admin";
+      setBusyAction("delete");
+      if (targetAssetId) setProcessingAssetId(targetAssetId);
+      setInlineError(null);
+
+      try {
+        const response = await authFetch(buildRouteUrl("/api/admin/g5/assets"), {
+          method: "DELETE",
+          body: JSON.stringify({
+            asset_id: assetToDelete.asset_id,
+            approval_id: assetToDelete.approval_id?.trim() || assetToDelete.asset_id,
+            actor,
+          }),
+          silent: true,
+        });
+
+        const body = await parseJson<G5WebhookResponse>(response);
+        if (!response.ok || !body) {
+          const message = body?.message || "Unable to remove G5 asset.";
+          throw new Error(message);
+        }
+
+        toast.success(body.message || "Asset removed from the G5 queue.");
+        await refreshData();
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Unable to remove G5 asset.";
+        setInlineError(message);
+        toast.error(message);
+      } finally {
+        setBusyAction(null);
+        setProcessingAssetId(null);
+      }
+    },
+    [authFetch, allAssets, refreshData, selectedAsset, user?.email, user?.id, user?.name],
   );
 
   const handleRunReadinessCheck = useCallback(async (targetAssetId?: string) => {
@@ -3701,7 +3744,7 @@ export default function G5AssetApprovalPage() {
                               onApprove={(id) => void handleApprovalDecision("APPROVED", id)}
                               onRunReadinessCheck={handleRunReadinessCheck}
                               onEdit={handleOpenPostEditor}
-                              onDelete={(id) => void handleApprovalDecision("REJECTED", id)}
+                              onDelete={(id) => void handleDeleteAsset(id)}
                               busyAction={busyAction}
                               processingAssetId={processingAssetId}
                             />
@@ -3727,7 +3770,7 @@ export default function G5AssetApprovalPage() {
                               onApprove={(id) => void handleApprovalDecision("APPROVED", id)}
                               onRunReadinessCheck={handleRunReadinessCheck}
                               onEdit={handleOpenPostEditor}
-                              onDelete={(id) => void handleApprovalDecision("REJECTED", id)}
+                              onDelete={(id) => void handleDeleteAsset(id)}
                               busyAction={busyAction}
                               processingAssetId={processingAssetId}
                             />
@@ -3753,7 +3796,7 @@ export default function G5AssetApprovalPage() {
                               onApprove={(id) => void handleApprovalDecision("APPROVED", id)}
                               onRunReadinessCheck={handleRunReadinessCheck}
                               onEdit={handleOpenPostEditor}
-                              onDelete={(id) => void handleApprovalDecision("REJECTED", id)}
+                              onDelete={(id) => void handleDeleteAsset(id)}
                               busyAction={busyAction}
                               processingAssetId={processingAssetId}
                             />
@@ -3779,7 +3822,7 @@ export default function G5AssetApprovalPage() {
                               onApprove={(id) => void handleApprovalDecision("APPROVED", id)}
                               onRunReadinessCheck={handleRunReadinessCheck}
                               onEdit={handleOpenPostEditor}
-                              onDelete={(id) => void handleApprovalDecision("REJECTED", id)}
+                              onDelete={(id) => void handleDeleteAsset(id)}
                               busyAction={busyAction}
                               processingAssetId={processingAssetId}
                             />
