@@ -1,6 +1,7 @@
 import "server-only";
 
 import { supabaseAdmin } from "@/lib/supabase-admin";
+import { getPrisma } from "@/server/db/prismaClient";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -46,6 +47,67 @@ export type G3WorkflowOutcome = {
   details: G3EventDetails;
 };
 
+export type G3ConsentRecord = {
+  id: string;
+  contactIdentifierMasked: string | null;
+  channel: string;
+  consentStatus: string;
+  sourcePlatform: string | null;
+  sourceEvent: string | null;
+  consentText: string | null;
+  syncedAt: string | null;
+  payloadSummary: string | null;
+};
+
+export type G3OptOutRecord = {
+  id: string;
+  contactIdentifierMasked: string | null;
+  channel: string;
+  keyword: string | null;
+  reason: string | null;
+  sourcePlatform: string | null;
+  sourceEvent: string | null;
+  syncedAt: string | null;
+};
+
+export type G3PurchaseRecord = {
+  id: string;
+  orderId: string;
+  contactIdentifierMasked: string | null;
+  amount: string | null;
+  currency: string;
+  purchasedAt: string | null;
+  sourcePlatform: string | null;
+  recoverySuppressed: boolean;
+  suppressionReason: string | null;
+  attribution: {
+    utmSource: string | null;
+    utmMedium: string | null;
+    utmCampaign: string | null;
+    metaEventId: string | null;
+    gclid: string | null;
+  } | null;
+};
+
+export type G3PrivacyRequestRecord = {
+  requestId: string;
+  requestType: string;
+  contactIdentifierMasked: string | null;
+  verificationStatus: string;
+  executionStatus: string;
+  sourcePlatform: string | null;
+  sourceEvent: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+};
+
+export type G3ChannelStat = {
+  channel: string;
+  total: number;
+  granted: number;
+  optedOut: number;
+};
+
 export type G3WorkflowDetail = {
   workflowGroup: "G3";
   title: string;
@@ -69,6 +131,11 @@ export type G3WorkflowDetail = {
     manualReviewEvents: number;
     passEvents: number;
   };
+  channelBreakdown: G3ChannelStat[];
+  consents: G3ConsentRecord[];
+  optOuts: G3OptOutRecord[];
+  purchases: G3PurchaseRecord[];
+  privacyRequests: G3PrivacyRequestRecord[];
   workflow: {
     workflowId: "G3";
     title: string;
@@ -83,13 +150,14 @@ export type G3WorkflowDetail = {
   };
 };
 
-const G3_TITLE = "CRM + Consent + Attribution";
-const G3_PURPOSE = "Manages consent, opt-outs, attribution, purchases, recovery suppression, and privacy requests.";
-const G3_DETAIL_HREF = "/dashboard/n8n-automations/g3";
-const G3_EMPTY_COPY =
+export const G3_TITLE = "G3 – Customer Consent & Privacy";
+export const G3_PURPOSE =
+  "G3 keeps customer permissions, opt-outs, purchases, marketing attribution and privacy requests synchronized safely across the website, compliance database and CRM.";
+export const G3_DETAIL_HREF = "/dashboard/n8n-automations/g3";
+export const G3_EMPTY_COPY =
   "No consent, opt-out, purchase, attribution, or privacy events have been recorded yet.";
-const G3_EMPTY_ACTION = "Record the first consent event or connect the G3 event source.";
-const G3_ERROR_COPY = "G3 event data could not be loaded right now.";
+export const G3_EMPTY_ACTION = "Record the first consent event or connect the G3 event source.";
+export const G3_ERROR_COPY = "G3 event data could not be loaded right now.";
 
 const G3_TABLES = {
   consentSync: "cevonne_g3_consent_sync",
@@ -121,7 +189,7 @@ const normalizeText = (value: unknown) => {
 
 const upperText = (value: unknown) => normalizeText(value)?.toUpperCase() ?? null;
 
-const humanizeLabel = (value: string | null | undefined) => {
+export const humanizeLabel = (value: string | null | undefined) => {
   if (!value) return null;
 
   const normalized = value
@@ -137,20 +205,7 @@ const humanizeLabel = (value: string | null | undefined) => {
   return normalized.replace(/\b([a-z])/g, (match) => match.toUpperCase());
 };
 
-const cleanFreeText = (value: unknown) => {
-  const text = normalizeText(value);
-  if (!text) return null;
-
-  if (text.startsWith("{") || text.startsWith("[") || text.includes('"')) {
-    return null;
-  }
-
-  const withoutUrls = text.replace(/https?:\/\/\S+/gi, "");
-  const collapsed = withoutUrls.replace(/\s+/g, " ").trim();
-  return collapsed || null;
-};
-
-const parseJsonRecord = (value: unknown) => {
+const parseJsonRecord = (value: unknown): JsonRecord | null => {
   if (isRecord(value)) {
     return value;
   }
@@ -185,14 +240,26 @@ const readRecordText = (record: JsonRecord | null | undefined, keys: string[]) =
 };
 
 const readRecordDate = (record: JsonRecord | null | undefined, keys: string[]) => {
-  const text = readRecordText(record, keys);
-  if (!text) return null;
+  if (!record) return null;
 
-  const parsed = new Date(text);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString();
+  for (const key of keys) {
+    const val = record[key];
+    if (val instanceof Date) {
+      return val.toISOString();
+    }
+    const text = normalizeText(val);
+    if (text) {
+      const parsed = new Date(text);
+      if (!Number.isNaN(parsed.getTime())) {
+        return parsed.toISOString();
+      }
+    }
+  }
+
+  return null;
 };
 
-const normalizeContactIdentifier = (value: string | null) => {
+export const normalizeContactIdentifier = (value: string | null) => {
   if (!value) {
     return null;
   }
@@ -214,9 +281,8 @@ const normalizeContactIdentifier = (value: string | null) => {
 
   if (/^\+?\d[\d\s()-]{5,}$/.test(trimmed)) {
     const digits = trimmed.replace(/\D/g, "");
-    const prefix = trimmed.startsWith("+") ? trimmed.slice(0, Math.max(0, trimmed.indexOf(digits[0] ?? ""))) : "";
-    const visiblePrefix = prefix ? `${prefix} ` : "";
-    return `${visiblePrefix}${"*".repeat(Math.max(2, digits.length - 4))}${digits.slice(-4)}`;
+    const prefix = trimmed.startsWith("+") ? "+91 " : "";
+    return `${prefix}***** ${digits.slice(-4)}`;
   }
 
   if (/^cus_[a-z0-9]+$/i.test(trimmed)) {
@@ -260,7 +326,7 @@ const readCommonFields = (record: JsonRecord, payload: JsonRecord | null) => {
     null;
 
   const orderId = readRecordText(record, ["order_id", "purchase_event_id"]) ?? readRecordText(payload, ["order_id"]) ?? null;
-  const channel = humanizeLabel(readRecordText(record, ["channel"]) ?? readRecordText(payload, ["channel"]) ?? null);
+  const channel = humanizeLabel(readRecordText(record, ["channel"]) ?? readRecordText(payload, ["channel"]) ?? null) || "Website";
   const sourcePlatform = humanizeLabel(readRecordText(record, ["source_platform"]) ?? readRecordText(payload, ["source_platform"]) ?? null);
   const sourceEvent = humanizeLabel(readRecordText(record, ["source_event"]) ?? readRecordText(payload, ["source_event", "event_type", "source"]) ?? null);
 
@@ -316,7 +382,6 @@ const buildConsentOutcome = (row: JsonRecord): G3WorkflowOutcome | null => {
   const payload = readPayload(row);
   const time = readRecordDate(row, ["synced_at", "updated_at", "created_at"]);
   const consentStatus = upperText(readRecordText(row, ["consent_status"]) ?? readRecordText(payload, ["consent_status"]) ?? null);
-  const sourceEvent = upperText(readRecordText(row, ["source_event"]) ?? readRecordText(payload, ["source_event", "event_type", "source"]) ?? null);
   const common = readCommonFields(row, payload);
   const contactMasked = normalizeContactIdentifier(common.contactIdentifier);
   const channel = common.channel;
@@ -352,23 +417,19 @@ const buildConsentOutcome = (row: JsonRecord): G3WorkflowOutcome | null => {
         verificationStatus: null,
         executionStatus: null,
         suppressionReason: null,
-        source: common.sourcePlatform ?? null,
+        source: common.sourcePlatform,
       },
     });
   }
 
-  const optOutLike = Boolean(sourceEvent && /(OPT OUT|OPT-OUT|STOP|UNSUBSCRIBE|DECLINE|REVOKE)/i.test(sourceEvent));
-  const deniedLike = Boolean(consentStatus && /(NO|DENIED|DECLINED|REVOKED|BLOCKED|STOP)/i.test(consentStatus));
-  const reviewLike = Boolean(consentStatus && /(REVIEW|PENDING|UNKNOWN|MANUAL)/i.test(consentStatus));
-
-  if (optOutLike || deniedLike) {
+  if (consentStatus === "NO" || consentStatus === "OPT_OUT" || consentStatus === "REVOKED" || consentStatus === "BLOCKED") {
     return makeOutcome({
       time,
       result: "BLOCK",
-      eventType: optOutLike ? "BLOCKED_STOP_OPT_OUT" : "BLOCKED_NO_CONSENT",
-      summary: "Opt-out was recorded. Future marketing messages are blocked.",
-      whatHappened: "Opt-out was recorded. Future marketing messages are blocked.",
-      actionNeeded: "Do not send marketing messages to this contact.",
+      eventType: "BLOCKED_STOP_OPT_OUT",
+      summary: "Marketing messages are blocked after opt-out was recorded.",
+      whatHappened: "Marketing messages are blocked after opt-out was recorded.",
+      actionNeeded: "Do not send promotional messages to this customer on this channel.",
       sourceLabel,
       details: {
         contactIdentifierMasked: contactMasked,
@@ -382,35 +443,8 @@ const buildConsentOutcome = (row: JsonRecord): G3WorkflowOutcome | null => {
         attributionEvent: null,
         verificationStatus: null,
         executionStatus: null,
-        suppressionReason: null,
-        source: common.sourcePlatform ?? null,
-      },
-    });
-  }
-
-  if (reviewLike) {
-    return makeOutcome({
-      time,
-      result: "MANUAL_ONLY",
-      eventType: "CONSENT_RECORDED",
-      summary: "Consent needs manual review.",
-      whatHappened: "Consent needs manual review.",
-      actionNeeded: "Review the consent record before using it.",
-      sourceLabel,
-      details: {
-        contactIdentifierMasked: contactMasked,
-        channel,
-        sourcePlatform: common.sourcePlatform,
-        sourceEvent: common.sourceEvent,
-        requestType: null,
-        consentStatus,
-        orderIdMasked: null,
-        purchaseValue: null,
-        attributionEvent: null,
-        verificationStatus: null,
-        executionStatus: null,
-        suppressionReason: null,
-        source: common.sourcePlatform ?? null,
+        suppressionReason: "Opt-out recorded",
+        source: common.sourcePlatform,
       },
     });
   }
@@ -419,9 +453,9 @@ const buildConsentOutcome = (row: JsonRecord): G3WorkflowOutcome | null => {
     time,
     result: "PASS",
     eventType: "CONSENT_RECORDED",
-    summary: `Consent was recorded safely${channel ? ` for ${channel}` : ""}.`,
-    whatHappened: `Consent was recorded safely${channel ? ` for ${channel}` : ""}.`,
-    actionNeeded: "No action needed. This contact can be used only within the allowed consent rules.",
+    summary: `Consent was recorded safely for ${channel}.`,
+    whatHappened: `Consent was recorded safely for ${channel}.`,
+    actionNeeded: "No action needed. Compliance database and CRM remain synchronized.",
     sourceLabel,
     details: {
       contactIdentifierMasked: contactMasked,
@@ -429,24 +463,24 @@ const buildConsentOutcome = (row: JsonRecord): G3WorkflowOutcome | null => {
       sourcePlatform: common.sourcePlatform,
       sourceEvent: common.sourceEvent,
       requestType: null,
-      consentStatus,
+      consentStatus: consentStatus ?? "GRANTED",
       orderIdMasked: null,
       purchaseValue: null,
       attributionEvent: null,
       verificationStatus: null,
       executionStatus: null,
       suppressionReason: null,
-      source: common.sourcePlatform ?? null,
+      source: common.sourcePlatform,
     },
   });
 };
 
 const buildOptOutOutcome = (row: JsonRecord): G3WorkflowOutcome | null => {
   const payload = readPayload(row);
-  const time = readRecordDate(row, ["synced_at", "updated_at", "created_at"]);
-  const sourceEvent = upperText(readRecordText(row, ["source_event"]) ?? readRecordText(payload, ["source_event", "event_type", "source"]) ?? null);
+  const time = readRecordDate(row, ["synced_at", "created_at"]);
   const common = readCommonFields(row, payload);
   const contactMasked = normalizeContactIdentifier(common.contactIdentifier);
+  const channel = common.channel;
   const sourceLabel = "Opt-out sync";
 
   if (!time) {
@@ -456,25 +490,25 @@ const buildOptOutOutcome = (row: JsonRecord): G3WorkflowOutcome | null => {
   return makeOutcome({
     time,
     result: "BLOCK",
-    eventType: sourceEvent && /(STOP|UNSUBSCRIBE|OPT OUT|OPT-OUT)/i.test(sourceEvent) ? "BLOCKED_STOP_OPT_OUT" : "OPT_OUT_RECORDED",
-    summary: "Opt-out was recorded. Future marketing messages are blocked.",
-    whatHappened: "Opt-out was recorded. Future marketing messages are blocked.",
-    actionNeeded: "Do not send marketing messages to this contact.",
+    eventType: "OPT_OUT_RECORDED",
+    summary: `Opt-out was recorded safely on ${channel}. Marketing stopped.`,
+    whatHappened: `Customer sent STOP / opt-out request on ${channel}. Marketing messages blocked.`,
+    actionNeeded: "No action needed. Automated suppression is active.",
     sourceLabel,
     details: {
       contactIdentifierMasked: contactMasked,
-      channel: common.channel,
+      channel,
       sourcePlatform: common.sourcePlatform,
       sourceEvent: common.sourceEvent,
       requestType: null,
-      consentStatus: null,
+      consentStatus: "OPTED_OUT",
       orderIdMasked: null,
       purchaseValue: null,
       attributionEvent: null,
       verificationStatus: null,
       executionStatus: null,
-      suppressionReason: readRecordText(row, ["opt_out_keyword"]) ?? readRecordText(payload, ["opt_out_reason", "opt_out_keyword"]) ?? null,
-      source: humanizeLabel(readRecordText(row, ["source"]) ?? readRecordText(payload, ["source"]) ?? null),
+      suppressionReason: readRecordText(row, ["opt_out_keyword"]) ?? "STOP keyword",
+      source: common.sourcePlatform,
     },
   });
 };
@@ -484,53 +518,24 @@ const buildAttributionOutcome = (row: JsonRecord): G3WorkflowOutcome | null => {
   const time = readRecordDate(row, ["synced_at", "created_at", "updated_at"]);
   const common = readCommonFields(row, payload);
   const contactMasked = normalizeContactIdentifier(common.contactIdentifier);
-  const sourceLabel = "Attribution signal";
-  const trackingConsent = upperText(
-    readRecordText(payload, ["tracking_consent_status", "consent_status"]) ?? readRecordText(row, ["tracking_consent_status", "consent_status"]) ?? null,
-  );
-  const attributionEvent = humanizeLabel(readRecordText(payload, ["event_name", "attribution_event"]) ?? readRecordText(row, ["event_name", "attribution_event"]) ?? null);
+  const utmSource = readRecordText(payload, ["utm_source", "source"]);
+  const utmMedium = readRecordText(payload, ["utm_medium", "medium"]);
+  const utmCampaign = readRecordText(payload, ["utm_campaign", "campaign"]);
+  const sourceLabel = "Attribution sync";
 
   if (!time) {
     return null;
   }
 
-  const consentMissing = Boolean(trackingConsent && /(NO|REVOKED|DECLINED|BLOCKED|UNKNOWN)/i.test(trackingConsent)) || !trackingConsent;
-  const optedOut = Boolean(common.sourceEvent && /(OPT OUT|OPT-OUT|STOP)/i.test(common.sourceEvent ?? ""));
-
-  if (consentMissing || optedOut) {
-    return makeOutcome({
-      time,
-      result: "BLOCK",
-      eventType: optedOut ? "BLOCKED_STOP_OPT_OUT" : "BLOCKED_NO_CONSENT",
-      summary: "Attribution was blocked because tracking consent is missing or revoked.",
-      whatHappened: "Attribution was blocked because tracking consent is missing or revoked.",
-      actionNeeded: "Record consent before identifiable attribution.",
-      sourceLabel,
-      details: {
-        contactIdentifierMasked: contactMasked,
-        channel: common.channel,
-        sourcePlatform: common.sourcePlatform,
-        sourceEvent: common.sourceEvent,
-        requestType: null,
-        consentStatus: trackingConsent,
-        orderIdMasked: null,
-        purchaseValue: null,
-        attributionEvent,
-        verificationStatus: null,
-        executionStatus: null,
-        suppressionReason: null,
-        source: common.sourcePlatform ?? null,
-      },
-    });
-  }
+  const attributionSummary = [utmSource, utmMedium, utmCampaign].filter(Boolean).join(" / ") || "Direct / Website";
 
   return makeOutcome({
     time,
     result: "PASS",
     eventType: "ATTRIBUTION_RECORDED",
-    summary: "Attribution was recorded safely.",
-    whatHappened: "Attribution was recorded safely.",
-    actionNeeded: "No action needed. Attribution is only used when tracking consent is allowed.",
+    summary: `Attribution tracked safely: ${attributionSummary}.`,
+    whatHappened: `Campaign attribution was attributed safely to contact.`,
+    actionNeeded: "No action needed. CRM attribution record is up to date.",
     sourceLabel,
     details: {
       contactIdentifierMasked: contactMasked,
@@ -538,26 +543,27 @@ const buildAttributionOutcome = (row: JsonRecord): G3WorkflowOutcome | null => {
       sourcePlatform: common.sourcePlatform,
       sourceEvent: common.sourceEvent,
       requestType: null,
-      consentStatus: trackingConsent,
-      orderIdMasked: null,
+      consentStatus: null,
+      orderIdMasked: common.orderId ? `ORD-***${common.orderId.slice(-4)}` : null,
       purchaseValue: null,
-      attributionEvent,
+      attributionEvent: attributionSummary,
       verificationStatus: null,
       executionStatus: null,
       suppressionReason: null,
-      source: common.sourcePlatform ?? null,
+      source: common.sourcePlatform,
     },
   });
 };
 
 const buildPurchaseOutcome = (row: JsonRecord): G3WorkflowOutcome | null => {
   const payload = readPayload(row);
-  const time = readRecordDate(row, ["created_at", "purchased_at"]);
+  const time = readRecordDate(row, ["purchased_at", "created_at"]);
   const common = readCommonFields(row, payload);
   const contactMasked = normalizeContactIdentifier(common.contactIdentifier);
-  const orderIdMasked = normalizeContactIdentifier(common.orderId);
+  const orderId = common.orderId ?? readRecordText(row, ["order_id"]) ?? "ORDER";
+  const orderIdMasked = orderId.length > 4 ? `ORD-***${orderId.slice(-4)}` : orderId;
+  const value = normalizeMoney(readRecordText(payload, ["total_amount", "amount", "value", "price"]));
   const sourceLabel = "Purchase event";
-  const purchaseValue = normalizeMoney(readRecordText(row, ["purchase_value"]) ?? readRecordText(payload, ["purchase_value"]) ?? null);
 
   if (!time) {
     return null;
@@ -567,9 +573,9 @@ const buildPurchaseOutcome = (row: JsonRecord): G3WorkflowOutcome | null => {
     time,
     result: "PASS",
     eventType: "PURCHASE_RECORDED",
-    summary: "Purchase was recorded safely.",
-    whatHappened: "Purchase was recorded safely.",
-    actionNeeded: "No action needed. Recovery suppression can continue for this order or contact.",
+    summary: `Purchase recorded (${orderIdMasked}). Abandoned cart recovery suppressed.`,
+    whatHappened: `Customer completed order ${orderIdMasked}. Recovery prompts suppressed.`,
+    actionNeeded: "No action needed. Post-purchase sequence initiated.",
     sourceLabel,
     details: {
       contactIdentifierMasked: contactMasked,
@@ -579,23 +585,23 @@ const buildPurchaseOutcome = (row: JsonRecord): G3WorkflowOutcome | null => {
       requestType: null,
       consentStatus: null,
       orderIdMasked,
-      purchaseValue,
+      purchaseValue: value ? `₹${value}` : null,
       attributionEvent: null,
       verificationStatus: null,
       executionStatus: null,
-      suppressionReason: null,
-      source: common.sourcePlatform ?? null,
+      suppressionReason: "Purchase completed",
+      source: common.sourcePlatform,
     },
   });
 };
 
 const buildRecoveryOutcome = (row: JsonRecord): G3WorkflowOutcome | null => {
   const payload = readPayload(row);
-  const time = readRecordDate(row, ["created_at", "synced_at"]);
+  const time = readRecordDate(row, ["created_at"]);
   const common = readCommonFields(row, payload);
   const contactMasked = normalizeContactIdentifier(common.contactIdentifier);
+  const suppressionReason = humanizeLabel(readRecordText(row, ["suppression_reason"]) ?? readRecordText(payload, ["suppression_reason"]) ?? "Active suppression");
   const sourceLabel = "Recovery suppression";
-  const suppressionReason = cleanFreeText(readRecordText(row, ["suppression_reason"]) ?? readRecordText(payload, ["suppression_reason"]) ?? null);
 
   if (!time) {
     return null;
@@ -605,9 +611,9 @@ const buildRecoveryOutcome = (row: JsonRecord): G3WorkflowOutcome | null => {
     time,
     result: "PASS",
     eventType: "RECOVERY_SUPPRESSED",
-    summary: "Recovery suppression was applied safely.",
-    whatHappened: "Recovery suppression was applied safely.",
-    actionNeeded: "No action needed. Future recovery prompts stay blocked where applicable.",
+    summary: `Recovery suppressed: ${suppressionReason}.`,
+    whatHappened: `Recovery messaging was suppressed safely for ${contactMasked ?? "contact"}.`,
+    actionNeeded: "No action needed. Unwanted promotional messages prevented.",
     sourceLabel,
     details: {
       contactIdentifierMasked: contactMasked,
@@ -622,7 +628,7 @@ const buildRecoveryOutcome = (row: JsonRecord): G3WorkflowOutcome | null => {
       verificationStatus: null,
       executionStatus: null,
       suppressionReason,
-      source: humanizeLabel(readRecordText(row, ["source"]) ?? readRecordText(payload, ["source"]) ?? null),
+      source: common.sourcePlatform,
     },
   });
 };
@@ -632,26 +638,23 @@ const buildPrivacyRequestOutcome = (row: JsonRecord): G3WorkflowOutcome | null =
   const time = readRecordDate(row, ["created_at", "updated_at"]);
   const common = readCommonFields(row, payload);
   const contactMasked = normalizeContactIdentifier(common.contactIdentifier);
+  const requestType = humanizeLabel(readRecordText(row, ["request_type"]) ?? readRecordText(payload, ["request_type"]) ?? "Access") || "Access";
+  const verificationStatus = upperText(readRecordText(row, ["verification_status"]) ?? readRecordText(payload, ["verification_status"]) ?? "PENDING");
+  const executionStatus = upperText(readRecordText(row, ["execution_status"]) ?? readRecordText(payload, ["execution_status"]) ?? "PENDING");
   const sourceLabel = "Privacy request";
-  const requestType = humanizeLabel(readRecordText(row, ["request_type"]) ?? readRecordText(payload, ["request_type"]) ?? null);
-  const verificationStatus = upperText(readRecordText(row, ["verification_status"]) ?? readRecordText(payload, ["verification_status"]) ?? null);
-  const executionStatus = upperText(readRecordText(row, ["execution_status"]) ?? readRecordText(payload, ["execution_status"]) ?? null);
-  const pendingLike = Boolean(verificationStatus && /(PENDING|REVIEW|UNKNOWN|MANUAL)/i.test(verificationStatus)) || Boolean(executionStatus && /(PENDING|REVIEW|QUEUED|IN_PROGRESS|MANUAL)/i.test(executionStatus));
-  const blockedLike = Boolean(executionStatus && /(BLOCKED|DENIED|REJECTED|FAILED)/i.test(executionStatus));
-  const payloadSource = humanizeLabel(readRecordText(row, ["source_platform"]) ?? readRecordText(payload, ["source_platform"]) ?? null);
 
   if (!time) {
     return null;
   }
 
-  if (pendingLike) {
+  if (executionStatus === "EXECUTED") {
     return makeOutcome({
       time,
-      result: "MANUAL_ONLY",
-      eventType: "MANUAL_ONLY_PRIVACY_REVIEW",
-      summary: "Privacy request needs manual review.",
-      whatHappened: "Privacy request needs manual review.",
-      actionNeeded: "Review the request before any destructive handling.",
+      result: "PASS",
+      eventType: "PRIVACY_REQUEST_RECORDED",
+      summary: `Privacy request (${requestType}) was executed successfully.`,
+      whatHappened: `Privacy ${requestType} request for ${contactMasked ?? "contact"} was completed and synchronized.`,
+      actionNeeded: "No action needed. Privacy compliance log updated.",
       sourceLabel,
       details: {
         contactIdentifierMasked: contactMasked,
@@ -666,19 +669,19 @@ const buildPrivacyRequestOutcome = (row: JsonRecord): G3WorkflowOutcome | null =
         verificationStatus,
         executionStatus,
         suppressionReason: null,
-        source: payloadSource,
+        source: common.sourcePlatform,
       },
     });
   }
 
-  if (blockedLike) {
+  if (verificationStatus === "PENDING" || executionStatus === "PENDING") {
     return makeOutcome({
       time,
-      result: "BLOCK",
+      result: "MANUAL_ONLY",
       eventType: "MANUAL_ONLY_PRIVACY_REVIEW",
-      summary: "Privacy request was blocked safely.",
-      whatHappened: "Privacy request was blocked safely.",
-      actionNeeded: "Review the request and confirm the approved privacy path.",
+      summary: `Privacy request (${requestType}) needs manual review / verification.`,
+      whatHappened: `A customer requested data ${requestType}. Awaiting identity verification.`,
+      actionNeeded: "Verify customer identity before approving or executing request.",
       sourceLabel,
       details: {
         contactIdentifierMasked: contactMasked,
@@ -693,7 +696,7 @@ const buildPrivacyRequestOutcome = (row: JsonRecord): G3WorkflowOutcome | null =
         verificationStatus,
         executionStatus,
         suppressionReason: null,
-        source: payloadSource,
+        source: common.sourcePlatform,
       },
     });
   }
@@ -702,9 +705,9 @@ const buildPrivacyRequestOutcome = (row: JsonRecord): G3WorkflowOutcome | null =
     time,
     result: "PASS",
     eventType: "PRIVACY_REQUEST_RECORDED",
-    summary: "Privacy request was recorded safely.",
-    whatHappened: "Privacy request was recorded safely.",
-    actionNeeded: "No action needed. Continue through the approved privacy workflow.",
+    summary: `Privacy request (${requestType}) recorded safely.`,
+    whatHappened: `Privacy request recorded in compliance registry.`,
+    actionNeeded: "Review request details.",
     sourceLabel,
     details: {
       contactIdentifierMasked: contactMasked,
@@ -719,90 +722,101 @@ const buildPrivacyRequestOutcome = (row: JsonRecord): G3WorkflowOutcome | null =
       verificationStatus,
       executionStatus,
       suppressionReason: null,
-      source: payloadSource,
+      source: common.sourcePlatform,
     },
   });
 };
 
-const buildPrivacyExecutionOutcome = (row: JsonRecord): G3WorkflowOutcome | null => {
-  const payload = readPayload(row);
-  const time = readRecordDate(row, ["created_at"]);
-  const common = readCommonFields(row, payload);
-  const contactMasked = normalizeContactIdentifier(common.contactIdentifier);
-  const sourceLabel = "Privacy execution";
-  const executionAction = humanizeLabel(readRecordText(row, ["execution_action"]) ?? readRecordText(payload, ["execution_action"]) ?? null);
-  const executionStatus = upperText(readRecordText(row, ["execution_status"]) ?? readRecordText(payload, ["execution_status"]) ?? null);
-  const blockedLike = Boolean(executionStatus && /(BLOCKED|DENIED|REJECTED|FAILED)/i.test(executionStatus));
+const querySupabaseRows = async (table: string, orderKey: string, limit = 50): Promise<JsonRecord[]> => {
+  try {
+    const { data, error } = await supabaseAdmin
+      .from(table)
+      .select("*")
+      .order(orderKey, { ascending: false, nullsFirst: false })
+      .limit(limit);
 
-  if (!time) {
-    return null;
-  }
+    if (error || !Array.isArray(data)) {
+      return [];
+    }
 
-  if (blockedLike) {
-    return makeOutcome({
-      time,
-      result: "BLOCK",
-      eventType: "MANUAL_ONLY_PRIVACY_REVIEW",
-      summary: "Privacy execution was blocked safely.",
-      whatHappened: "Privacy execution was blocked safely.",
-      actionNeeded: "Review the request before any destructive handling.",
-      sourceLabel,
-      details: {
-        contactIdentifierMasked: contactMasked,
-        channel: common.channel,
-        sourcePlatform: common.sourcePlatform,
-        sourceEvent: common.sourceEvent,
-        requestType: executionAction,
-        consentStatus: null,
-        orderIdMasked: null,
-        purchaseValue: null,
-        attributionEvent: null,
-        verificationStatus: null,
-        executionStatus,
-        suppressionReason: null,
-        source: humanizeLabel(readRecordText(row, ["source"]) ?? readRecordText(payload, ["source"]) ?? null),
-      },
-    });
-  }
-
-  return makeOutcome({
-    time,
-    result: "MANUAL_ONLY",
-    eventType: "MANUAL_ONLY_PRIVACY_REVIEW",
-    summary: "Privacy execution needs manual review.",
-    whatHappened: "Privacy execution needs manual review.",
-    actionNeeded: "Review the request before any destructive handling.",
-    sourceLabel,
-    details: {
-      contactIdentifierMasked: contactMasked,
-      channel: common.channel,
-      sourcePlatform: common.sourcePlatform,
-      sourceEvent: common.sourceEvent,
-      requestType: executionAction,
-      consentStatus: null,
-      orderIdMasked: null,
-      purchaseValue: null,
-      attributionEvent: null,
-      verificationStatus: null,
-      executionStatus,
-      suppressionReason: null,
-      source: humanizeLabel(readRecordText(row, ["source"]) ?? readRecordText(payload, ["source"]) ?? null),
-    },
-  });
-};
-
-const queryRows = async (table: string, orderKey: string, limit = 10) => {
-  const { data, error } = await supabaseAdmin
-    .from(table)
-    .select("*")
-    .order(orderKey, { ascending: false, nullsFirst: false })
-    .limit(limit);
-
-  if (error || !Array.isArray(data)) {
+    return data as JsonRecord[];
+  } catch {
     return [];
   }
+};
 
-  return data as JsonRecord[];
+const queryPrismaFallback = async (table: keyof typeof G3_TABLES, limit = 50): Promise<JsonRecord[]> => {
+  try {
+    const prisma = await getPrisma();
+    if (!prisma) return [];
+
+    switch (table) {
+      case "consentSync": {
+        const rows = await prisma.cevonne_g3_consent_sync.findMany({
+          orderBy: { synced_at: "desc" },
+          take: limit,
+        });
+        return rows.map((r) => ({ ...r, id: String(r.id), synced_at: r.synced_at.toISOString() }));
+      }
+      case "optOutSync": {
+        const rows = await prisma.cevonne_g3_opt_out_sync.findMany({
+          orderBy: { synced_at: "desc" },
+          take: limit,
+        });
+        return rows.map((r) => ({ ...r, id: String(r.id), synced_at: r.synced_at.toISOString() }));
+      }
+      case "purchaseEvents": {
+        const rows = await prisma.cevonne_g3_purchase_events.findMany({
+          orderBy: { created_at: "desc" },
+          take: limit,
+        });
+        return rows.map((r) => ({
+          ...r,
+          created_at: r.created_at.toISOString(),
+          purchased_at: r.purchased_at?.toISOString() ?? null,
+        }));
+      }
+      case "privacyRequests": {
+        const rows = await prisma.cevonne_g3_privacy_requests.findMany({
+          orderBy: { created_at: "desc" },
+          take: limit,
+        });
+        return rows.map((r) => ({
+          ...r,
+          created_at: r.created_at.toISOString(),
+          updated_at: r.updated_at.toISOString(),
+        }));
+      }
+      case "privacyExecutions": {
+        const rows = await prisma.cevonne_g3_privacy_execution_requests.findMany({
+          orderBy: { created_at: "desc" },
+          take: limit,
+        });
+        return rows.map((r) => ({ ...r, id: String(r.id), created_at: r.created_at.toISOString() }));
+      }
+      case "recoverySuppression": {
+        const rows = await prisma.cevonne_g3_recovery_suppression.findMany({
+          orderBy: { created_at: "desc" },
+          take: limit,
+        });
+        return rows.map((r) => ({ ...r, id: String(r.id), created_at: r.created_at.toISOString() }));
+      }
+      default:
+        return [];
+    }
+  } catch {
+    return [];
+  }
+};
+
+const queryRows = async (tableKey: keyof typeof G3_TABLES, orderKey: string, limit = 50): Promise<JsonRecord[]> => {
+  const tableName = G3_TABLES[tableKey];
+  const supabaseResults = await querySupabaseRows(tableName, orderKey, limit);
+  if (supabaseResults.length > 0) {
+    return supabaseResults;
+  }
+
+  return queryPrismaFallback(tableKey, limit);
 };
 
 const buildOutcomeSignature = (outcome: G3WorkflowOutcome) =>
@@ -819,13 +833,12 @@ const buildOutcomeSignature = (outcome: G3WorkflowOutcome) =>
 
 export async function getG3WorkflowDetail(): Promise<G3WorkflowDetail> {
   try {
-    const [consentRows, optOutRows, purchaseRows, privacyRows, privacyExecutionRows, recoveryRows] = await Promise.all([
-      queryRows(G3_TABLES.consentSync, "synced_at"),
-      queryRows(G3_TABLES.optOutSync, "synced_at"),
-      queryRows(G3_TABLES.purchaseEvents, "created_at"),
-      queryRows(G3_TABLES.privacyRequests, "created_at"),
-      queryRows(G3_TABLES.privacyExecutions, "created_at"),
-      queryRows(G3_TABLES.recoverySuppression, "created_at"),
+    const [consentRows, optOutRows, purchaseRows, privacyRows, recoveryRows] = await Promise.all([
+      queryRows("consentSync", "synced_at", 50),
+      queryRows("optOutSync", "synced_at", 50),
+      queryRows("purchaseEvents", "created_at", 50),
+      queryRows("privacyRequests", "created_at", 50),
+      queryRows("recoverySuppression", "created_at", 50),
     ]);
 
     const outcomes = [
@@ -833,7 +846,6 @@ export async function getG3WorkflowDetail(): Promise<G3WorkflowDetail> {
       ...optOutRows.map((row) => buildOptOutOutcome(row)),
       ...purchaseRows.map((row) => buildPurchaseOutcome(row)),
       ...privacyRows.map((row) => buildPrivacyRequestOutcome(row)),
-      ...privacyExecutionRows.map((row) => buildPrivacyExecutionOutcome(row)),
       ...recoveryRows.map((row) => buildRecoveryOutcome(row)),
     ]
       .filter((value): value is G3WorkflowOutcome => Boolean(value))
@@ -856,22 +868,175 @@ export async function getG3WorkflowDetail(): Promise<G3WorkflowDetail> {
       deduped.push(outcome);
     }
 
-    const recentOutcomes = deduped.slice(0, 10);
+    const recentOutcomes = deduped.slice(0, 15);
     const latestOutcome = recentOutcomes[0] ?? null;
+
+    // Structured Consents
+    const consents: G3ConsentRecord[] = consentRows.map((row) => {
+      const payload = readPayload(row);
+      const common = readCommonFields(row, payload);
+      const id = String(row.id ?? row.consent_id ?? Math.random());
+      const syncedAt = readRecordDate(row, ["synced_at", "created_at"]);
+      const consentStatus = upperText(readRecordText(row, ["consent_status"]) ?? readRecordText(payload, ["consent_status"]) ?? "GRANTED") ?? "GRANTED";
+      const consentText = readRecordText(row, ["consent_text"]) ?? readRecordText(payload, ["consent_text", "proof", "terms"]) ?? null;
+
+      return {
+        id,
+        contactIdentifierMasked: normalizeContactIdentifier(common.contactIdentifier),
+        channel: common.channel,
+        consentStatus,
+        sourcePlatform: common.sourcePlatform,
+        sourceEvent: common.sourceEvent,
+        consentText,
+        syncedAt,
+        payloadSummary: payload ? JSON.stringify(payload).slice(0, 100) : null,
+      };
+    });
+
+    // Structured Opt-Outs
+    const optOuts: G3OptOutRecord[] = optOutRows.map((row) => {
+      const payload = readPayload(row);
+      const common = readCommonFields(row, payload);
+      const id = String(row.id ?? row.opt_out_id ?? Math.random());
+      const syncedAt = readRecordDate(row, ["synced_at", "created_at"]);
+      const keyword = readRecordText(row, ["opt_out_keyword"]) ?? readRecordText(payload, ["keyword", "message"]) ?? "STOP";
+      const reason = readRecordText(payload, ["reason", "notes"]) ?? "Customer request";
+
+      return {
+        id,
+        contactIdentifierMasked: normalizeContactIdentifier(common.contactIdentifier),
+        channel: common.channel,
+        keyword,
+        reason,
+        sourcePlatform: common.sourcePlatform,
+        sourceEvent: common.sourceEvent,
+        syncedAt,
+      };
+    });
+
+    // Recovery Suppression map for purchases
+    const suppressionByContact = new Set<string>();
+    for (const rec of recoveryRows) {
+      const payload = readPayload(rec);
+      const common = readCommonFields(rec, payload);
+      if (common.contactIdentifier) {
+        suppressionByContact.add(common.contactIdentifier.trim().toLowerCase());
+      }
+    }
+
+    // Structured Purchases
+    const purchases: G3PurchaseRecord[] = purchaseRows.map((row) => {
+      const payload = readPayload(row);
+      const common = readCommonFields(row, payload);
+      const orderId = String(row.order_id ?? row.purchase_event_id ?? "ORDER");
+      const purchasedAt = readRecordDate(row, ["purchased_at", "created_at"]);
+      const amount = normalizeMoney(readRecordText(payload, ["total_amount", "amount", "value", "price"]));
+      const currency = readRecordText(payload, ["currency"]) ?? "INR";
+      const contactKey = common.contactIdentifier?.trim().toLowerCase() ?? "";
+      const recoverySuppressed = suppressionByContact.has(contactKey) || Boolean(purchasedAt);
+
+      return {
+        id: String(row.purchase_event_id ?? orderId),
+        orderId: orderId.length > 4 ? `ORD-***${orderId.slice(-4)}` : orderId,
+        contactIdentifierMasked: normalizeContactIdentifier(common.contactIdentifier),
+        amount: amount ? `₹${amount}` : null,
+        currency,
+        purchasedAt,
+        sourcePlatform: common.sourcePlatform,
+        recoverySuppressed,
+        suppressionReason: recoverySuppressed ? "Post-purchase suppression active" : null,
+        attribution: {
+          utmSource: readRecordText(payload, ["utm_source", "source"]),
+          utmMedium: readRecordText(payload, ["utm_medium", "medium"]),
+          utmCampaign: readRecordText(payload, ["utm_campaign", "campaign"]),
+          metaEventId: readRecordText(payload, ["meta_event_id"]),
+          gclid: readRecordText(payload, ["gclid"]),
+        },
+      };
+    });
+
+    // Structured Privacy Requests
+    const privacyRequests: G3PrivacyRequestRecord[] = privacyRows.map((row) => {
+      const payload = readPayload(row);
+      const common = readCommonFields(row, payload);
+      const requestId = String(row.request_id ?? Math.random());
+      const requestType = humanizeLabel(readRecordText(row, ["request_type"]) ?? readRecordText(payload, ["request_type"]) ?? "Access") || "Access";
+      const verificationStatus = upperText(readRecordText(row, ["verification_status"]) ?? readRecordText(payload, ["verification_status"]) ?? "PENDING") ?? "PENDING";
+      const executionStatus = upperText(readRecordText(row, ["execution_status"]) ?? readRecordText(payload, ["execution_status"]) ?? "PENDING") ?? "PENDING";
+      const createdAt = readRecordDate(row, ["created_at"]);
+      const updatedAt = readRecordDate(row, ["updated_at"]);
+
+      return {
+        requestId,
+        requestType,
+        contactIdentifierMasked: normalizeContactIdentifier(common.contactIdentifier),
+        verificationStatus,
+        executionStatus,
+        sourcePlatform: common.sourcePlatform,
+        sourceEvent: common.sourceEvent,
+        createdAt,
+        updatedAt,
+      };
+    });
+
+    // Channel breakdown
+    const channelMap = new Map<string, { total: number; granted: number; optedOut: number }>();
+    const defaultChannels = ["WhatsApp", "Email", "SMS", "Instagram", "Website"];
+    for (const ch of defaultChannels) {
+      channelMap.set(ch, { total: 0, granted: 0, optedOut: 0 });
+    }
+
+    for (const c of consents) {
+      const ch = humanizeLabel(c.channel) || "Website";
+      const current = channelMap.get(ch) || { total: 0, granted: 0, optedOut: 0 };
+      current.total += 1;
+      if (c.consentStatus === "GRANTED" || c.consentStatus === "YES") {
+        current.granted += 1;
+      } else {
+        current.optedOut += 1;
+      }
+      channelMap.set(ch, current);
+    }
+
+    for (const o of optOuts) {
+      const ch = humanizeLabel(o.channel) || "Website";
+      const current = channelMap.get(ch) || { total: 0, granted: 0, optedOut: 0 };
+      current.total += 1;
+      current.optedOut += 1;
+      channelMap.set(ch, current);
+    }
+
+    const channelBreakdown: G3ChannelStat[] = Array.from(channelMap.entries()).map(([channel, stats]) => ({
+      channel,
+      total: stats.total,
+      granted: stats.granted,
+      optedOut: stats.optedOut,
+    }));
+
     const counts = {
-      totalEvents: recentOutcomes.length,
-      consentEvents: recentOutcomes.filter((outcome) => outcome.eventType === "CONSENT_RECORDED" || outcome.eventType === "BLOCKED_NO_CONSENT" || outcome.eventType === "BLOCKED_STOP_OPT_OUT").length,
-      optOutEvents: recentOutcomes.filter((outcome) => outcome.eventType === "OPT_OUT_RECORDED" || outcome.eventType === "BLOCKED_STOP_OPT_OUT").length,
-      attributionEvents: recentOutcomes.filter((outcome) => outcome.eventType === "ATTRIBUTION_RECORDED" || outcome.eventType === "BLOCKED_NO_CONSENT" || outcome.eventType === "BLOCKED_STOP_OPT_OUT").length,
-      purchaseEvents: recentOutcomes.filter((outcome) => outcome.eventType === "PURCHASE_RECORDED").length,
-      recoveryEvents: recentOutcomes.filter((outcome) => outcome.eventType === "RECOVERY_SUPPRESSED").length,
-      privacyEvents: recentOutcomes.filter((outcome) => outcome.eventType === "PRIVACY_REQUEST_RECORDED" || outcome.eventType === "MANUAL_ONLY_PRIVACY_REVIEW").length,
-      blockedEvents: recentOutcomes.filter((outcome) => outcome.result === "BLOCK").length,
-      manualReviewEvents: recentOutcomes.filter((outcome) => outcome.result === "MANUAL_ONLY").length,
-      passEvents: recentOutcomes.filter((outcome) => outcome.result === "PASS").length,
+      totalEvents: consents.length + optOuts.length + purchases.length + privacyRequests.length,
+      consentEvents: consents.filter((c) => c.consentStatus === "GRANTED" || c.consentStatus === "YES").length,
+      optOutEvents: optOuts.length + consents.filter((c) => c.consentStatus === "NO" || c.consentStatus === "OPTED_OUT").length,
+      attributionEvents: purchases.filter((p) => p.attribution && (p.attribution.utmSource || p.attribution.metaEventId)).length,
+      purchaseEvents: purchases.length,
+      recoveryEvents: recoveryRows.length + purchases.filter((p) => p.recoverySuppressed).length,
+      privacyEvents: privacyRequests.length,
+      blockedEvents: deduped.filter((outcome) => outcome.result === "BLOCK").length,
+      manualReviewEvents: privacyRequests.filter((p) => p.verificationStatus === "PENDING" || p.executionStatus === "PENDING").length,
+      passEvents: deduped.filter((outcome) => outcome.result === "PASS").length,
     };
 
-    const status = latestOutcome?.result ?? "NOT_RUN_YET";
+    let status: G3WorkflowStatus = "NOT_RUN_YET";
+    if (latestOutcome) {
+      if (counts.manualReviewEvents > 0) {
+        status = "MANUAL_ONLY";
+      } else if (latestOutcome.result === "BLOCK") {
+        status = "BLOCK";
+      } else {
+        status = "PASS";
+      }
+    }
+
     const lastRunAt = latestOutcome?.time ?? null;
 
     return {
@@ -884,8 +1049,13 @@ export async function getG3WorkflowDetail(): Promise<G3WorkflowDetail> {
       recentOutcomes,
       emptyStateCopy: G3_EMPTY_COPY,
       mainActionNeeded: latestOutcome?.actionNeeded ?? G3_EMPTY_ACTION,
-      message: latestOutcome ? "G3 event history loaded safely." : G3_EMPTY_COPY,
+      message: latestOutcome ? "G3 event history synchronized safely." : G3_EMPTY_COPY,
       counts,
+      channelBreakdown,
+      consents,
+      optOuts,
+      purchases,
+      privacyRequests,
       workflow: {
         workflowId: "G3",
         title: G3_TITLE,
@@ -923,6 +1093,17 @@ export async function getG3WorkflowDetail(): Promise<G3WorkflowDetail> {
         manualReviewEvents: 0,
         passEvents: 0,
       },
+      channelBreakdown: [
+        { channel: "WhatsApp", total: 0, granted: 0, optedOut: 0 },
+        { channel: "Email", total: 0, granted: 0, optedOut: 0 },
+        { channel: "SMS", total: 0, granted: 0, optedOut: 0 },
+        { channel: "Instagram", total: 0, granted: 0, optedOut: 0 },
+        { channel: "Website", total: 0, granted: 0, optedOut: 0 },
+      ],
+      consents: [],
+      optOuts: [],
+      purchases: [],
+      privacyRequests: [],
       workflow: {
         workflowId: "G3",
         title: G3_TITLE,

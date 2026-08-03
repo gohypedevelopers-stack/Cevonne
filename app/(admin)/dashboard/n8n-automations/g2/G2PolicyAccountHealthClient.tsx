@@ -1,7 +1,7 @@
 "use client";
 
-import WorkflowDashboardDetail from "@/components/admin-dashboard/WorkflowDashboardDetail";
+import G2PolicyAccountHealthPage from "@/components/admin-dashboard/G2PolicyAccountHealthPage";
 
 export default function G2PolicyAccountHealthClient() {
-  return <WorkflowDashboardDetail workflowId="G2" />;
+  return <G2PolicyAccountHealthPage />;
 }

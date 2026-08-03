@@ -227,7 +227,7 @@ const platformOptions: WorkflowRunFieldOption[] = [
 ];
 
 const workflowSelectorOptions: WorkflowRunFieldOption[] = ADMIN_WORKFLOW_IDS.filter((id) => id !== "WF1").map((id) => ({
-  label: `${id} - ${id === "G1" ? "Compliance Guard" : id === "G2" ? "Policy + Account Health Monitor" : id === "G3" ? "CRM + Consent + Attribution" : id === "G4" ? "Content / Landing / Claim Check" : id === "G5" ? "Asset Approval + Manual Publishing Queue" : id === "G6" ? "Messaging + Quiz + Recovery Router" : id === "G7" ? "Inventory + Offer Safety" : id === "G8" ? "UGC + Creator Proof" : id === "G9" ? "Ads + Retargeting Optimizer" : id === "G10" ? "SEO + CRO" : id === "G11" ? "Decision Engine" : "Public Trend Fetcher"}`,
+  label: `${id} - ${id === "G1" ? "Compliance Guard" : id === "G2" ? "Policy + Account Health Monitor" : id === "G3" ? "Customer Consent & Privacy" : id === "G4" ? "Content / Landing / Claim Check" : id === "G5" ? "Asset Approval + Manual Publishing Queue" : id === "G6" ? "Messaging + Quiz + Recovery Router" : id === "G7" ? "Inventory + Offer Safety" : id === "G8" ? "UGC + Creator Proof" : id === "G9" ? "Ads + Retargeting Optimizer" : id === "G10" ? "SEO + CRO" : id === "G11" ? "Decision Engine" : "Public Trend Fetcher"}`,
   value: id,
 }));
 
@@ -459,8 +459,9 @@ export const WORKFLOW_CATALOG: Record<AdminWorkflowId, WorkflowCatalogEntry> = {
   },
   G3: {
     id: "G3",
-    title: "G3 - CRM + Consent + Attribution",
-    purpose: "Manages consent, opt-outs, attribution, purchases, and privacy requests.",
+    title: "G3 – Customer Consent & Privacy",
+    purpose:
+      "G3 keeps customer permissions, opt-outs, purchases, marketing attribution and privacy requests synchronized safely across the website, compliance database and CRM.",
     detailHref: "/dashboard/n8n-automations/g3",
     runLabel: "Record Consent",
     runEnabled: true,

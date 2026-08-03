@@ -17,6 +17,8 @@ const g3RecordEventSchema = z
       "ATTRIBUTION_RECORDED",
       "PURCHASE_RECORDED",
       "PRIVACY_REQUEST_RECORDED",
+      "PRIVACY_VERIFY",
+      "PRIVACY_EXECUTE",
     ]),
     contact_identifier: z.string().trim().optional(),
     channel: z.string().trim().optional(),
@@ -47,7 +49,10 @@ const g3RecordEventSchema = z
       z.number().finite().optional(),
     ),
     currency: z.string().trim().optional(),
+    request_id: z.string().trim().optional(),
     request_type: z.string().trim().optional(),
+    verification_status: z.string().trim().optional(),
+    execution_action: z.string().trim().optional(),
     attribution_event: z.string().trim().optional(),
     utm_source: z.string().trim().optional(),
     utm_medium: z.string().trim().optional(),
@@ -89,7 +94,7 @@ export async function POST(request: Request) {
     return jsonResponse(
       {
         status: "BLOCK",
-        message: "Invalid payload.",
+        message: "Invalid payload format.",
         action_needed: "Check the form fields and try again.",
       },
       200,
@@ -109,7 +114,10 @@ export async function POST(request: Request) {
     orderId: parsed.data.order_id ?? null,
     purchaseValue: parsed.data.purchase_value ?? null,
     currency: parsed.data.currency ?? null,
+    requestId: parsed.data.request_id ?? null,
     requestType: parsed.data.request_type ?? null,
+    verificationStatus: parsed.data.verification_status ?? null,
+    executionAction: parsed.data.execution_action ?? null,
     attributionEvent: parsed.data.attribution_event ?? null,
     utmSource: parsed.data.utm_source ?? null,
     utmMedium: parsed.data.utm_medium ?? null,
@@ -118,20 +126,6 @@ export async function POST(request: Request) {
     fbclid: parsed.data.fbclid ?? null,
     metaEventId: parsed.data.meta_event_id ?? null,
   });
-
-  try {
-    console.info("[G3]", {
-      route_name: "/api/admin/automations/g3/record-consent",
-      request_id: result.body.request_id,
-      event_type: result.body.event_type,
-      status: result.body.status,
-      handled_at: result.body.handled_at,
-      contact_identifier_masked: result.body.contact_identifier_masked,
-      message: result.body.message,
-    });
-  } catch {
-    // Logging must never break the admin route.
-  }
 
   return jsonResponse(result.body, result.httpStatus);
 }

@@ -51,7 +51,7 @@ export default function WorkflowDashboardShell({
                       <span className="text-sm font-medium text-muted-foreground">Menu</span>
                     </div>
 
-                    <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                       <div className={cn("max-w-2xl space-y-2", titleContainerClassName)}>
                         {eyebrow ? <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-muted-foreground">{eyebrow}</p> : null}
                         <h1 className={cn("font-serif text-4xl leading-none tracking-tight text-primary md:text-5xl", titleClassName)}>{title}</h1>
@@ -59,9 +59,9 @@ export default function WorkflowDashboardShell({
                       </div>
 
                       {showSecondaryHeaderContent ? (
-                        <div className="flex w-full flex-col gap-3 sm:flex-row sm:flex-wrap lg:max-w-3xl lg:flex-1 lg:justify-end">
-                          {badges ? <div className="flex flex-wrap items-center gap-2">{badges}</div> : null}
-                          {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+                        <div className="flex flex-col gap-2.5 lg:items-end lg:justify-center">
+                          {badges ? <div className="flex flex-wrap items-center gap-2 lg:justify-end">{badges}</div> : null}
+                          {actions ? <div className="flex flex-wrap items-center gap-2 lg:justify-end">{actions}</div> : null}
                         </div>
                       ) : null}
                     </div>

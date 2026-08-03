@@ -106,7 +106,7 @@ const numberFormatter = new Intl.NumberFormat("en-IN");
 const CATEGORY_LABELS: Record<CevonneWorkflowGroup, string> = {
   G1: "Compliance",
   G2: "Health monitor",
-  G3: "Consent & CRM",
+  G3: "Customer Consent & Privacy",
   G4: "Content review",
   G5: "Asset approval",
   G6: "Messaging",
@@ -157,7 +157,7 @@ const EMPTY_OVERVIEW: N8nOverviewResponse = {
 const WORKFLOW_SUMMARY_COPY: Record<CevonneWorkflowGroup, string> = {
   G1: "Safety gate for all risky actions before execution.",
   G2: "Monitors account and policy health.",
-  G3: "Keeps consent, attribution, and privacy events in sync.",
+  G3: "Keeps customer permissions, opt-outs, purchases, attribution and privacy requests synchronized safely.",
   G4: "Reviews claims, captions, and creative before approval.",
   G5: "Manages approval, manual publishing proof, and queue status.",
   G6: "Routes messaging through safe partner paths.",
