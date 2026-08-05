@@ -8,6 +8,9 @@ export const metadata = {
     template: "%s | Cevonne",
   },
   description: "Cevonne storefront, profile center, and admin dashboard.",
+  verification: {
+    google: "KTDG2CXUX9YnQyBA0_6OXBKxtdmXt3FWffYwTgdNDKs",
+  },
   icons: {
     icon: [
       { url: "/favicon-16x16.png", sizes: "16x16", type: "image/png" },
