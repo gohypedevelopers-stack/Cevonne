@@ -1065,7 +1065,9 @@ function CollectionDialog({
 export default function CollectionsPage() {
   const { authFetch } = useAuth();
   const request = authFetch ?? defaultRequest;
-  const { products, collections, loading, refresh } = useDashboardData(true, request);
+  const { products, collections, loading, refresh } = useDashboardData(true, request, false, {
+    resources: ["products", "collections"],
+  });
 
   const [search, setSearch] = useState("");
   const [filter, setFilter] = useState<CollectionFilter>("all");

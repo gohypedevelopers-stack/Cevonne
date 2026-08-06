@@ -370,7 +370,7 @@ export const WORKFLOW_CATALOG: Record<AdminWorkflowId, WorkflowCatalogEntry> = {
   G1: {
     id: "G1",
     title: "G1 - Compliance Guard",
-    purpose: "Checks whether risky workflow actions are safe before they run.",
+    purpose: "Blocks risky actions until safety checks pass.",
     detailHref: "/admin/ai-automations/g1-compliance-guard",
     runLabel: "View Safety Checks",
     runEnabled: false,
@@ -414,7 +414,7 @@ export const WORKFLOW_CATALOG: Record<AdminWorkflowId, WorkflowCatalogEntry> = {
   G2: {
     id: "G2",
     title: "G2 - Policy + Account Health Monitor",
-    purpose: "Tracks account health, policy status, API/tool changes, and manual review needs.",
+    purpose: "Monitors policy and account health for risks.",
     detailHref: "/dashboard/n8n-automations/g2",
     runLabel: "Refresh Status",
     runEnabled: false,
@@ -460,8 +460,7 @@ export const WORKFLOW_CATALOG: Record<AdminWorkflowId, WorkflowCatalogEntry> = {
   G3: {
     id: "G3",
     title: "G3 – Customer Consent & Privacy",
-    purpose:
-      "G3 keeps customer permissions, opt-outs, purchases, marketing attribution and privacy requests synchronized safely across the website, compliance database and CRM.",
+    purpose: "Synchronizes consent, privacy, purchase, and attribution records.",
     detailHref: "/dashboard/n8n-automations/g3",
     runLabel: "Record Consent",
     runEnabled: true,
@@ -548,7 +547,7 @@ export const WORKFLOW_CATALOG: Record<AdminWorkflowId, WorkflowCatalogEntry> = {
   G4: {
     id: "G4",
     title: "G4 - Content / Landing / Claim Check",
-    purpose: "Checks captions, claims, landing-page wording, and risky language before content moves forward.",
+    purpose: "Reviews content, claims, and landing-page copy before approval.",
     detailHref: "/dashboard/n8n-automations/g4",
     runLabel: "Start Content Check",
     runEnabled: false,
@@ -586,7 +585,7 @@ export const WORKFLOW_CATALOG: Record<AdminWorkflowId, WorkflowCatalogEntry> = {
   G5: {
     id: "G5",
     title: "G5 - Asset Approval + Manual Publishing Queue",
-    purpose: "Tracks approved assets, human approval, and manual publish proof before anything goes live.",
+    purpose: "Tracks asset approval and manual publishing proof.",
     detailHref: "/admin/ai-automations/g5-asset-approval",
     runLabel: "Review Pending Asset",
     runEnabled: false,
@@ -629,7 +628,7 @@ export const WORKFLOW_CATALOG: Record<AdminWorkflowId, WorkflowCatalogEntry> = {
   G6: {
     id: "G6",
     title: "G6 - Messaging + Quiz + Recovery Router",
-    purpose: "Routes quiz, WhatsApp, messaging, and recovery flows safely.",
+    purpose: "Routes quiz, messaging, and recovery flows safely.",
     detailHref: "/dashboard/n8n-automations/g6",
     runLabel: "Run Quiz Dry Run",
     runEnabled: true,
@@ -680,7 +679,7 @@ export const WORKFLOW_CATALOG: Record<AdminWorkflowId, WorkflowCatalogEntry> = {
   G7: {
     id: "G7",
     title: "G7 - Inventory + Offer Safety",
-    purpose: "Verifies inventory, discount expiry, offer URLs, and urgency claims.",
+    purpose: "Validates inventory, discounts, and urgency claims.",
     detailHref: "/dashboard/n8n-automations/g7",
     runLabel: "Check Proof",
     runEnabled: true,
@@ -716,11 +715,11 @@ export const WORKFLOW_CATALOG: Record<AdminWorkflowId, WorkflowCatalogEntry> = {
   G8: {
     id: "G8",
     title: "G8 - UGC + Creator Proof",
-    purpose: "Tracks UGC, creator permission, rights, and disclosure proof.",
-    detailHref: "/dashboard/n8n-automations/g8",
-    runLabel: "Check UGC Rights",
-    runEnabled: true,
-    runDisabledReason: null,
+    purpose: "Verifies creator rights, consent, and disclosure proof.",
+    detailHref: "/admin/ai-automations/g8-ugc-creator-proof",
+    runLabel: "Open UGC Queue",
+    runEnabled: false,
+    runDisabledReason: "Use the G8 queue to record each creator and review decision.",
     emptyStateCopy: "This workflow is ready. Check UGC Rights to verify permissions.",
     fallbackStatus: "NEEDS_EVIDENCE",
     runFields: [
@@ -752,10 +751,10 @@ export const WORKFLOW_CATALOG: Record<AdminWorkflowId, WorkflowCatalogEntry> = {
   },
   G9: {
     id: "G9",
-    title: "G9 - Ads + Retargeting Optimizer",
-    purpose: "Reviews ads and recommends safe optimization actions.",
+    title: "G9 — Ads Optimizer",
+    purpose: "Analyzes Meta ad performance and prepares safe recommendations for review.",
     detailHref: "/dashboard/n8n-automations/g9",
-    runLabel: "Generate Recommendation",
+    runLabel: "Run ad review",
     runEnabled: true,
     runDisabledReason: null,
     emptyStateCopy: "This workflow is ready. Generate a recommendation to create the first outcome.",
@@ -810,7 +809,7 @@ export const WORKFLOW_CATALOG: Record<AdminWorkflowId, WorkflowCatalogEntry> = {
   G10: {
     id: "G10",
     title: "G10 - SEO + CRO",
-    purpose: "Creates SEO / CRO recommendations and dry-run website improvements.",
+    purpose: "Creates safe SEO and conversion recommendations.",
     detailHref: "/dashboard/n8n-automations/g10",
     runLabel: "Generate SEO/CRO Recommendation",
     runEnabled: true,
@@ -848,7 +847,7 @@ export const WORKFLOW_CATALOG: Record<AdminWorkflowId, WorkflowCatalogEntry> = {
   G11: {
     id: "G11",
     title: "G11 — Decision Engine",
-    purpose: "Creates safe business recommendations. No live action is executed.",
+    purpose: "Creates business recommendations without live changes.",
     detailHref: "/dashboard/n8n-automations/g11",
     runLabel: "Generate Recommendation",
     runEnabled: true,
@@ -881,7 +880,7 @@ export const WORKFLOW_CATALOG: Record<AdminWorkflowId, WorkflowCatalogEntry> = {
   G12: {
     id: "G12",
     title: "G12 - Public Trend Fetcher",
-    purpose: "Fetches safe public trend signals and stores clean insights.",
+    purpose: "Collects and stores safe public trend insights.",
     detailHref: "/admin/automations/g12-trend-fetcher",
     runLabel: "Run Dry Run",
     runEnabled: true,
@@ -931,7 +930,7 @@ export const WORKFLOW_CATALOG: Record<AdminWorkflowId, WorkflowCatalogEntry> = {
   WF1: {
     id: "WF1",
     title: "WF1 - Instagram Scheduler",
-    purpose: "Schedules approved Instagram content safely after review and approvals.",
+    purpose: "Schedules approved Instagram content after safety checks.",
     detailHref: "/dashboard/n8n-automations/wf1-instagram-scheduler",
     runLabel: "Approval only",
     runEnabled: false,
@@ -942,7 +941,21 @@ export const WORKFLOW_CATALOG: Record<AdminWorkflowId, WorkflowCatalogEntry> = {
   },
 };
 
-export const WORKFLOW_ORDER: AdminWorkflowId[] = [...ADMIN_WORKFLOW_IDS];
+export const WORKFLOW_ORDER: AdminWorkflowId[] = [
+  "G12",
+  "G4",
+  "G5",
+  "G8",
+  "G6",
+  "G7",
+  "G9",
+  "G10",
+  "G11",
+  "G1",
+  "G2",
+  "G3",
+  "WF1",
+];
 
 export const normalizeWorkflowId = (value: string | null | undefined): AdminWorkflowId | null => {
   if (typeof value !== "string") {

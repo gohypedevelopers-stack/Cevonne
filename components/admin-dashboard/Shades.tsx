@@ -21,7 +21,9 @@ export default function ShadesPage() {
   const { authFetch } = useAuth();
   const request = authFetch ?? defaultRequest;
   const navigate = useNavigate();
-  const { shades, products, stats, loading, refresh } = useDashboardData(true, request);
+  const { shades, products, stats, loading, refresh } = useDashboardData(true, request, false, {
+    resources: ["shades", "products"],
+  });
 
   const arReady = stats?.arShadeCount ?? 0;
   const totalShades = stats?.shadeCount ?? 0;

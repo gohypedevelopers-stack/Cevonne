@@ -1,8 +1,4 @@
-"use client";
-
-import dynamic from "next/dynamic";
-
-const InventoryPage = dynamic(() => import("@/components/admin-dashboard/InventoryPage"), { ssr: false });
+import InventoryPage from "@/components/admin-dashboard/InventoryPage";
 
 export default function Page() {
   return <InventoryPage />;

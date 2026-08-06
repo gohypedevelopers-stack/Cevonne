@@ -16,7 +16,9 @@ export default function ProductCreate() {
   const navigate = useNavigate();
   const { authFetch } = useAuth();
   const request = authFetch ?? defaultRequest;
-  const { collections, refresh } = useDashboardData(true, request);
+  const { collections, refresh } = useDashboardData(true, request, false, {
+    resources: ["collections"],
+  });
   const collectionOptions = Array.isArray(collections) ? collections : [];
 
   useEffect(() => {

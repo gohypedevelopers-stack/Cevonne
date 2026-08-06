@@ -53,6 +53,7 @@ export type PostN8nWebhookInput = {
   timeoutMs?: number;
   source?: string;
   dryRun?: boolean;
+  includeSharedSecret?: boolean;
 };
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -147,7 +148,7 @@ const createErrorResult = (
   };
 };
 
-const buildHeaders = (requestId: string, sentAt: string, dryRun: boolean) => {
+const buildHeaders = (requestId: string, sentAt: string, dryRun: boolean, includeSharedSecret: boolean) => {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     "X-Cevonne-Source": "admin-panel",
@@ -156,7 +157,7 @@ const buildHeaders = (requestId: string, sentAt: string, dryRun: boolean) => {
     "X-Cevonne-Dry-Run": dryRun ? "true" : "false",
   };
 
-  if (env.n8nWebhookSecret.trim()) {
+  if (includeSharedSecret && env.n8nWebhookSecret.trim()) {
     headers.Authorization = `Bearer ${env.n8nWebhookSecret.trim()}`;
     headers["X-Cevonne-Webhook-Secret"] = env.n8nWebhookSecret.trim();
   }
@@ -201,7 +202,7 @@ export const postN8nWebhook = async (input: PostN8nWebhookInput): Promise<N8nWeb
   try {
     const response = await fetch(parsedUrl.toString(), {
       method: "POST",
-      headers: buildHeaders(requestId, sentAt, dryRun),
+      headers: buildHeaders(requestId, sentAt, dryRun, input.includeSharedSecret !== false),
       body: JSON.stringify({
         ...payload,
         request_id: requestId,

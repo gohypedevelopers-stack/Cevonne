@@ -98,7 +98,9 @@ function WorkflowCard({ workflow }: { workflow: WorkflowOverviewCard }) {
       <CardContent className="flex h-full flex-col gap-4 p-5">
         <div className="min-w-0 space-y-1">
           <h3 className="font-serif text-xl leading-tight tracking-tight text-primary">{workflow.title}</h3>
-          <p className="text-sm leading-6 text-muted-foreground">{workflow.purpose}</p>
+          <p className="line-clamp-1 text-sm leading-6 text-muted-foreground" title={workflow.purpose}>
+            {workflow.purpose}
+          </p>
         </div>
 
         <div className="grid gap-2 sm:grid-cols-2">

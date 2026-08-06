@@ -55,6 +55,7 @@ import {
 import { Link } from "@/lib/router";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/context/AuthContext";
+import { useDashboardData } from "@/hooks/useDashboardData";
 import { API_BASE } from "@/lib/api";
 import { normalizeOrderStatus, type Order, type OrderStatus } from "@/types/order";
 
@@ -72,11 +73,6 @@ type OrderSummary = {
   inProgress: number;
   delivered: number;
   totalCollected: number;
-};
-
-type OrdersApiResponse = {
-  items?: Order[] | null;
-  summary?: Partial<OrderSummary> | null;
 };
 
 type PaymentKey = "all" | "razorpay" | "cod" | "card" | "upi";
@@ -1042,8 +1038,10 @@ function OrdersTable({
 export default function OrdersPage() {
   const { authFetch, isAdmin } = useAuth();
   const request = authFetch ?? defaultRequest;
-  const [orders, setOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { orders: loadedOrders, loading, refresh } = useDashboardData(true, request, isAdmin, {
+    resources: ["orders"],
+  });
+  const [orders, setOrders] = useState<Order[]>(loadedOrders);
   const [updatingId, setUpdatingId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("all");
@@ -1053,32 +1051,13 @@ export default function OrdersPage() {
 
   const deferredSearch = useDeferredValue(searchQuery.trim().toLowerCase());
 
-  const loadOrders = useCallback(async () => {
-    setLoading(true);
-    try {
-      const response = await request(`${API_BASE}/${isAdmin ? "orders" : "orders/my"}`);
-      if (!response.ok) {
-        const message = await response.text().catch(() => response.statusText);
-        throw new Error(message || "Failed to load orders");
-      }
-
-      const payload = (await response.json().catch(() => null)) as OrdersApiResponse | Order[] | null;
-      const items = Array.isArray((payload as OrdersApiResponse)?.items ?? payload)
-        ? (((payload as OrdersApiResponse).items ?? payload) as Order[])
-        : [];
-
-      setOrders(items);
-    } catch (error) {
-      console.error("Failed to load orders", error);
-      setOrders([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [isAdmin, request]);
+  const loadOrders = useCallback(() => {
+    refresh();
+  }, [refresh]);
 
   useEffect(() => {
-    void loadOrders();
-  }, [loadOrders]);
+    setOrders(loadedOrders);
+  }, [loadedOrders]);
 
   useEffect(() => {
     const handleRefresh = () => {

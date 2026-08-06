@@ -58,7 +58,7 @@ type WorkflowDetailCopy = {
 const WORKFLOW_DETAIL_COPY: Record<CevonneWorkflowGroup, WorkflowDetailCopy> = {
   G1: {
     name: "Safety Check",
-    description: "Checks every risky action before it can continue.",
+    description: "Blocks risky actions until safety checks pass.",
     whatCameIn: "A workflow asked for a safety check.",
     whatWasChecked: "Safety rules, required approvals, and blocked actions.",
     whatHappenedNext: "The workflow continued only when the checks passed.",
@@ -68,7 +68,7 @@ const WORKFLOW_DETAIL_COPY: Record<CevonneWorkflowGroup, WorkflowDetailCopy> = {
   },
   G2: {
     name: "Account Health Monitor",
-    description: "Watches account and policy health so unsafe actions are paused.",
+    description: "Monitors policy and account health for risks.",
     whatCameIn: "Account or policy health information was checked.",
     whatWasChecked: "Account health, policy warnings, and escalation risk.",
     whatHappenedNext: "The workflow paused risky actions or confirmed the account was healthy.",
@@ -78,7 +78,7 @@ const WORKFLOW_DETAIL_COPY: Record<CevonneWorkflowGroup, WorkflowDetailCopy> = {
   },
   G3: {
     name: "Customer Consent & Tracking",
-    description: "Stores consent, opt-outs, purchases, and privacy requests.",
+    description: "Synchronizes consent, privacy, purchase, and attribution records.",
     whatCameIn: "A customer submitted a consent, opt-out, purchase, or privacy event.",
     whatWasChecked: "Customer identity, consent status, opt-out state, and event validity.",
     whatHappenedNext: "The customer record was updated and the event was logged.",
@@ -88,7 +88,7 @@ const WORKFLOW_DETAIL_COPY: Record<CevonneWorkflowGroup, WorkflowDetailCopy> = {
   },
   G4: {
     name: "Content Review",
-    description: "Reviews captions, claims, landing pages, and creatives before approval.",
+    description: "Reviews content, claims, and landing-page copy before approval.",
     whatCameIn: "A caption, claim, landing page, or creative was sent for review.",
     whatWasChecked: "Claims, wording, sources, and approval requirements.",
     whatHappenedNext: "The content stayed in review until someone approved it.",
@@ -98,7 +98,7 @@ const WORKFLOW_DETAIL_COPY: Record<CevonneWorkflowGroup, WorkflowDetailCopy> = {
   },
   G5: {
     name: "Asset Approval + Manual Publishing Queue",
-    description: "Tracks approved assets until manual publish proof is saved.",
+    description: "Tracks asset approval and manual publishing proof.",
     whatCameIn: "An approved G4 asset was ready for human approval and manual publishing.",
     whatWasChecked: "Approval status, media availability, readiness, and post proof.",
     whatHappenedNext: "The workflow kept the asset in queue until approval and manual publish proof were recorded.",
@@ -108,7 +108,7 @@ const WORKFLOW_DETAIL_COPY: Record<CevonneWorkflowGroup, WorkflowDetailCopy> = {
   },
   G6: {
     name: "Messaging & Recovery",
-    description: "Handles quiz, WhatsApp, recovery, and safe message routing.",
+    description: "Routes quiz, messaging, and recovery flows safely.",
     whatCameIn: "A messaging or recovery request arrived.",
     whatWasChecked: "Consent, partner routing, and message safety.",
     whatHappenedNext: "The workflow kept messaging paused until the safe route was confirmed.",
@@ -118,7 +118,7 @@ const WORKFLOW_DETAIL_COPY: Record<CevonneWorkflowGroup, WorkflowDetailCopy> = {
   },
   G7: {
     name: "Stock & Offer Check",
-    description: "Checks stock, discounts, and urgency claims before use.",
+    description: "Validates inventory, discounts, and urgency claims.",
     whatCameIn: "An offer or urgency claim was sent for checking.",
     whatWasChecked: "Stock proof, discount proof, and offer safety.",
     whatHappenedNext: "The workflow paused the claim until proof was available.",
@@ -128,7 +128,7 @@ const WORKFLOW_DETAIL_COPY: Record<CevonneWorkflowGroup, WorkflowDetailCopy> = {
   },
   G8: {
     name: "Customer Content Rights",
-    description: "Checks permission before customer or creator content is reused.",
+    description: "Verifies creator rights, consent, and disclosure proof.",
     whatCameIn: "Customer or creator content was sent for rights review.",
     whatWasChecked: "Permission, disclosure proof, and usage rights.",
     whatHappenedNext: "The workflow kept the content blocked until rights were confirmed.",
@@ -138,7 +138,7 @@ const WORKFLOW_DETAIL_COPY: Record<CevonneWorkflowGroup, WorkflowDetailCopy> = {
   },
   G9: {
     name: "Ads Review",
-    description: "Reviews ad recommendations and waits for approval before changes.",
+    description: "Reviews ads and recommends safe optimizations.",
     whatCameIn: "Ad performance data and a budget recommendation arrived.",
     whatWasChecked: "Audience safety, account health, budget guard, and approval requirement.",
     whatHappenedNext: "The workflow created a dry-run recommendation and is waiting for admin approval.",
@@ -148,7 +148,7 @@ const WORKFLOW_DETAIL_COPY: Record<CevonneWorkflowGroup, WorkflowDetailCopy> = {
   },
   G10: {
     name: "Website Growth Review",
-    description: "Reviews SEO and conversion ideas safely.",
+    description: "Creates safe SEO and conversion recommendations.",
     whatCameIn: "A website growth idea or experiment was sent for review.",
     whatWasChecked: "Source safety, experiment readiness, and conversion risk.",
     whatHappenedNext: "The workflow kept the idea in review until it was safe to continue.",
@@ -158,7 +158,7 @@ const WORKFLOW_DETAIL_COPY: Record<CevonneWorkflowGroup, WorkflowDetailCopy> = {
   },
   G11: {
     name: "Business Recommendations",
-    description: "Creates recommendations only. It does not make live changes.",
+    description: "Creates business recommendations without live changes.",
     whatCameIn: "A weekly business review request or recommendation request arrived.",
     whatWasChecked: "Recommendation-only rules and safety limits.",
     whatHappenedNext: "The workflow created a recommendation without making live changes.",
@@ -848,7 +848,10 @@ export default function N8nAutomationsWorkflowDetail({ workflowGroup }: { workfl
                             <CardTitle className="text-2xl text-primary md:text-3xl">
                               {bannerCopy?.title || `${workflowCopy?.name || "Workflow"} is loading.`}
                             </CardTitle>
-                            <CardDescription className="max-w-3xl text-base leading-7 text-foreground/70">
+                            <CardDescription
+                              className="line-clamp-1 max-w-3xl text-base leading-7 text-foreground/70"
+                              title={bannerCopy?.message || workflowCopy?.description}
+                            >
                               {bannerCopy?.message || workflowCopy?.description}
                             </CardDescription>
                             <p className="text-sm font-medium text-foreground">
@@ -937,7 +940,12 @@ export default function N8nAutomationsWorkflowDetail({ workflowGroup }: { workfl
 
                               <div className="rounded-2xl border border-border/60 bg-muted/30 p-4">
                                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">What this workflow does</p>
-                                <p className="mt-2 text-sm leading-6 text-foreground">{workflowCopy?.description || workflow.description}</p>
+                                <p
+                                  className="mt-2 line-clamp-1 text-sm leading-6 text-foreground"
+                                  title={workflowCopy?.description || workflow.description}
+                                >
+                                  {workflowCopy?.description || workflow.description}
+                                </p>
                                 <p className="mt-3 text-sm leading-6 text-muted-foreground">{workflowCopy?.approvalPrompt}</p>
                               </div>
                             </>
@@ -1551,7 +1559,12 @@ export default function N8nAutomationsWorkflowDetail({ workflowGroup }: { workfl
                         <>
                           <div className="rounded-2xl border border-border/60 bg-muted/30 p-4">
                             <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">What this workflow is doing</p>
-                            <p className="mt-2 text-sm leading-6 text-foreground">{workflowCopy?.description || workflow.description}</p>
+                            <p
+                              className="mt-2 line-clamp-1 text-sm leading-6 text-foreground"
+                              title={workflowCopy?.description || workflow.description}
+                            >
+                              {workflowCopy?.description || workflow.description}
+                            </p>
                           </div>
 
                           <div className="rounded-2xl border border-border/60 bg-muted/30 p-4">

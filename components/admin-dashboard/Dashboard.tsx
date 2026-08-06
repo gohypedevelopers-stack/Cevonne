@@ -751,7 +751,9 @@ export default function Dashboard() {
   const { authFetch, isAdmin } = useAuth();
   const request = authFetch ?? defaultRequest;
   const { collections, shades, inventory, lowInventory, orders, users, stats, loading, refresh } =
-    useDashboardData(true, request, isAdmin);
+    useDashboardData(true, request, isAdmin, {
+      resources: ["products", "shades", "collections", "users", "inventory", "lowInventory", "orders"],
+    });
 
   const [searchQuery, setSearchQuery] = useState("");
   const deferredQuery = useDeferredValue(searchQuery.trim().toLowerCase());
@@ -1028,29 +1030,36 @@ export default function Dashboard() {
 
                               return (
                                 <TableRow key={order.id} className="group hover:bg-primary/5">
-                                  <TableCell className="px-4 py-4 align-middle">
+                                  <TableCell className="overflow-hidden px-4 py-4 align-middle">
                                     <Link
                                       to="/dashboard/orders"
-                                      className="inline-flex flex-col gap-1 text-left"
+                                      className="flex w-full min-w-0 flex-col gap-1 text-left"
                                     >
-                                      <span className="font-mono text-xs font-semibold tracking-[0.24em] text-primary">
+                                      <span
+                                        className="block w-full truncate font-mono text-xs font-semibold tracking-[0.18em] text-primary"
+                                        title={order.orderNumber}
+                                      >
                                         {order.orderNumber}
                                       </span>
-                                      <span className="text-xs text-muted-foreground">{order.items} item{order.items === 1 ? "" : "s"}</span>
+                                      <span className="truncate text-xs text-muted-foreground">
+                                        {order.items} item{order.items === 1 ? "" : "s"}
+                                      </span>
                                     </Link>
                                   </TableCell>
-                                  <TableCell className="px-4 py-4 align-middle">
-                                    <div className="flex items-center gap-3">
-                                      <Avatar className="size-10 rounded-2xl border border-border/60">
+                                  <TableCell className="overflow-hidden px-4 py-4 align-middle">
+                                    <div className="flex min-w-0 items-center gap-3">
+                                      <Avatar className="size-10 shrink-0 rounded-2xl border border-border/60">
                                         <AvatarFallback className="rounded-2xl bg-primary/10 text-primary">
                                           {initials}
                                         </AvatarFallback>
                                       </Avatar>
-                                      <div className="min-w-0">
-                                        <p className="truncate text-sm font-semibold text-foreground">
+                                      <div className="min-w-0 flex-1">
+                                        <p className="truncate text-sm font-semibold text-foreground" title={order.customer}>
                                           {order.customer}
                                         </p>
-                                        <p className="truncate text-xs text-muted-foreground">{order.email}</p>
+                                        <p className="truncate text-xs text-muted-foreground" title={order.email}>
+                                          {order.email}
+                                        </p>
                                       </div>
                                     </div>
                                   </TableCell>
@@ -1058,7 +1067,7 @@ export default function Dashboard() {
                                     <Badge
                                       variant={status.variant}
                                       className={cn(
-                                        "rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em]",
+                                        "whitespace-nowrap rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em]",
                                         status.className
                                       )}
                                     >
@@ -1066,12 +1075,12 @@ export default function Dashboard() {
                                     </Badge>
                                   </TableCell>
                                   <TableCell className="px-4 py-4 text-right align-middle">
-                                    <div className="text-sm font-semibold text-foreground">
+                                    <div className="whitespace-nowrap text-sm font-semibold text-foreground">
                                       {formatCurrency(order.amount)}
                                     </div>
                                   </TableCell>
                                   <TableCell className="px-4 py-4 text-right align-middle">
-                                    <div className="text-sm text-muted-foreground">{order.date}</div>
+                                    <div className="whitespace-nowrap text-sm text-muted-foreground">{order.date}</div>
                                   </TableCell>
                                 </TableRow>
                               );

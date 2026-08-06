@@ -55,7 +55,12 @@ export default function WorkflowDashboardShell({
                       <div className={cn("max-w-2xl space-y-2", titleContainerClassName)}>
                         {eyebrow ? <p className="text-[11px] font-semibold uppercase tracking-[0.32em] text-muted-foreground">{eyebrow}</p> : null}
                         <h1 className={cn("font-serif text-4xl leading-none tracking-tight text-primary md:text-5xl", titleClassName)}>{title}</h1>
-                        <p className={cn("max-w-xl text-sm leading-6 text-muted-foreground md:text-base", descriptionClassName)}>{description}</p>
+                        <p
+                          className={cn("line-clamp-1 max-w-xl text-sm leading-6 text-muted-foreground md:text-base", descriptionClassName)}
+                          title={description}
+                        >
+                          {description}
+                        </p>
                       </div>
 
                       {showSecondaryHeaderContent ? (

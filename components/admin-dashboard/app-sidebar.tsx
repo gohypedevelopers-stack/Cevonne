@@ -7,7 +7,11 @@ import { BadgePercent, Boxes, House, Layers3, Package, ShoppingCart, Users, Work
 import { NavMain } from "@/components/admin-dashboard/nav-main"
 import { NavUser } from "@/components/admin-dashboard/nav-user"
 import { useAuth } from "@/context/AuthContext"
-import { API_BASE } from "@/lib/api"
+import {
+  preloadDashboardData,
+  useDashboardData,
+  type DashboardResource,
+} from "@/hooks/useDashboardData"
 import {
   Sidebar,
   SidebarContent,
@@ -85,49 +89,42 @@ const data = {
   ],
 }
 
+const navResources: Partial<Record<string, readonly DashboardResource[]>> = {
+  "/dashboard": ["products", "shades", "collections", "users", "inventory", "lowInventory", "orders"],
+  "/dashboard/orders": ["orders"],
+  "/dashboard/products": ["products", "collections"],
+  "/dashboard/products/collections": ["products", "collections"],
+  "/dashboard/inventory": ["collections", "inventory", "lowInventory"],
+  "/dashboard/discounts": ["products", "collections"],
+  "/dashboard/users": ["users", "orders"],
+}
+
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const { authFetch, isAdmin, isAuthenticated } = useAuth()
   const { isMobile, setOpenMobile } = useSidebar()
-  const [orderBadge, setOrderBadge] = React.useState<number | undefined>(undefined)
+  const { orders, orderSummary, refresh: refreshOrders } = useDashboardData(
+    isAuthenticated,
+    authFetch,
+    isAdmin,
+    { resources: ["orders"] }
+  )
+  const pendingOrders = orderSummary.pending ?? orders.length
+  const orderBadge = pendingOrders > 0 ? pendingOrders : undefined
 
   const navMain = React.useMemo(
     () =>
-      data.navMain.map((item) => (item.title === "Orders" ? { ...item, badge: orderBadge } : item)),
-    [orderBadge]
+      data.navMain.map((item) => ({
+        ...item,
+        ...(item.title === "Orders" ? { badge: orderBadge } : {}),
+        onIntent: () => {
+          const resources = navResources[item.href]
+          if (resources) {
+            void preloadDashboardData(authFetch, isAdmin, { resources })
+          }
+        },
+      })),
+    [authFetch, isAdmin, orderBadge]
   )
-
-  const loadOrderBadge = React.useCallback(async () => {
-    try {
-      const response = await authFetch(`${API_BASE}/${isAdmin ? "orders" : "orders/my"}`, {
-        silent: true,
-      })
-
-      if (!response.ok) {
-        setOrderBadge(undefined)
-        return
-      }
-
-      const payload = (await response.json().catch(() => null)) as
-        | { summary?: { pending?: number } | null; items?: unknown[] | null }
-        | unknown[]
-        | null
-
-      const pending =
-        payload && !Array.isArray(payload) && typeof payload === "object"
-          ? typeof payload.summary?.pending === "number"
-            ? payload.summary.pending
-            : Array.isArray(payload.items)
-              ? payload.items.length
-              : undefined
-          : Array.isArray(payload)
-            ? payload.length
-            : undefined
-
-      setOrderBadge(typeof pending === "number" && pending > 0 ? pending : undefined)
-    } catch {
-      setOrderBadge(undefined)
-    }
-  }, [authFetch, isAdmin])
 
   const handleNavClick = (event: React.MouseEvent<HTMLDivElement>) => {
     if (!isMobile) return
@@ -139,22 +136,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   }
 
   React.useEffect(() => {
-    if (!isAuthenticated) {
-      setOrderBadge(undefined)
-      return
-    }
-
-    void loadOrderBadge()
-  }, [isAuthenticated, loadOrderBadge])
-
-  React.useEffect(() => {
     const handleRefresh = () => {
-      void loadOrderBadge()
+      refreshOrders()
     }
 
     window.addEventListener("dashboard:data:refresh", handleRefresh)
     return () => window.removeEventListener("dashboard:data:refresh", handleRefresh)
-  }, [loadOrderBadge])
+  }, [refreshOrders])
 
   return (
     <Sidebar collapsible="icon" {...props}>

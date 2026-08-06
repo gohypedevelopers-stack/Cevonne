@@ -1994,7 +1994,9 @@ function UsersNoResultsState({ onResetFilters }: { onResetFilters: () => void })
 export default function UsersPage() {
   const { authFetch, isAdmin } = useAuth();
   const request = authFetch ?? defaultRequest;
-  const { users: liveUsers, orders, loading, error, refresh } = useDashboardData(true, request, isAdmin);
+  const { users: liveUsers, orders, loading, error, refresh } = useDashboardData(true, request, isAdmin, {
+    resources: ["users", "orders"],
+  });
   const navigate = useNavigate();
 
   const [records, setRecords] = useState<UserRecord[]>([]);

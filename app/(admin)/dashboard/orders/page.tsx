@@ -1,8 +1,4 @@
-"use client";
-
-import dynamic from "next/dynamic";
-
-const OrdersPage = dynamic(() => import("@/components/admin-dashboard/OrdersPage"), { ssr: false });
+import OrdersPage from "@/components/admin-dashboard/OrdersPage";
 
 export default function Page() {
   return <OrdersPage />;

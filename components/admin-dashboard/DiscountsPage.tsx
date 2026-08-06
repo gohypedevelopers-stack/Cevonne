@@ -2683,7 +2683,9 @@ function CheckProofDialog({
 export default function DiscountsPage() {
   const { authFetch } = useAuth();
   const request: AdminRequest = authFetch ?? defaultRequest;
-  const { products, collections } = useDashboardData(true, request, true);
+  const { products, collections } = useDashboardData(true, request, true, {
+    resources: ["products", "collections"],
+  });
 
   const [discounts, setDiscounts] = useState<AdminDiscountRecord[]>([]);
   const [loading, setLoading] = useState(true);

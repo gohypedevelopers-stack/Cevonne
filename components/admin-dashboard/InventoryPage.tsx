@@ -680,7 +680,9 @@ export default function InventoryPage() {
   const { authFetch, isAdmin } = useAuth();
   const request = authFetch ?? defaultRequest;
   const navigate = useNavigate();
-  const { collections, inventory, lowInventory, loading, refresh, stats } = useDashboardData(true, request, isAdmin);
+  const { collections, inventory, lowInventory, loading, refresh, stats } = useDashboardData(true, request, isAdmin, {
+    resources: ["collections", "inventory", "lowInventory"],
+  });
 
   const [searchQuery, setSearchQuery] = useState("");
   const [levelFilter, setLevelFilter] = useState<InventoryFilter>("all");

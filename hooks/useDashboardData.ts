@@ -1,5 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
-import { usePathname } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { API_BASE } from "@/lib/api";
 import { normalizeOrderStatus, type Order } from "@/types/order";
 import type { Product } from "@/types/product";
@@ -35,7 +34,44 @@ type DashboardState = {
   orderSummary: DashboardOrderSummary;
 };
 
-const emptyState: DashboardState = {
+export type DashboardResource =
+  | "products"
+  | "shades"
+  | "collections"
+  | "users"
+  | "inventory"
+  | "lowInventory"
+  | "reviews"
+  | "orders";
+
+type DashboardDataOptions = {
+  resources?: readonly DashboardResource[];
+  maxAgeMs?: number;
+};
+
+type DashboardRequest = (url: string, options?: RequestInit) => Promise<Response>;
+
+type ResourceCacheEntry = {
+  value?: unknown;
+  updatedAt: number;
+  promise?: Promise<unknown>;
+};
+
+const ALL_DASHBOARD_RESOURCES: readonly DashboardResource[] = [
+  "products",
+  "shades",
+  "collections",
+  "users",
+  "inventory",
+  "lowInventory",
+  "reviews",
+  "orders",
+];
+
+const DEFAULT_MAX_AGE_MS = 30_000;
+const requestCaches = new WeakMap<DashboardRequest, Map<string, ResourceCacheEntry>>();
+
+const createEmptyState = (): DashboardState => ({
   products: [],
   shades: [],
   collections: [],
@@ -57,18 +93,243 @@ const emptyState: DashboardState = {
     delivered: 0,
     revenue: 0,
   },
-};
+});
 
-const defaultRequest = (url: string, options?: RequestInit) => fetch(url, options);
+const defaultRequest: DashboardRequest = (url, options) => fetch(url, options);
+
+function normalizeResources(resources?: readonly DashboardResource[]) {
+  return resources?.length
+    ? Array.from(new Set(resources)).sort()
+    : [...ALL_DASHBOARD_RESOURCES];
+}
+
+function getRequestCache(request: DashboardRequest) {
+  let cache = requestCaches.get(request);
+  if (!cache) {
+    cache = new Map();
+    requestCaches.set(request, cache);
+  }
+  return cache;
+}
+
+function getResourceCacheKey(resource: DashboardResource, isAdmin: boolean) {
+  return resource === "orders" ? `${resource}:${isAdmin ? "admin" : "self"}` : resource;
+}
+
+function deriveLowInventory(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item) => Number(item?.quantity) < 12)
+    .sort((left, right) => Number(left?.quantity) - Number(right?.quantity));
+}
+
+async function readResponse(response: Response, fallback: unknown) {
+  if (!response.ok) {
+    const message = await response.text().catch(() => response.statusText);
+    throw new Error(`${response.status} ${message}`);
+  }
+  return response.json().catch(() => fallback);
+}
+
+async function fetchResource(
+  request: DashboardRequest,
+  resource: DashboardResource,
+  isAdmin: boolean,
+) {
+  const paths: Record<Exclude<DashboardResource, "orders">, string> = {
+    products: "/products",
+    shades: "/shades",
+    collections: "/collections",
+    users: "/users",
+    inventory: "/inventory",
+    lowInventory: "/inventory/low?lt=12",
+    reviews: "/reviews?status=ALL",
+  };
+  const path =
+    resource === "orders" ? (isAdmin ? "/orders" : "/orders/my") : paths[resource];
+  const response = await request(`${API_BASE}${path}`, { cache: "no-store" });
+
+  if (resource === "reviews") {
+    return readResponse(response, { items: [], meta: createEmptyState().reviewMeta });
+  }
+  if (resource === "orders") {
+    return readResponse(response, { items: [], summary: createEmptyState().orderSummary });
+  }
+  return readResponse(response, []);
+}
+
+async function ensureResource(
+  request: DashboardRequest,
+  resource: DashboardResource,
+  isAdmin: boolean,
+  maxAgeMs: number,
+  force = false,
+) {
+  const cache = getRequestCache(request);
+  const cacheKey = getResourceCacheKey(resource, isAdmin);
+  const cached = cache.get(cacheKey);
+  const isFresh = cached?.value !== undefined && Date.now() - cached.updatedAt < maxAgeMs;
+
+  if (!force && isFresh) return cached.value;
+  if (cached?.promise) return cached.promise;
+
+  if (resource === "lowInventory") {
+    const inventoryEntry = cache.get("inventory");
+    const inventoryIsFresh =
+      inventoryEntry?.value !== undefined && Date.now() - inventoryEntry.updatedAt < maxAgeMs;
+
+    if (inventoryEntry?.promise || inventoryIsFresh) {
+      const promise = Promise.resolve(inventoryEntry.promise ?? inventoryEntry.value)
+        .then((value) => {
+          if (!Array.isArray(value)) return cached?.value;
+          const lowInventory = deriveLowInventory(value);
+          cache.set(cacheKey, { value: lowInventory, updatedAt: Date.now() });
+          return lowInventory;
+        })
+        .finally(() => {
+          const current = cache.get(cacheKey);
+          if (current?.promise === promise) {
+            cache.set(cacheKey, {
+              value: current.value,
+              updatedAt: current.updatedAt,
+            });
+          }
+        });
+      cache.set(cacheKey, {
+        value: cached?.value,
+        updatedAt: cached?.updatedAt ?? 0,
+        promise,
+      });
+      return promise;
+    }
+  }
+
+  const promise = fetchResource(request, resource, isAdmin)
+    .then((value) => {
+      const updatedAt = Date.now();
+      cache.set(cacheKey, { value, updatedAt });
+      if (resource === "inventory") {
+        cache.set("lowInventory", { value: deriveLowInventory(value), updatedAt });
+      }
+      return value;
+    })
+    .catch((error) => {
+      console.error(`Failed to load dashboard resource: ${resource}`, error);
+      return cached?.value;
+    })
+    .finally(() => {
+      const current = cache.get(cacheKey);
+      if (current?.promise === promise) {
+        cache.set(cacheKey, {
+          value: current.value,
+          updatedAt: current.updatedAt,
+        });
+      }
+    });
+
+  cache.set(cacheKey, {
+    value: cached?.value,
+    updatedAt: cached?.updatedAt ?? 0,
+    promise,
+  });
+
+  return promise;
+}
+
+function applyCachedResource(
+  state: DashboardState,
+  resource: DashboardResource,
+  value: unknown,
+) {
+  if (resource === "reviews") {
+    const payload = value as { items?: unknown; meta?: unknown } | null;
+    state.reviews = Array.isArray(payload?.items) ? (payload.items as Review[]) : [];
+    state.reviewMeta =
+      typeof payload?.meta === "object" && payload.meta !== null
+        ? { ...state.reviewMeta, ...(payload.meta as Partial<DashboardReviewMeta>) }
+        : state.reviewMeta;
+    return;
+  }
+
+  if (resource === "orders") {
+    const payload = value as { items?: unknown; summary?: unknown } | unknown[] | null;
+    state.orders = Array.isArray(payload)
+      ? (payload as Order[])
+      : Array.isArray(payload?.items)
+        ? (payload.items as Order[])
+        : [];
+    state.orderSummary =
+      !Array.isArray(payload) && typeof payload?.summary === "object" && payload.summary !== null
+        ? { ...state.orderSummary, ...(payload.summary as Partial<DashboardOrderSummary>) }
+        : state.orderSummary;
+    return;
+  }
+
+  state[resource] = (Array.isArray(value) ? value : []) as DashboardState[typeof resource];
+}
+
+function readCachedState(
+  request: DashboardRequest,
+  resources: readonly DashboardResource[],
+  isAdmin: boolean,
+) {
+  const state = createEmptyState();
+  const cache = requestCaches.get(request);
+  if (!cache) return state;
+
+  resources.forEach((resource) => {
+    const cached = cache.get(getResourceCacheKey(resource, isAdmin));
+    if (cached?.value !== undefined) {
+      applyCachedResource(state, resource, cached.value);
+    }
+  });
+
+  return state;
+}
+
+function hasCachedResources(
+  request: DashboardRequest,
+  resources: readonly DashboardResource[],
+  isAdmin: boolean,
+) {
+  const cache = requestCaches.get(request);
+  if (!cache) return false;
+  return resources.every(
+    (resource) => cache.get(getResourceCacheKey(resource, isAdmin))?.value !== undefined,
+  );
+}
+
+export async function preloadDashboardData(
+  request: DashboardRequest = defaultRequest,
+  isAdmin = false,
+  options: DashboardDataOptions = {},
+) {
+  const resources = normalizeResources(options.resources);
+  const maxAgeMs = options.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
+  await Promise.all(
+    resources.map((resource) => ensureResource(request, resource, isAdmin, maxAgeMs)),
+  );
+  return readCachedState(request, resources, isAdmin);
+}
 
 export function useDashboardData(
   enabled = true,
-  request: (url: string, options?: RequestInit) => Promise<Response> = defaultRequest,
-  isAdmin = false
+  request: DashboardRequest = defaultRequest,
+  isAdmin = false,
+  options: DashboardDataOptions = {},
 ) {
-  const pathname = usePathname();
-  const [data, setData] = useState<DashboardState>(emptyState);
-  const [loading, setLoading] = useState(true);
+  const resourceKey = normalizeResources(options.resources).join(",");
+  const resources = useMemo(
+    () => resourceKey.split(",") as DashboardResource[],
+    [resourceKey],
+  );
+  const maxAgeMs = options.maxAgeMs ?? DEFAULT_MAX_AGE_MS;
+  const [data, setData] = useState<DashboardState>(() =>
+    readCachedState(request, resources, isAdmin),
+  );
+  const [loading, setLoading] = useState(
+    () => enabled && !hasCachedResources(request, resources, isAdmin),
+  );
   const [error, setError] = useState<unknown>(null);
   const [version, setVersion] = useState(0);
 
@@ -76,108 +337,41 @@ export function useDashboardData(
     let cancelled = false;
 
     if (!enabled) {
-      setData(emptyState);
+      setData(createEmptyState());
       setLoading(false);
       return () => {
         cancelled = true;
       };
     }
 
+    const hasCache = hasCachedResources(request, resources, isAdmin);
+    setData(readCachedState(request, resources, isAdmin));
+    setLoading(!hasCache);
+    setError(null);
+
     async function load() {
-      setLoading(true);
-      setError(null);
       try {
-        const fetchArray = async (path: string, fallback: any[] = []) => {
-          try {
-            const response = await request(`${API_BASE}${path}`, { cache: "no-store" });
-            if (!response.ok) {
-              const message = await response.text().catch(() => response.statusText);
-              throw new Error(`${response.status} ${message}`);
-            }
-            const data = await response.json().catch(() => fallback);
-            return Array.isArray(data) ? data : fallback;
-          } catch (err) {
-            console.error(`Failed to load ${path}`, err);
-            return fallback;
-          }
-        };
-
-        const fetchJson = async (path: string, fallback: any = null) => {
-          try {
-            const response = await request(`${API_BASE}${path}`, { cache: "no-store" });
-            if (!response.ok) {
-              const message = await response.text().catch(() => response.statusText);
-              throw new Error(`${response.status} ${message}`);
-            }
-            return await response.json();
-          } catch (err) {
-            console.error(`Failed to load ${path}`, err);
-            return fallback;
-          }
-        };
-
-        const [
-          products,
-          shades,
-          collections,
-          users,
-          inventory,
-          lowInventory,
-          allReviews,
-          ordersPayload,
-        ] = await Promise.all([
-          fetchArray("/products"),
-          fetchArray("/shades"),
-          fetchArray("/collections"),
-          fetchArray("/users"),
-          fetchArray("/inventory"),
-          fetchArray("/inventory/low?lt=12"),
-          fetchJson("/reviews?status=ALL", { items: [], meta: emptyState.reviewMeta }),
-          fetchJson(isAdmin ? "/orders" : "/orders/my", { items: [], summary: emptyState.orderSummary }),
-        ]);
-
+        await Promise.all(
+          resources.map((resource) =>
+            ensureResource(request, resource, isAdmin, maxAgeMs, version > 0),
+          ),
+        );
         if (!cancelled) {
-          const reviewsItems = Array.isArray(allReviews?.items) ? allReviews.items : [];
-          const reviewMeta =
-            typeof allReviews?.meta === "object" && allReviews.meta !== null
-              ? { ...emptyState.reviewMeta, ...allReviews.meta }
-              : { ...emptyState.reviewMeta };
-          const fetchedOrders = Array.isArray(ordersPayload?.items) ? ordersPayload.items : [];
-          const orderSummary =
-            typeof ordersPayload?.summary === "object" && ordersPayload.summary !== null
-              ? { ...emptyState.orderSummary, ...ordersPayload.summary }
-              : { ...emptyState.orderSummary };
-          setData({
-            products,
-            shades,
-            collections,
-            users,
-            inventory,
-            lowInventory,
-            reviews: reviewsItems,
-            reviewMeta,
-            orders: fetchedOrders,
-            orderSummary,
-          });
+          setData(readCachedState(request, resources, isAdmin));
         }
-      } catch (err) {
-        if (!cancelled) {
-          console.error("Dashboard data failed", err);
-          setError(err);
-        }
+      } catch (loadError) {
+        if (!cancelled) setError(loadError);
       } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        if (!cancelled) setLoading(false);
       }
     }
 
-    load();
+    void load();
 
     return () => {
       cancelled = true;
     };
-  }, [request, enabled, version, isAdmin, pathname]);
+  }, [enabled, isAdmin, maxAgeMs, request, resourceKey, resources, version]);
 
   const stats = useMemo(() => {
     const shades = Array.isArray(data.shades) ? data.shades : [];
@@ -185,13 +379,15 @@ export function useDashboardData(
     const totalInventory = Array.isArray(data.inventory)
       ? data.inventory.reduce((acc, item) => acc + (Number(item.quantity) || 0), 0)
       : 0;
-    const reviewSummary = data.reviewMeta ?? emptyState.reviewMeta;
+    const reviewSummary = data.reviewMeta;
     const orders = Array.isArray(data.orders) ? data.orders : [];
     const orderRevenue = orders.reduce(
       (acc, order) => acc + (Number(order?.totals?.total) || 0),
-      0
+      0,
     );
-    const pendingOrders = orders.filter((order) => normalizeOrderStatus(order.status) !== "DELIVERED").length;
+    const pendingOrders = orders.filter(
+      (order) => normalizeOrderStatus(order.status) !== "DELIVERED",
+    ).length;
 
     return {
       productCount: Array.isArray(data.products) ? data.products.length : 0,
@@ -209,7 +405,8 @@ export function useDashboardData(
       orderRevenue,
     };
   }, [data]);
-  const refresh = () => setVersion((prev) => prev + 1);
+
+  const refresh = useCallback(() => setVersion((previous) => previous + 1), []);
 
   return {
     ...data,

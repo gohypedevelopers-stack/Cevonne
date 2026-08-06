@@ -1198,7 +1198,9 @@ export default function ProductsPage() {
   const { authFetch } = useAuth();
   const request = authFetch ?? defaultRequest;
   const navigate = useNavigate();
-  const { products, collections, loading, error, refresh } = useDashboardData(true, request, true);
+  const { products, collections, loading, error, refresh } = useDashboardData(true, request, true, {
+    resources: ["products", "collections"],
+  });
 
   const [searchQuery, setSearchQuery] = useState("");
   const [collectionFilter, setCollectionFilter] = useState<CollectionFilter>("all");

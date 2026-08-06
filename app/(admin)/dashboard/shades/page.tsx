@@ -1,8 +1,4 @@
-"use client";
-
-import dynamic from "next/dynamic";
-
-const ShadesPage = dynamic(() => import("@/components/admin-dashboard/Shades"), { ssr: false });
+import ShadesPage from "@/components/admin-dashboard/Shades";
 
 export default function Page() {
   return <ShadesPage />;

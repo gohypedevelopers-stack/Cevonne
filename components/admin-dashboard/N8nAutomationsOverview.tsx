@@ -32,7 +32,6 @@ import {
 } from "@/components/admin-dashboard/n8n-automations-common";
 import { CevonneWorkflowGroup } from "@/lib/cevonne/admin-model";
 import {
-  G12_TREND_FETCHER_PURPOSE,
   G12_TREND_FETCHER_ROUTE,
   G12_TREND_FETCHER_TITLE,
   buildG12FallbackSnapshot,
@@ -155,21 +154,21 @@ const EMPTY_OVERVIEW: N8nOverviewResponse = {
 };
 
 const WORKFLOW_SUMMARY_COPY: Record<CevonneWorkflowGroup, string> = {
-  G1: "Safety gate for all risky actions before execution.",
-  G2: "Monitors account and policy health.",
-  G3: "Keeps customer permissions, opt-outs, purchases, attribution and privacy requests synchronized safely.",
-  G4: "Reviews claims, captions, and creative before approval.",
-  G5: "Manages approval, manual publishing proof, and queue status.",
-  G6: "Routes messaging through safe partner paths.",
-  G7: "Checks stock, discount expiry, and discount proof before use.",
-  G8: "Verifies rights and disclosure proof.",
-  G9: "Keeps ad changes in dry-run mode until approved.",
-  G10: "Reviews SEO and conversion ideas safely.",
-  G11: "Generates recommendations without live writes.",
+  G1: "Blocks risky actions until safety checks pass.",
+  G2: "Monitors policy and account health for risks.",
+  G3: "Synchronizes consent, privacy, purchase, and attribution records.",
+  G4: "Reviews content, claims, and landing-page copy before approval.",
+  G5: "Tracks asset approval and manual publishing proof.",
+  G6: "Routes quiz, messaging, and recovery flows safely.",
+  G7: "Validates inventory, discounts, and urgency claims.",
+  G8: "Verifies creator rights, consent, and disclosure proof.",
+  G9: "Reviews ads and recommends safe optimizations.",
+  G10: "Creates safe SEO and conversion recommendations.",
+  G11: "Creates business recommendations without live changes.",
 };
 
 const G12_WORKFLOW_CATEGORY = "Trend fetcher";
-const G12_WORKFLOW_DESCRIPTION = G12_TREND_FETCHER_PURPOSE;
+const G12_WORKFLOW_DESCRIPTION = "Collects and stores safe public trend insights.";
 
 const createEmptyOverview = (): N8nOverviewResponse => ({
   summary: { ...EMPTY_OVERVIEW.summary },
@@ -392,7 +391,7 @@ const buildWf1Row = (workflow: NonNullable<Wf1DetailResponse["workflow"]>): Work
     id: WF1_WORKFLOW_ROUTE.split("/").pop() ?? "wf1-instagram-scheduler",
     name: WF1_WORKFLOW_TITLE,
     category: "Instagram",
-    description: "Schedules approved Instagram content safely after review, approval, and compliance checks.",
+    description: "Schedules approved Instagram content after safety checks.",
     status,
     statusTone: WORKFLOW_STATUS_TONES[status],
     attention,
@@ -544,7 +543,9 @@ function WorkflowRowCard({ row }: WorkflowCardProps) {
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 space-y-1">
             <p className="truncate text-sm font-semibold text-foreground">{row.name}</p>
-            <p className="text-xs leading-5 text-muted-foreground">{row.description}</p>
+            <p className="line-clamp-1 text-xs leading-5 text-muted-foreground" title={row.description}>
+              {row.description}
+            </p>
           </div>
           <StatusBadge label={row.status} tone={row.statusTone} />
         </div>
@@ -734,7 +735,9 @@ function WorkflowTable({
                 <TableCell className="px-3 py-3 align-top !whitespace-normal">
                   <div className="space-y-1">
                     <p className="text-sm font-semibold text-foreground">{row.name}</p>
-                    <p className="text-xs leading-5 text-muted-foreground">{row.description}</p>
+                    <p className="line-clamp-1 text-xs leading-5 text-muted-foreground" title={row.description}>
+                      {row.description}
+                    </p>
                   </div>
                 </TableCell>
                 <TableCell className="px-3 py-3 align-top !whitespace-normal">
@@ -1129,7 +1132,9 @@ export default function N8nAutomationsOverview() {
                                 </div>
                                 <StatusBadge label={getAttentionLabel(row.attention)} tone={row.attentionTone} compact />
                               </div>
-                              <p className="mt-2.5 text-xs leading-5 text-muted-foreground">{row.description}</p>
+                              <p className="mt-2.5 line-clamp-1 text-xs leading-5 text-muted-foreground" title={row.description}>
+                                {row.description}
+                              </p>
                               <Button asChild variant="outline" className="mt-3 h-8 rounded-full border-border/70 bg-white px-3 text-xs shadow-none">
                                 <Link href={row.detailHref}>
                                   View details

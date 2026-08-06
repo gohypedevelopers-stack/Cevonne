@@ -20,7 +20,9 @@ export default function ProductEdit() {
   const navigate = useNavigate();
   const { authFetch } = useAuth();
   const request = authFetch ?? defaultRequest;
-  const { collections, refresh } = useDashboardData(true, request);
+  const { collections, refresh } = useDashboardData(true, request, false, {
+    resources: ["collections"],
+  });
   const collectionOptions = Array.isArray(collections) ? collections : [];
 
   const [product, setProduct] = useState<Product | null>(null);

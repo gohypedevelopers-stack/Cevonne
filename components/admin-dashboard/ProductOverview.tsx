@@ -167,7 +167,9 @@ export default function ProductOverview() {
   const { authFetch } = useAuth();
   const request = authFetch ?? defaultRequest;
   const navigate = useNavigate();
-  const { products, collections, stats, loading, refresh } = useDashboardData(true, request);
+  const { products, collections, stats, loading, refresh } = useDashboardData(true, request, false, {
+    resources: ["products", "collections", "lowInventory"],
+  });
 
   const [search, setSearch] = useState("");
   const [collectionFilter, setCollectionFilter] = useState("all");

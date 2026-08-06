@@ -1,5 +1,10 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 /** @type {import('next').NextConfig} */
 const r2RemotePatterns = [{ protocol: "https", hostname: "*.r2.dev" }];
+
+const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 
 const r2PublicBaseUrl = process.env.R2_PUBLIC_BASE_URL || process.env.R2_PUBLIC_URL;
 
@@ -22,7 +27,13 @@ const nextConfig = {
   images: {
     remotePatterns: r2RemotePatterns,
   },
+  experimental: {
+    // Prevent stale route state from surviving dev-server restarts.
+    turbopackFileSystemCacheForDev: false,
+  },
   turbopack: {
+    // Keep module resolution and file watching scoped to this app.
+    root: projectRoot,
     resolveAlias: {
       "react-router-dom": "./lib/router.tsx",
     },

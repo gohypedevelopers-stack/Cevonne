@@ -23,8 +23,8 @@ import {
 } from "@/server/next/api/g5-publishing-scheduler-adapter";
 import { type G5PublishingSchedulerDetail } from "@/lib/admin/g5-publishing-scheduler";
 import {
-  ADMIN_WORKFLOW_IDS,
   WORKFLOW_CATALOG,
+  WORKFLOW_ORDER,
   getWorkflowActionNeeded,
   getWorkflowCatalogEntry,
   getWorkflowDetailHref,
@@ -99,7 +99,11 @@ const WORKFLOW_TABLES: Record<AdminWorkflowId, TableSpec[]> = {
   G6: [tableSpec("g6_messaging_logs"), tableSpec("g6_quiz_runs"), tableSpec("g6_recovery_logs")],
   G7: [tableSpec("g7_inventory_snapshots", ["captured_at", "created_at"]), tableSpec("g7_offer_change_log", ["created_at", "processed_at"])],
   G8: [tableSpec("g8_ugc_proof_logs"), tableSpec("g8_creator_proof_logs"), tableSpec("g8_rights_logs")],
-  G9: [tableSpec("g9_ad_recommendations"), tableSpec("g9_ad_dry_runs"), tableSpec("g9_ad_executions")],
+  G9: [
+    tableSpec("ad_recommendations", ["created_at"]),
+    tableSpec("ad_approval_requests", ["requested_at", "decided_at"]),
+    tableSpec("ad_execution_logs", ["executed_at"]),
+  ],
   G10: [tableSpec("g10_recommendations"), tableSpec("g10_dry_runs"), tableSpec("g10_experiments")],
   G11: [
     tableSpec("g11_latest_recommendation", ["event_time", "created_at", "updated_at", "handled_at", "time"], 1),
@@ -126,8 +130,8 @@ const WORKFLOW_RUN_PATHS: Record<AdminWorkflowId, string | null> = {
   G5: env.n8nG5PublishingSchedulerPath,
   G6: env.n8nG6MessagingRouterPath,
   G7: env.n8nG7InventoryOfferSafetyPath,
-  G8: env.n8nG8UgcCreatorProofPath,
-  G9: env.n8nG9AdsRetargetingOptimizerPath,
+  G8: env.n8nG8DashboardSummaryPath,
+  G9: env.n8nG9ReviewPath,
   G10: env.n8nG10SeoCroPath,
   G11: null,
   G12: null,
@@ -2335,7 +2339,7 @@ export type WorkflowDashboardRunResponse = {
 };
 
 export const loadWorkflowDashboardOverview = async (): Promise<WorkflowDashboardOverviewResponse> => {
-  const workflowIds = ADMIN_WORKFLOW_IDS.filter((workflowId) => workflowId !== "WF1");
+  const workflowIds = WORKFLOW_ORDER.filter((workflowId) => workflowId !== "WF1");
   const workflows = await Promise.all(
     workflowIds.map(async (workflowId) => {
       const workflow = buildWorkflowView(workflowId, await loadWorkflowOutcomes(workflowId));

@@ -36,6 +36,7 @@ type NavItem = {
   exactMatch?: boolean
   items?: NavSubItem[]
   isActive?: (pathname: string, hash: string) => boolean
+  onIntent?: () => void
 }
 
 function pathMatches(pathname: string, candidate: string, exactMatch = false) {
@@ -126,7 +127,9 @@ export function NavMain({ items }: { items: NavItem[] }) {
                   tooltip={item.title}
                   className="group h-11 rounded-xl border border-transparent px-3 text-sm font-medium text-[#4b0d4b]/75 transition-all duration-200 hover:border-[#eadfd8] hover:bg-[#fbf7f4] hover:text-[#4b0d4b] data-[active=true]:border-[#eadfd8] data-[active=true]:bg-[#fbf7f4] data-[active=true]:text-[#4b0d4b] data-[active=true]:shadow-sm data-[state=open]:border-[#eadfd8] data-[state=open]:bg-[#fbf7f4] data-[state=open]:text-[#4b0d4b] data-[state=open]:shadow-sm group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:h-8 group-data-[collapsible=icon]:w-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-2 group-data-[collapsible=icon]:py-2"
                 >
-                  <Link href={item.href}>{buttonContent}</Link>
+                  <Link href={item.href} onFocus={item.onIntent} onMouseEnter={item.onIntent}>
+                    {buttonContent}
+                  </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             )
@@ -153,7 +156,9 @@ export function NavMain({ items }: { items: NavItem[] }) {
                     tooltip={item.title}
                     className="group h-11 rounded-xl border border-transparent px-3 text-sm font-medium text-[#4b0d4b]/75 transition-all duration-200 hover:border-[#eadfd8] hover:bg-[#fbf7f4] hover:text-[#4b0d4b] data-[active=true]:border-[#eadfd8] data-[active=true]:bg-[#fbf7f4] data-[active=true]:text-[#4b0d4b] data-[active=true]:shadow-sm data-[state=open]:border-[#eadfd8] data-[state=open]:bg-[#fbf7f4] data-[state=open]:text-[#4b0d4b] data-[state=open]:shadow-sm group-data-[collapsible=icon]:mx-auto group-data-[collapsible=icon]:h-8 group-data-[collapsible=icon]:w-8 group-data-[collapsible=icon]:justify-center group-data-[collapsible=icon]:px-2 group-data-[collapsible=icon]:py-2"
                   >
-                    <Link href={item.href}>{buttonContent}</Link>
+                    <Link href={item.href} onFocus={item.onIntent} onMouseEnter={item.onIntent}>
+                      {buttonContent}
+                    </Link>
                   </SidebarMenuButton>
                 </CollapsibleTrigger>
                 <CollapsibleContent>
