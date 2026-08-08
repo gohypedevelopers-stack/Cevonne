@@ -16,6 +16,10 @@ export type R2UploadRequest = {
   productId?: string | null;
 };
 
+export type R2UploadOptions = {
+  folder?: "collections";
+};
+
 export type R2UploadResponse = {
   uploadUrl: string;
   key: string;
@@ -142,20 +146,26 @@ export const buildR2Url = (storageKey: string) => {
   return `${base}/${encodeKeyPath(storageKey)}`;
 };
 
-export const createR2StorageKey = (fileName: string, mimeType: string, kind: R2MediaKind) => {
+export const createR2StorageKey = (
+  fileName: string,
+  mimeType: string,
+  kind: R2MediaKind,
+  options: R2UploadOptions = {}
+) => {
   const ext = getExtension(fileName, mimeType);
   const prefix = kind === "VIDEO" ? "collection-video" : "collection-image";
-  return `${prefix}-${crypto.randomUUID()}${ext}`;
+  const key = `${prefix}-${crypto.randomUUID()}${ext}`;
+  return options.folder ? `${options.folder}/${key}` : key;
 };
 
-export const uploadFileToR2 = async (file: File): Promise<StoredAsset> => {
+export const uploadFileToR2 = async (file: File, options: R2UploadOptions = {}): Promise<StoredAsset> => {
   if (!hasR2Storage()) {
     throw new Error("R2 storage is not configured");
   }
 
   const kind = inferMediaKind(file);
   const mimeType = file.type || (kind === "VIDEO" ? "video/mp4" : "application/octet-stream");
-  const storageKey = createR2StorageKey(file.name || "upload", mimeType, kind);
+  const storageKey = createR2StorageKey(file.name || "upload", mimeType, kind, options);
   const bytes = Buffer.from(await file.arrayBuffer());
 
   await getClient().send(

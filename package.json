@@ -16,6 +16,7 @@
     "lint": "eslint",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",
+    "migrate:collections-r2-folder": "node scripts/migrate-collection-media-to-r2-folder.js",
     "prisma:studio": "prisma studio",
     "backfill:g12-send-to-draft": "node scripts/backfill-g12-send-to-content-draft.js",
     "backfill:g4-send-to-g5": "node scripts/backfill-g4-send-to-g5.js"

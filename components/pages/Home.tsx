@@ -1,23 +1,27 @@
 "use client";
 
 import HeroSection from "../home/HeroSection";
-import IntroVideo1 from "../home/IntroVideo1";
+import CollectionSection from "../home/CollectionSection";
 import ProductCard from "../home/ProductCard";
-import IntroVideo2 from "../home/IntroVideo2";
-import IntroVideo3 from "../home/IntroVideo3";
+import HomeBanner from "../home/HomeBanner";
 import ProductCard2 from "../home/ProductCard2";
 import ProductCard3 from "../home/ProductCard3";
 import NewsletterLeadForm from "../forms/NewsletterLeadForm";
+import { STATIC_ASSETS } from "@/lib/assets";
 
 const Home = () => {
   return (
     <>
       <HeroSection />
-      <IntroVideo1 />
+      <CollectionSection />
       <ProductCard />
-      <IntroVideo2 />
+      <HomeBanner />
       <ProductCard2 />
-      <IntroVideo3 />
+      <HomeBanner
+        desktopSrc={STATIC_ASSETS.homeBanner2Desktop}
+        mobileSrc={STATIC_ASSETS.homeBanner2Mobile}
+        ariaLabel="Cevonne campaign collection"
+      />
       <ProductCard3 />
       <NewsletterLeadForm />
     </>

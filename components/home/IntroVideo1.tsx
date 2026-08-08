@@ -2,12 +2,53 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import { Pause, Play, Volume2, VolumeX } from "lucide-react";
-import { STATIC_ASSETS } from "@/lib/assets";
+import { API_BASE } from "@/lib/api";
+import type { ProductCollection } from "@/types/product";
+
+const normalizeCollections = (payload: unknown): ProductCollection[] => {
+  const items = Array.isArray(payload)
+    ? payload
+    : (payload as { data?: unknown } | null)?.data;
+
+  return Array.isArray(items) ? (items as ProductCollection[]) : [];
+};
 
 const IntroVideo1 = () => {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [collection, setCollection] = useState<ProductCollection | null>(null);
   const [isPlaying, setIsPlaying] = useState(true);
   const [isMuted, setIsMuted] = useState(true);
+
+  useEffect(() => {
+    const controller = new AbortController();
+
+    fetch(`${API_BASE}/collections`, { signal: controller.signal })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error("Unable to load collection video");
+        }
+
+        return normalizeCollections(await response.json());
+      })
+      .then((collections) => {
+        const newArrival = collections.find(
+          (item) =>
+            item.slug?.toLowerCase() === "new-arrival" ||
+            item.name?.trim().toLowerCase() === "new arrival"
+        );
+        setCollection(newArrival ?? null);
+      })
+      .catch((error: unknown) => {
+        if ((error as { name?: string })?.name !== "AbortError") {
+          setCollection(null);
+        }
+      });
+
+    return () => controller.abort();
+  }, []);
+
+  const video = collection?.media?.find((item) => item.kind === "VIDEO");
+  const poster = collection?.media?.find((item) => item.kind === "IMAGE")?.url || collection?.imageUrl || undefined;
 
   useEffect(() => {
     const v = videoRef.current;
@@ -32,7 +73,11 @@ const IntroVideo1 = () => {
       v.removeEventListener("play", onPlay);
       v.removeEventListener("pause", onPause);
     };
-  }, []);
+  }, [video?.url]);
+
+  if (!collection || !video?.url) {
+    return null;
+  }
 
   const togglePlay = () => {
     const v = videoRef.current;
@@ -49,12 +94,13 @@ const IntroVideo1 = () => {
 
   return (
     // Give the section a reliable height and a black fallback color
-    <section className="relative isolate w-full overflow-hidden h-[70svh] md:h-[85svh]">
+    <section className="relative isolate h-[calc(100svh-4rem)] w-full overflow-hidden md:h-[calc(100svh-5rem)]">
       {/* Video absolutely covers the section; 'block' kills inline baseline gap */}
       <video
         ref={videoRef}
         className="absolute inset-0 block h-full w-full object-cover"
-        src={STATIC_ASSETS.introVideo1}
+        src={video.url}
+        poster={poster}
         autoPlay
         loop
         muted={isMuted}
@@ -65,30 +111,19 @@ const IntroVideo1 = () => {
       {/* Overlay gradient */}
       <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(80%_80%_at_0%_100%,rgba(0,0,0,0.55)_0%,transparent_60%)]" />
 
-      {/* Copy */}
-      <div className="pointer-events-none absolute left-4 right-4 bottom-8 z-10 mx-auto max-w-[520px] text-center text-white sm:left-8 sm:right-auto sm:bottom-10 sm:text-left md:bottom-14">
-        <h2 className="pointer-events-auto mb-3 text-2xl font-semibold tracking-wide sm:text-3xl md:text-4xl">
-          Cevonne
-        </h2>
-        <p className="pointer-events-auto max-w-[380px] text-sm leading-relaxed text-white/85 sm:max-w-[480px] sm:text-[15px]">
-          Velvet matte color and intense longwear adorn lips with immediate
-          moisture and rich tones — in 28 irresistible shades.
-        </p>
-      </div>
-
       {/* Controls */}
-      <div className="absolute bottom-4 right-4 z-10 flex items-center gap-2 sm:gap-3 sm:bottom-6 sm:right-6">
+      <div className="absolute inset-x-0 bottom-4 z-10 flex items-center justify-between px-4 sm:bottom-6 sm:px-6">
         <button
           onClick={togglePlay}
           aria-label={isPlaying ? "Pause video" : "Play video"}
-          className="rounded-full bg-black/40 p-2 text-white backdrop-blur transition hover:bg-black/60"
+          className="inline-flex size-8 items-center justify-center bg-transparent p-0 text-white transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
         >
           {isPlaying ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
         </button>
         <button
           onClick={toggleMute}
           aria-label={isMuted ? "Unmute video" : "Mute video"}
-          className="rounded-full bg-black/40 p-2 text-white backdrop-blur transition hover:bg-black/60"
+          className="inline-flex size-8 items-center justify-center bg-transparent p-0 text-white transition-opacity hover:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/80"
         >
           {isMuted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
         </button>

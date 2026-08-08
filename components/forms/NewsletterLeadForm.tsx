@@ -186,34 +186,30 @@ export default function NewsletterLeadForm() {
   };
 
   return (
-    <section className="mx-auto w-full max-w-screen-2xl px-4 py-12 sm:px-6 lg:px-1">
-      <div className="overflow-hidden rounded-[32px] border border-neutral-200 bg-[linear-gradient(135deg,#fffaf5_0%,#ffffff_56%,#f5efe7_100%)] shadow-[0_20px_60px_rgba(15,23,42,0.08)]">
-        <div className="grid gap-0 lg:grid-cols-[1.1fr_0.9fr]">
-          <div className="border-b border-neutral-200 px-6 py-8 sm:px-10 sm:py-10 lg:border-b-0 lg:border-r">
-            <p className="text-xs font-semibold uppercase tracking-[0.3em] text-neutral-500">
-              Newsletter
-            </p>
-            <h2
-              className="mt-4 max-w-xl text-3xl font-semibold text-neutral-950 sm:text-4xl"
-              style={{
-                fontFamily: '"Cormorant Garamond", Georgia, "Times New Roman", serif',
-              }}
-            >
+    <section className="w-full px-5 py-20 sm:px-8 sm:py-24 lg:px-10 lg:py-28">
+      <div className="mx-auto max-w-[1680px]">
+        <div className="grid gap-16 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:gap-24">
+          <div className="px-0 sm:px-4 lg:px-8">
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[10px] uppercase tracking-[0.28em] text-neutral-500">
+              <span>The Cevonne edit</span>
+              <span>Newsletter</span>
+            </div>
+            <h2 className="mt-8 max-w-[32rem] font-serif text-[clamp(1.875rem,2.6vw,3rem)] font-normal leading-[1.04] tracking-[-0.02em] text-neutral-950">
               Receive launch notes, shade drops, and private access.
             </h2>
-            <p className="mt-4 max-w-2xl text-sm leading-7 text-neutral-700 sm:text-base">
-              Subscribe with your email to receive product updates. If you opt into tracking, we will only send identifiable attribution after consent is recorded.
+            <p className="mt-8 max-w-[34rem] text-[14px] leading-7 text-neutral-600 sm:text-[15px]">
+              A considered note from Cevonne, with new releases, colour stories, and invitations reserved for our community.
             </p>
             {hasAttributionSignals ? (
-              <p className="mt-3 text-xs uppercase tracking-[0.25em] text-neutral-500">
+              <p className="mt-10 border-l border-neutral-950 pl-4 text-[10px] uppercase tracking-[0.2em] text-neutral-600">
                 Campaign attribution is available for this page.
               </p>
             ) : null}
           </div>
 
-          <form className="space-y-5 px-6 py-8 sm:px-10 sm:py-10" onSubmit={handleSubmit}>
-            <div className="space-y-2">
-              <Label htmlFor="newsletter-email" className="text-sm font-medium text-neutral-900">
+          <form className="px-0 sm:px-4 lg:px-8" onSubmit={handleSubmit}>
+            <div>
+              <Label htmlFor="newsletter-email" className="text-[11px] font-medium uppercase tracking-[0.2em] text-neutral-700">
                 Email address
               </Label>
               <Input
@@ -225,71 +221,70 @@ export default function NewsletterLeadForm() {
                 placeholder="you@example.com"
                 disabled={submitting}
                 required
-                className="h-12 rounded-xl border-neutral-300 bg-white/90 text-neutral-950 placeholder:text-neutral-400"
+                aria-describedby="newsletter-email-note"
+                className="mt-3 h-14 rounded-none border-0 border-b border-neutral-400 bg-transparent px-0 text-base text-neutral-950 shadow-none placeholder:text-neutral-400 focus-visible:border-neutral-950 focus-visible:ring-0"
               />
+              <p id="newsletter-email-note" className="mt-3 text-xs leading-5 text-neutral-500">
+                Join for product news and quiet moments of inspiration. Unsubscribe whenever you wish.
+              </p>
             </div>
 
-            <label className="flex items-start gap-3 rounded-2xl border border-neutral-200 bg-white/80 px-4 py-3">
-              <Checkbox
-                checked={emailConsent}
-                onCheckedChange={(checked) => setEmailConsent(checked === true)}
-                disabled={submitting}
-                className="mt-0.5 border-neutral-300 data-[state=checked]:border-neutral-950 data-[state=checked]:bg-neutral-950"
-              />
-              <span className="text-sm leading-6 text-neutral-700">
-                I agree to receive email updates from Cevonne and accept the{" "}
-                <Link to="/privacy-policy" className="font-medium text-neutral-950 underline underline-offset-4">
-                  Privacy Policy
-                </Link>
-                .
-              </span>
-            </label>
+            <fieldset className="mt-14 space-y-7 border-0 p-0">
+              <legend className="sr-only">Newsletter preferences</legend>
+              <label className="flex items-start gap-3 text-sm leading-6 text-neutral-700 transition-colors hover:text-neutral-950 focus-within:text-neutral-950">
+                <Checkbox
+                  checked={emailConsent}
+                  onCheckedChange={(checked) => setEmailConsent(checked === true)}
+                  disabled={submitting}
+                  className="mt-1 border-neutral-400 shadow-none data-[state=checked]:border-neutral-950 data-[state=checked]:bg-neutral-950"
+                />
+                <span>
+                  I agree to receive email updates from Cevonne and accept the{" "}
+                  <Link to="/privacy-policy" className="font-medium text-neutral-950 underline decoration-neutral-400 underline-offset-4 transition-colors hover:decoration-neutral-950">
+                    Privacy Policy
+                  </Link>
+                  .
+                </span>
+              </label>
 
-            <label className="flex items-start gap-3 rounded-2xl border border-neutral-200 bg-white/80 px-4 py-3">
-              <Checkbox
-                checked={trackingConsent}
-                onCheckedChange={(checked) => setTrackingConsent(checked === true)}
-                disabled={submitting}
-                className="mt-0.5 border-neutral-300 data-[state=checked]:border-neutral-950 data-[state=checked]:bg-neutral-950"
-              />
-              <span className="text-sm leading-6 text-neutral-700">
-                I agree to consented tracking for attribution and campaign measurement after signup.
-              </span>
-            </label>
+              <label className="flex items-start gap-3 text-sm leading-6 text-neutral-700 transition-colors hover:text-neutral-950 focus-within:text-neutral-950">
+                <Checkbox
+                  checked={trackingConsent}
+                  onCheckedChange={(checked) => setTrackingConsent(checked === true)}
+                  disabled={submitting}
+                  className="mt-1 border-neutral-400 shadow-none data-[state=checked]:border-neutral-950 data-[state=checked]:bg-neutral-950"
+                />
+                <span>I agree to consented tracking for attribution and campaign measurement after signup.</span>
+              </label>
+            </fieldset>
 
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+            <div className="mt-14 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-start sm:gap-8">
               <Button
                 type="submit"
                 disabled={submitting || !emailConsent || optedOutForEmail}
-                className="h-12 rounded-full bg-neutral-950 px-6 text-sm font-semibold text-white hover:bg-neutral-800"
+                className="h-12 rounded-none bg-neutral-950 px-7 text-sm font-normal text-white shadow-none transition-colors hover:bg-neutral-800 disabled:bg-neutral-200 disabled:text-neutral-500"
               >
                 {submitting ? "Saving..." : "Subscribe"}
               </Button>
-              <p className="text-xs leading-6 text-neutral-500">
-                We keep the flow compliant. Manage preferences after signup from the privacy actions page.
+              <p className="max-w-[22rem] text-xs leading-5 text-neutral-500">
+                Your details stay in Cevonne&apos;s care. Manage preferences from the privacy actions page after signup.
               </p>
             </div>
 
             {subscriptionSummary ? (
-              <div
-                role="status"
-                aria-live="polite"
-                className="rounded-3xl border border-neutral-200 bg-white/90 p-4 shadow-sm"
-              >
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                  <div className="space-y-2">
-                    <p className="text-[11px] font-semibold uppercase tracking-[0.25em] text-neutral-500">
-                      Next step
-                    </p>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="break-all text-sm font-semibold text-neutral-950">{subscriptionSummary.email}</span>
+              <div role="status" aria-live="polite" className="mt-12 border-l border-neutral-300 pl-5 sm:pl-6">
+                <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+                  <div className="space-y-3">
+                    <p className="text-[10px] font-medium uppercase tracking-[0.24em] text-neutral-500">Next step</p>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <span className="break-all text-sm text-neutral-950">{subscriptionSummary.email}</span>
                       <span
-                        className={`inline-flex items-center rounded-full border px-3 py-1 text-[11px] font-semibold ${
+                        className={`inline-flex items-center border px-2.5 py-1 text-[10px] uppercase tracking-[0.12em] ${
                           subscriptionSummary.status === "SUBSCRIBED"
-                            ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                            ? "border-emerald-300 bg-emerald-50 text-emerald-800"
                             : subscriptionSummary.status === "VERIFICATION_NEEDED"
-                              ? "border-amber-200 bg-amber-50 text-amber-700"
-                              : "border-rose-200 bg-rose-50 text-rose-700"
+                              ? "border-amber-300 bg-amber-50 text-amber-800"
+                              : "border-rose-300 bg-rose-50 text-rose-800"
                         }`}
                       >
                         {subscriptionSummary.status === "SUBSCRIBED"
@@ -299,7 +294,7 @@ export default function NewsletterLeadForm() {
                             : "Unsubscribed"}
                       </span>
                     </div>
-                    <p className="text-sm leading-6 text-neutral-700">
+                    <p className="max-w-[34rem] text-sm leading-6 text-neutral-600">
                       {subscriptionSummary.status === "SUBSCRIBED"
                         ? "Your email is on the list. Use the actions below to manage preferences."
                         : subscriptionSummary.status === "VERIFICATION_NEEDED"
@@ -310,21 +305,17 @@ export default function NewsletterLeadForm() {
 
                   <div className="flex flex-wrap gap-2">
                     {subscriptionSummary.status === "VERIFICATION_NEEDED" ? (
-                      <Button
-                        type="button"
-                        disabled
-                        className="h-11 rounded-full bg-neutral-200 px-5 text-sm font-semibold text-neutral-500"
-                      >
+                      <Button type="button" disabled className="h-11 rounded-none bg-neutral-200 px-5 text-sm font-normal text-neutral-500 shadow-none">
                         Send Verification
                       </Button>
                     ) : (
-                      <Button asChild className="h-11 rounded-full bg-neutral-950 px-5 text-sm font-semibold text-white hover:bg-neutral-800">
+                      <Button asChild className="h-11 rounded-none bg-neutral-950 px-5 text-sm font-normal text-white shadow-none hover:bg-neutral-800">
                         <Link to={PRIVACY_ACTIONS_HREF}>Manage Subscription</Link>
                       </Button>
                     )}
 
                     {subscriptionSummary.status === "SUBSCRIBED" ? (
-                      <Button asChild variant="outline" className="h-11 rounded-full border-neutral-300 bg-white px-5 text-sm font-semibold text-neutral-900 hover:bg-neutral-50">
+                      <Button asChild variant="outline" className="h-11 rounded-none border-neutral-300 bg-white px-5 text-sm font-normal text-neutral-900 shadow-none hover:bg-neutral-50">
                         <Link to={PRIVACY_UNSUBSCRIBE_HREF}>Unsubscribe</Link>
                       </Button>
                     ) : null}
@@ -332,11 +323,11 @@ export default function NewsletterLeadForm() {
                 </div>
 
                 {subscriptionSummary.status === "VERIFICATION_NEEDED" ? (
-                  <p className="mt-3 text-xs leading-5 text-neutral-500">Action not connected yet.</p>
+                  <p className="mt-4 text-xs leading-5 text-neutral-500">Action not connected yet.</p>
                 ) : null}
               </div>
             ) : optedOutForEmail ? (
-              <p className="text-sm text-rose-700">
+              <p className="mt-8 border-l border-rose-500 pl-4 text-sm leading-6 text-rose-700">
                 This email address is already opted out. Use the privacy page unsubscribe form to update preferences.
               </p>
             ) : null}

@@ -51,16 +51,24 @@ const ProductCard3 = () => {
   );
 
   const visible = expanded ? products : products.slice(0, INITIAL_VISIBLE);
-  const remaining = Math.max(products.length - INITIAL_VISIBLE, 0);
 
   return (
-    <section className="w-full bg-white py-10 sm:px-6 lg:px-1">
+    <section className="w-full bg-white px-0 py-10">
+      <div className="mx-auto mb-8 max-w-2xl px-4 text-center sm:mb-10">
+        <h2 className="font-sans text-[26px] font-normal leading-tight tracking-tight text-neutral-950 sm:text-[32px]">
+          Explore Cevonne&apos;s Beauty Essentials
+        </h2>
+        <p className="mx-auto mt-3 max-w-xl text-sm font-normal leading-relaxed text-neutral-500 sm:text-[15px]">
+          Discover effortless color and care, crafted to become part of your everyday ritual.
+        </p>
+      </div>
+
       {/* Product grid */}
-      <div className="mx-auto flex w-full snap-x snap-mandatory gap-2 sm:gap-1 overflow-x-auto pb-4 sm:grid sm:max-w-screen-2xl sm:grid-cols-2 sm:pb-0 lg:grid-cols-3 xl:grid-cols-4 no-scrollbar">
+      <div className="flex w-full snap-x snap-mandatory gap-0 overflow-x-auto pb-4 sm:grid sm:grid-cols-2 sm:pb-0 lg:grid-cols-4 no-scrollbar">
         {visible.map((product) => (
           <div
             key={product.id}
-            className="relative flex min-w-[85vw] flex-col justify-between overflow-hidden border border-neutral-200 bg-white text-center shadow-sm min-h-[420px] snap-center sm:min-w-0"
+            className="relative flex min-w-[85vw] flex-col justify-between overflow-hidden bg-white text-center min-h-[420px] snap-center sm:min-w-0"
           >
             {/* Background behind everything */}
             <img
@@ -77,7 +85,7 @@ const ProductCard3 = () => {
             >
               {/* Top row */}
               <div className="absolute left-2 top-2 flex items-center gap-2 text-xs font-medium text-black">
-                <span className="flex items-center gap-1 px-2 py-1 text-[11px] rounded-full bg-white/70 backdrop-blur">
+                <span className="flex items-center gap-1 px-2 py-1 text-[11px] rounded-full">
                   <Video className="h-4 w-4" />
                   Virtual Try On
                 </span>
@@ -87,7 +95,7 @@ const ProductCard3 = () => {
               <button
                 type="button"
                 aria-label="Add to wishlist"
-                className="absolute right-2 top-2 z-20 p-1 rounded-full bg-white/80 backdrop-blur hover:bg-white"
+                className="absolute right-2 top-2 z-20 p-1 rounded-full"
                 onClick={(e) => {
                   e.preventDefault();
                   // TODO: handle wishlist here
@@ -102,7 +110,7 @@ const ProductCard3 = () => {
                   {/* Left arrow */}
                   <button
                     type="button"
-                    className="absolute left-0 z-10 flex items-center justify-center p-1 rounded-full bg-white/80 hover:bg-white"
+                    className="absolute left-0 z-10 flex items-center justify-center p-1 rounded-full"
                     onClick={(e) => e.preventDefault()}
                     aria-label="Previous image"
                   >
@@ -118,7 +126,7 @@ const ProductCard3 = () => {
                   {/* Right arrow */}
                   <button
                     type="button"
-                    className="absolute right-0 z-10 flex items-center justify-center p-1 rounded-full bg-white/80 hover:bg-white"
+                    className="absolute right-0 z-10 flex items-center justify-center p-1 rounded-full"
                     onClick={(e) => e.preventDefault()}
                     aria-label="Next image"
                   >
@@ -156,7 +164,7 @@ const ProductCard3 = () => {
             className="rounded-full border border-neutral-400 px-8 py-2 text-sm font-medium hover:bg-neutral-100"
             aria-expanded={expanded}
           >
-            {expanded ? "View Less" : remaining > 0 ? `View More (${remaining})` : "View More"}
+            {expanded ? "View Less" : "View More"}
           </button>
         </div>
       )}

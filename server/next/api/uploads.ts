@@ -67,7 +67,8 @@ export const dispatchUploadsRoute = async (request: Request, segments: string[] 
     }
 
     if (useR2) {
-      const asset = await uploadFileToR2(rawFile);
+      const folder = String(formData.get("folder") || "").trim().toLowerCase();
+      const asset = await uploadFileToR2(rawFile, folder === "collections" ? { folder: "collections" } : {});
       return jsonResponse(
         {
           url: asset.url,
@@ -107,12 +108,22 @@ export const dispatchUploadsRoute = async (request: Request, segments: string[] 
     return methodNotAllowed(["DELETE"]);
   }
 
-  const safeFilename = path.basename(decodeURIComponent(filename));
-
   if (useR2) {
-    await deleteFileFromR2(safeFilename);
+    const storageKey = decodeURIComponent(filename).replace(/^\/+/, "");
+    const hasUnsafePath =
+      !storageKey ||
+      storageKey.includes("\\") ||
+      storageKey.split("/").some((segment) => !segment || segment === "." || segment === "..");
+
+    if (hasUnsafePath) {
+      return jsonResponse({ message: "Invalid storage key" }, 400);
+    }
+
+    await deleteFileFromR2(storageKey);
     return new Response(null, { status: 204 });
   }
+
+  const safeFilename = path.basename(decodeURIComponent(filename));
 
   const filePath = path.join(UPLOADS_DIR, safeFilename);
 

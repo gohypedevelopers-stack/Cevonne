@@ -53,7 +53,7 @@ const Navbar = () => {
         }}
       >
         <div
-          className={`mx-auto flex max-w-screen-2xl items-center justify-between px-3 md:px-6 ${NAV_H_MOBILE} ${NAV_H_DESKTOP}`}
+          className={`flex w-full items-center justify-between px-3 font-normal md:px-6 lg:px-[54px] ${NAV_H_MOBILE} ${NAV_H_DESKTOP}`}
         >
           {/* Left: Menu + Search */}
           <div className="flex items-center gap-4 md:gap-6">
@@ -63,7 +63,7 @@ const Navbar = () => {
                   className={`group flex items-center gap-2 text-sm hover:opacity-80 transition-colors duration-300 ${textClass}`}
                   aria-label="Open menu"
                 >
-                  <Menu className="h-5 w-5" />
+                  <Menu className="h-5 w-5" strokeWidth={1.5} />
                   <span className="hidden sm:inline">{t("nav.menu")}</span>
                 </button>
               </SheetTrigger>
@@ -108,7 +108,7 @@ const Navbar = () => {
               className={`group flex items-center gap-2 text-sm hover:opacity-80 transition-colors duration-300 ${textClass}`}
               aria-label="Search"
             >
-              <Search className="h-5 w-5" />
+              <Search className="h-5 w-5" strokeWidth={1.5} />
               <span className="hidden sm:inline">{t("nav.search")}</span>
             </Link>
           </div>
@@ -119,8 +119,9 @@ const Navbar = () => {
               <img
                 src={STATIC_ASSETS.logoNavbar}
                 alt="Cevonne"
-                className="h-5 w-auto object-contain lg:h-7 transition-[filter] duration-300"
-                style={{ filter: solid ? "none" : "brightness(0) invert(1)" }}
+                draggable={false}
+                className="h-5 w-auto select-none object-contain lg:h-7"
+                style={{ filter: solid ? "brightness(0)" : "brightness(0) invert(1)" }}
               />
             </Link>
           </div>
@@ -147,7 +148,7 @@ const Navbar = () => {
               className={`relative inline-flex items-center justify-center hover:opacity-80 transition-colors duration-300 ${textClass}`}
               aria-label="Wishlist"
             >
-              <Heart className="h-5 w-5" />
+              <Heart className="h-5 w-5" strokeWidth={1.5} />
               {wishlist.length > 0 && (
                 <span className="pointer-events-none absolute -top-1 -right-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-rose-500 px-1 text-[9px] font-semibold uppercase leading-none text-white">
                   {wishlist.length}
@@ -160,7 +161,7 @@ const Navbar = () => {
               className={`relative inline-flex items-center justify-center hover:opacity-80 transition-colors duration-300 ${textClass}`}
               aria-label="Cart"
             >
-              <ShoppingCart className="h-5 w-5" />
+              <ShoppingCart className="h-5 w-5" strokeWidth={1.5} />
               {cartItems.length > 0 && (
                 <span className="pointer-events-none absolute -top-1 -right-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-emerald-500 px-1 text-[9px] font-semibold uppercase leading-none text-white">
                   {cartItems.length}
@@ -172,7 +173,7 @@ const Navbar = () => {
               className={`inline-flex items-center justify-center hover:opacity-80 transition-colors duration-300 ${textClass}`}
               aria-label="Account"
             >
-              <User className="h-5 w-5" />
+              <User className="h-5 w-5" strokeWidth={1.5} />
             </Link>
           </div>
         </div>

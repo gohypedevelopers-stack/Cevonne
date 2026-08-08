@@ -156,6 +156,7 @@ export function CollectionMediaDialog({
     const formData = new FormData();
     formData.append("file", file);
     formData.append("kind", inferKind(file));
+    formData.append("folder", "collections");
 
     const response = await request(`${API_BASE}/uploads`, {
       method: "POST",

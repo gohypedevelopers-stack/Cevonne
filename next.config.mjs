@@ -27,10 +27,6 @@ const nextConfig = {
   images: {
     remotePatterns: r2RemotePatterns,
   },
-  experimental: {
-    // Prevent stale route state from surviving dev-server restarts.
-    turbopackFileSystemCacheForDev: false,
-  },
   turbopack: {
     // Keep module resolution and file watching scoped to this app.
     root: projectRoot,

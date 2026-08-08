@@ -4,6 +4,12 @@ const ASSET_BASE = "/assets";
 const IMAGE_BASE = `${ASSET_BASE}/images`;
 const BACKGROUND_BASE = `${ASSET_BASE}/background`;
 const VIDEO_BASE = `${ASSET_BASE}/video`;
+const HERO_IMAGE_MOBILE = "https://cdn.cevonne.com/assets/images/ChatGPT%20Image%20Aug%208%2C%202026%2C%2012_36_00%20PM.png";
+const HERO_IMAGE_DESKTOP = "https://cdn.cevonne.com/assets/images/ChatGPT%20Image%20Aug%208%2C%202026%2C%2012_38_05%20PM.png";
+const HOME_BANNER_IMAGE_DESKTOP = "https://cdn.cevonne.com/assets/images/ChatGPT%20Image%20Aug%208%2C%202026%2C%2002_31_12%20PM.png";
+const HOME_BANNER_IMAGE_MOBILE = "https://cdn.cevonne.com/assets/images/ChatGPT%20Image%20Aug%208%2C%202026%2C%2002_31_17%20PM.png";
+const HOME_BANNER_2_IMAGE_DESKTOP = "https://cdn.cevonne.com/assets/images/ChatGPT%20Image%20Aug%208%2C%202026%2C%2002_45_57%20PM.png";
+const HOME_BANNER_2_IMAGE_MOBILE = "https://cdn.cevonne.com/assets/images/ChatGPT%20Image%20Aug%208%2C%202026%2C%2002_46_02%20PM.png";
 
 export const assetSrc = (asset) => {
   if (!asset) return "";
@@ -12,9 +18,16 @@ export const assetSrc = (asset) => {
 };
 
 export const STATIC_ASSETS = {
-  logoNavbar: "/logo.svg",
-  logoMain: "/logo.svg",
-  heroImage: `${IMAGE_BASE}/image.webp`,
+  logoNavbar: "/logo.svg?v=black",
+  logoMain: "/logo.svg?v=black",
+  heroImage: HERO_IMAGE_DESKTOP,
+  heroImageMobile: HERO_IMAGE_MOBILE,
+  heroImageDesktop: HERO_IMAGE_DESKTOP,
+  homeBannerDesktop: HOME_BANNER_IMAGE_DESKTOP,
+  homeBannerMobile: HOME_BANNER_IMAGE_MOBILE,
+  homeBanner2Desktop: HOME_BANNER_2_IMAGE_DESKTOP,
+  homeBanner2Mobile: HOME_BANNER_2_IMAGE_MOBILE,
+  collectionFallback: `${IMAGE_BASE}/product1.png`,
   cardBackground: `${BACKGROUND_BASE}/card-bg.svg`,
   introVideo1: `${VIDEO_BASE}/intro1.mp4`,
   introVideo2: `${VIDEO_BASE}/intro2.mp4`,
