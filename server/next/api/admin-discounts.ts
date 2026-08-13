@@ -2092,7 +2092,6 @@ export const runAdminDiscountProofCheck = async (
           discountCode: current.code,
           urgencyClaim: urgencyClaim || "",
         });
-        console.log("G7 proof endpoint:", G7_OFFER_SAFETY_CHECK_URL);
         console.log("Calling G7 with payload:", payload);
 
         const data = await postN8nWebhook({
@@ -2302,7 +2301,6 @@ export const runAdminDiscountProofCheck = async (
         urgencyClaim: urgencyClaim || "",
       });
       console.log("RUNNING G7 ALL PRODUCTS SINGLE SKU PROOF");
-      console.log("G7 proof endpoint:", G7_OFFER_SAFETY_CHECK_URL);
       console.log("Calling G7 with payload:", payload);
 
       const response = await postN8nWebhook({
@@ -2398,7 +2396,6 @@ export const runAdminDiscountProofCheck = async (
           discountCode: current.code,
           urgencyClaim: urgencyClaim || "",
         });
-        console.log("G7 proof endpoint:", G7_OFFER_SAFETY_CHECK_URL);
         console.log("Calling G7 with payload:", payload);
 
         const data = await postN8nWebhook({
@@ -2512,7 +2509,6 @@ export const runAdminDiscountProofCheck = async (
     urgencyClaim: urgencyClaim || "",
   });
   console.log("RUNNING G7 SINGLE SKU PROOF");
-  console.log("G7 proof endpoint:", G7_OFFER_SAFETY_CHECK_URL);
   console.log("Calling G7 with payload:", payload);
 
   const response = await postN8nWebhook({

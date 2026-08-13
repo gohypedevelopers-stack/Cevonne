@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { Prisma, ReviewStatus } from "@prisma/client";
+import sanitizeHtml from "sanitize-html";
 
 import { getPrisma } from "../db/prismaClient";
 import { normalizeUploadedAssetUrl } from "@/lib/asset-url";
@@ -7,6 +8,16 @@ import { normalizeUploadedAssetUrl } from "@/lib/asset-url";
 const cjsModule = { exports: {} as Record<string, any> };
 const exports = cjsModule.exports as Record<string, any>;
 const toJsonInput = (value: unknown) => (value === undefined ? undefined : (value as Prisma.InputJsonValue));
+
+const sanitizeProductDescription = (value: string) =>
+  sanitizeHtml(value, {
+    allowedTags: ["b", "br", "div", "em", "i", "li", "ol", "p", "strong", "u", "ul"],
+    allowedAttributes: {},
+    disallowedTagsMode: "discard",
+  })
+    .replace(/\u0000/g, "")
+    .trim()
+    .slice(0, 12_000);
 
 const imageSchema = z.object({
   url: z
@@ -133,7 +144,7 @@ const productSchema = z.object({
   productType: z.string().optional(),
   tags: z.any().optional(),
   badges: z.any().optional(),
-  description: z.string().optional(),
+  description: z.string().max(12_000).transform(sanitizeProductDescription).optional(),
   finish: z.string().optional(),
   basePrice: z.number().min(0),
   collectionId: z.string().nullish(),
@@ -307,7 +318,7 @@ const normalizeProductInput = (raw: Record<string, any> = {}, { allowDefaults = 
       : raw.description?.body ??
         raw.description?.headline ??
         (allowDefaults ? raw.longDescription ?? raw.subtitle : undefined);
-  if (description !== undefined) normalized.description = description;
+  if (description !== undefined) normalized.description = typeof description === "string" ? sanitizeProductDescription(description) : description;
 
   const priceValue = toNumber(
     raw.basePrice ??

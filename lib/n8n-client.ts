@@ -58,6 +58,44 @@ export type PostN8nWebhookInput = {
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 
+const toNormalizedUrl = (value: string) => {
+  try {
+    const url = new URL(value);
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return "";
+  }
+};
+
+const configuredWebhookUrls = new Set(
+  Object.entries(env)
+    .filter(([key, value]) => {
+      const normalizedKey = key.toLowerCase();
+      return (
+        normalizedKey.includes("n8n") &&
+        !normalizedKey.includes("supabase") &&
+        (normalizedKey === "n8nbaseurl" || normalizedKey.includes("url")) &&
+        typeof value === "string" &&
+        /^https?:\/\//i.test(value)
+      );
+    })
+    .map(([, value]) => toNormalizedUrl(value as string))
+    .filter(Boolean),
+);
+
+const n8nBaseUrl = toNormalizedUrl(env.n8nBaseUrl);
+const n8nBaseOrigin = n8nBaseUrl ? new URL(n8nBaseUrl).origin : "";
+const n8nBasePath = n8nBaseUrl ? new URL(n8nBaseUrl).pathname.replace(/\/+$/, "") : "";
+
+const isAllowedWebhookUrl = (url: URL, input: Pick<PostN8nWebhookInput, "path" | "url">) => {
+  const normalized = toNormalizedUrl(url.toString());
+  if (configuredWebhookUrls.has(normalized)) return true;
+
+  // Dynamic workflow paths may only be built from the configured n8n base URL.
+  return Boolean(input.path && n8nBaseOrigin && url.origin === n8nBaseOrigin && url.pathname.startsWith(`${n8nBasePath}/`));
+};
+
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 };
@@ -191,6 +229,13 @@ export const postN8nWebhook = async (input: PostN8nWebhookInput): Promise<N8nWeb
 
   if (parsedUrl.protocol !== "https:" && parsedUrl.protocol !== "http:") {
     return createErrorResult("Invalid n8n webhook URL protocol.", input, {
+      request_id: requestId,
+      sent_at: sentAt,
+    });
+  }
+
+  if (!isAllowedWebhookUrl(parsedUrl, input)) {
+    return createErrorResult("Webhook URL is not allowlisted.", input, {
       request_id: requestId,
       sent_at: sentAt,
     });

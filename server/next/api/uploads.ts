@@ -4,7 +4,14 @@ import crypto from "node:crypto";
 
 import { env } from "@/server/config/env";
 import { COLLECTION_VIDEO_MAX_BYTES, UPLOAD_MAX_BYTES, UPLOADS_DIR, ensureUploadsDir } from "@/server/config/upload";
-import { deleteFileFromR2, hasR2Storage, inferMediaKind, uploadFileToR2 } from "@/server/services/r2";
+import {
+  deleteFileFromR2,
+  getMediaExtension,
+  hasR2Storage,
+  inferMediaKind,
+  uploadFileToR2,
+  validateMediaFile,
+} from "@/server/services/r2";
 import { getAuthUser, jsonResponse, methodNotAllowed } from "../route-utils";
 
 const uploadsDisabledResponse = () =>
@@ -37,10 +44,11 @@ const requireAdmin = async (request: Request) => {
 
 const isUploadRuntimeDisabled = () => !hasR2Storage() && (env.isVercel || Boolean(process.env.VERCEL));
 
-const createUploadFilename = (originalName: string) => {
-  const ext = path.extname(originalName);
-  const name = path.basename(originalName, ext);
-  return `${name}-${crypto.randomUUID()}${ext}`;
+const createUploadFilename = (originalName: string, mimeType: string) => {
+  const ext = getMediaExtension(mimeType);
+  const name = path.basename(originalName, path.extname(originalName));
+  const safeName = name.replace(/[^a-z0-9_-]+/gi, "-").replace(/^-+|-+$/g, "") || "upload";
+  return `${safeName}-${crypto.randomUUID()}${ext}`;
 };
 
 export const dispatchUploadsRoute = async (request: Request, segments: string[] = []) => {
@@ -75,13 +83,20 @@ export const dispatchUploadsRoute = async (request: Request, segments: string[] 
     const kind = String(formData.get("kind") || inferMediaKind(rawFile)).toUpperCase();
     const maxBytes = kind === "VIDEO" ? COLLECTION_VIDEO_MAX_BYTES : UPLOAD_MAX_BYTES;
 
-    if (rawFile.size > maxBytes) {
-      return jsonResponse({ message: "File too large" }, 413);
+    let validatedFile;
+    try {
+      validatedFile = await validateMediaFile(rawFile, maxBytes);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Invalid file";
+      return jsonResponse({ message }, message === "File too large" ? 413 : 415);
     }
 
     if (useR2) {
       const folder = String(formData.get("folder") || "").trim().toLowerCase();
-      const asset = await uploadFileToR2(rawFile, folder === "collections" ? { folder: "collections" } : {});
+      const asset = await uploadFileToR2(rawFile, {
+        ...(folder === "collections" ? { folder: "collections" as const } : {}),
+        maxBytes,
+      });
       return jsonResponse(
         {
           url: asset.url,
@@ -98,10 +113,9 @@ export const dispatchUploadsRoute = async (request: Request, segments: string[] 
 
     await ensureUploadsDir();
 
-    const safeName = createUploadFilename(rawFile.name || "upload");
+    const safeName = createUploadFilename(rawFile.name || "upload", validatedFile.mimeType);
     const filePath = path.join(UPLOADS_DIR, safeName);
-    const bytes = Buffer.from(await rawFile.arrayBuffer());
-    await fs.writeFile(filePath, bytes);
+    await fs.writeFile(filePath, validatedFile.bytes);
 
     return jsonResponse(
       {
@@ -110,8 +124,8 @@ export const dispatchUploadsRoute = async (request: Request, segments: string[] 
         filename: safeName,
         originalName: rawFile.name,
         size: rawFile.size,
-        mimeType: rawFile.type,
-        kind,
+        mimeType: validatedFile.mimeType,
+        kind: validatedFile.kind,
       },
       201
     );

@@ -49,6 +49,7 @@ import { Separator } from "@/components/ui/separator";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
+import { sanitizeRichTextForEditor } from "@/lib/sanitize-rich-text";
 import { API_BASE, slugify } from "../utils";
 import type { Product, ProductCollection, ProductShade } from "@/types/product";
 
@@ -643,8 +644,10 @@ function RichTextEditor({
 
   useEffect(() => {
     draftRef.current = value || "";
-    if (editorRef.current && editorRef.current.innerHTML !== value) {
-      editorRef.current.innerHTML = value || "";
+    const safeValue = sanitizeRichTextForEditor(value || "");
+    draftRef.current = safeValue;
+    if (editorRef.current && editorRef.current.innerHTML !== safeValue) {
+      editorRef.current.innerHTML = safeValue;
     }
   }, [value]);
 
@@ -652,7 +655,7 @@ function RichTextEditor({
     if (!editorRef.current || typeof document === "undefined") return;
     editorRef.current.focus();
     document.execCommand(command, false, undefined);
-    draftRef.current = editorRef.current.innerHTML;
+    draftRef.current = sanitizeRichTextForEditor(editorRef.current.innerHTML);
     onChange(draftRef.current);
   };
 
@@ -690,7 +693,8 @@ function RichTextEditor({
           suppressContentEditableWarning
           className="min-h-[180px] rounded-2xl border border-border bg-white px-4 py-3 text-sm leading-6 text-foreground shadow-sm outline-none focus:border-[#4b0d4b] focus:ring-2 focus:ring-[#4b0d4b]/15"
           onInput={(event) => {
-            const html = event.currentTarget.innerHTML;
+            const html = sanitizeRichTextForEditor(event.currentTarget.innerHTML);
+            if (event.currentTarget.innerHTML !== html) event.currentTarget.innerHTML = html;
             draftRef.current = html;
           }}
           onBlur={() => onChange(draftRef.current)}

@@ -95,7 +95,9 @@ export const env = Object.freeze({
       process.env.NEON_DATABASE_URL ||
       ""
   ),
-  jwtSecret: process.env.JWT_SECRET || "dev_secret",
+  // JWT_SECRET is required at runtime. A predictable fallback would allow
+  // anyone to forge authenticated sessions when an environment is misconfigured.
+  jwtSecret: process.env.JWT_SECRET?.trim() || "",
   frontendUrl: normalizeOriginUrl(process.env.FRONTEND_URL || ""),
   smtpHost: process.env.SMTP_HOST || "",
   smtpPort: toNumber(process.env.SMTP_PORT, undefined),

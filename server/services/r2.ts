@@ -18,6 +18,7 @@ export type R2UploadRequest = {
 
 export type R2UploadOptions = {
   folder?: "collections";
+  maxBytes?: number;
 };
 
 export type R2UploadResponse = {
@@ -50,17 +51,10 @@ export const PRODUCT_MEDIA_ALLOWED_MIME_TYPES = new Set([
 
 const MIME_EXTENSION_MAP: Record<string, string> = {
   "image/jpeg": ".jpg",
-  "image/jpg": ".jpg",
   "image/png": ".png",
   "image/webp": ".webp",
   "image/gif": ".gif",
-  "image/avif": ".avif",
-  "image/svg+xml": ".svg",
   "video/mp4": ".mp4",
-  "video/webm": ".webm",
-  "video/quicktime": ".mov",
-  "video/x-m4v": ".m4v",
-  "video/ogg": ".ogv",
 };
 
 const sanitizeFilename = (fileName: string) => {
@@ -115,10 +109,47 @@ const getClient = () => {
 
 const encodeKeyPath = (value: string) => value.split("/").map(encodeURIComponent).join("/");
 
-const getExtension = (fileName: string, mimeType: string) => {
-  const ext = path.extname(fileName).toLowerCase();
-  if (ext) return ext;
-  return MIME_EXTENSION_MAP[mimeType.toLowerCase()] || "";
+export const getMediaExtension = (mimeType: string) => MIME_EXTENSION_MAP[mimeType.toLowerCase()] || "";
+
+const getExtension = (_fileName: string, mimeType: string) => getMediaExtension(mimeType);
+
+const hasFileSignature = (bytes: Buffer, mimeType: string) => {
+  if (mimeType === "image/png") {
+    return bytes.length >= 8 && bytes.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  }
+  if (mimeType === "image/jpeg") {
+    return bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+  }
+  if (mimeType === "image/gif") {
+    return bytes.length >= 6 && ["GIF87a", "GIF89a"].includes(bytes.subarray(0, 6).toString("ascii"));
+  }
+  if (mimeType === "image/webp") {
+    return bytes.length >= 12 && bytes.subarray(0, 4).toString("ascii") === "RIFF" && bytes.subarray(8, 12).toString("ascii") === "WEBP";
+  }
+  if (mimeType === "video/mp4") {
+    return bytes.length >= 12 && bytes.subarray(4, 8).toString("ascii") === "ftyp";
+  }
+  return false;
+};
+
+export const validateMediaBuffer = (bytes: Buffer, mimeTypeInput: string, size: number, maxBytes = PRODUCT_MEDIA_MAX_BYTES) => {
+  const mimeType = String(mimeTypeInput || "").toLowerCase();
+  if (!PRODUCT_MEDIA_ALLOWED_MIME_TYPES.has(mimeType)) {
+    throw new Error("Unsupported file type");
+  }
+  if (!Number.isFinite(size) || size <= 0 || size > maxBytes) {
+    throw new Error("File too large");
+  }
+  if (!hasFileSignature(bytes, mimeType)) {
+    throw new Error("File content does not match its declared type");
+  }
+
+  return { bytes, mimeType, kind: getMediaKind(mimeType) };
+};
+
+export const validateMediaFile = async (file: File, maxBytes = PRODUCT_MEDIA_MAX_BYTES) => {
+  const bytes = Buffer.from(await file.arrayBuffer());
+  return validateMediaBuffer(bytes, file.type, file.size, maxBytes);
 };
 
 export const createProductMediaStorageKey = (
@@ -163,10 +194,8 @@ export const uploadFileToR2 = async (file: File, options: R2UploadOptions = {}):
     throw new Error("R2 storage is not configured");
   }
 
-  const kind = inferMediaKind(file);
-  const mimeType = file.type || (kind === "VIDEO" ? "video/mp4" : "application/octet-stream");
+  const { bytes, mimeType, kind } = await validateMediaFile(file, options.maxBytes);
   const storageKey = createR2StorageKey(file.name || "upload", mimeType, kind, options);
-  const bytes = Buffer.from(await file.arrayBuffer());
 
   await getClient().send(
     new PutObjectCommand({

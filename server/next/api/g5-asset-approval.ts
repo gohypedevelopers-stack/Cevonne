@@ -2783,13 +2783,6 @@ export async function loadG5SelectedG4Content(
     approval_id: normalizedApprovalId || null,
     keys: Object.keys(selectedG4Row),
   });
-  console.info("[g5-asset-approval] selected G4 review row", {
-    supabase: supabaseTarget,
-    review_id: selectedReviewIdentifier,
-    asset_id: normalizedAssetId || null,
-    approval_id: normalizedApprovalId || null,
-    row: selectedG4Row,
-  });
 
   const selectedReviewKey = pickText(selectedG4Row, ["content_review_id", "review_id", "id"]) ?? selectedReviewIdentifier;
   const [contentAssetsResult, stateResult, publishResultsResult, dashboardViewResult, linkRowsResult, auditResult] = await Promise.all([
@@ -2865,12 +2858,6 @@ export async function loadG5SelectedG4Content(
         review_id: normalizedReviewId,
         content_review_id: selectedReviewKey,
         keys: Object.keys(landingRow),
-      });
-      console.info("[g5-asset-approval] selected G4 landing row", {
-        supabase: supabaseTarget,
-        review_id: normalizedReviewId,
-        content_review_id: selectedReviewKey,
-        row: landingRow,
       });
     }
   }
@@ -3191,7 +3178,6 @@ const persistG5AssetAuditEntry = async (payload: G5AssetRegisterInput, response:
     };
   }
 
-  console.log("G5_REGISTERED_ASSET_ROW", data ? asRecord(data) : null);
 
   return {
     auditRow: data ? asRecord(data) : null,
@@ -3301,7 +3287,6 @@ export const persistG5AssetComposerEditEntry = async (payload: G5AssetComposerUp
     };
   }
 
-  console.log("G5_REGISTERED_ASSET_ROW", data ? asRecord(data) : null);
 
   return {
     auditRow: data ? asRecord(data) : null,

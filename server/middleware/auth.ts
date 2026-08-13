@@ -6,15 +6,7 @@ const { verifyToken } = require("../utils/jwt");
 
 const USER_ROLE_SET = new Set<UserRole>(USER_ROLES);
 
-const canFallbackToTokenClaims = (error: unknown) => {
-  const code = typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code) : "";
-  const message =
-    typeof error === "object" && error !== null && "message" in error ? String((error as { message?: unknown }).message) : String(error ?? "");
-
-  return code === "P1001" || /can't reach database server|databasenotreachable/i.test(message);
-};
-
-const buildTokenAuthUser = (decoded: { id?: string; role?: string; email?: string | null; name?: string | null }): SessionUser | null => {
+const buildTokenAuthUser = (decoded: { id?: string; role?: string; email?: string | null; name?: string | null; sv?: number }): (SessionUser & { sessionVersion: number }) | null => {
   if (typeof decoded?.id !== "string" || !decoded.id.trim()) {
     return null;
   }
@@ -28,25 +20,35 @@ const buildTokenAuthUser = (decoded: { id?: string; role?: string; email?: strin
     return null;
   }
 
+  if (!Number.isInteger(decoded.sv) || (decoded.sv ?? 0) < 0) {
+    return null;
+  }
+
   return {
     id: decoded.id.trim(),
     email: typeof decoded.email === "string" && decoded.email.trim() ? decoded.email.trim() : "",
     role: normalizedRole as UserRole,
     name: typeof decoded.name === "string" && decoded.name.trim() ? decoded.name.trim() : null,
+    sessionVersion: decoded.sv as number,
   };
 };
 
-const parseToken = (header = "") => {
-  const [scheme, token] = String(header).split(" ");
-  if (scheme !== "Bearer" || !token) {
+const parseToken = (cookieHeader = "") => {
+  const cookie = String(cookieHeader)
+    .split(";")
+    .map((value) => value.trim())
+    .find((value) => value.startsWith("cevonne_session="));
+  if (!cookie) return null;
+  try {
+    return decodeURIComponent(cookie.slice("cevonne_session=".length));
+  } catch {
     return null;
   }
-  return token;
 };
 
 export const protect = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const token = parseToken(req.headers.authorization);
+    const token = parseToken(req.headers.cookie);
     if (!token) {
       return res.status(401).json({ message: "Unauthorized" });
     }
@@ -57,23 +59,13 @@ export const protect = async (req: Request, res: Response, next: NextFunction) =
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    let user: SessionUser | null = null;
-    try {
-      const prisma = await getPrisma();
-      user = await prisma.user.findUnique({
-        where: { id: fallbackUser.id },
-        select: { id: true, email: true, role: true, name: true },
-      });
-    } catch (error) {
-      if (!canFallbackToTokenClaims(error)) {
-        throw error;
-      }
+    const prisma = await getPrisma();
+    const user = await prisma.user.findUnique({
+      where: { id: fallbackUser.id },
+      select: { id: true, email: true, role: true, name: true, sessionVersion: true },
+    });
 
-      console.warn("protect: falling back to JWT claims because the database is unreachable.");
-      user = fallbackUser;
-    }
-
-    if (!user) {
+    if (!user || user.sessionVersion !== fallbackUser.sessionVersion) {
       return res.status(401).json({ message: "Unauthorized" });
     }
 

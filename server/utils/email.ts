@@ -36,4 +36,25 @@ export const sendOTP = async (email: string, otp: string) => {
   await transporter.sendMail(mailOptions);
 };
 
-export default { sendOTP };
+export const sendPasswordReset = async (email: string, resetUrl: string) => {
+  const mailOptions = {
+    from: env.emailFrom,
+    to: email,
+    subject: "Reset your Cevonne password",
+    text: `Use this link to reset your Cevonne password. It expires in one hour: ${resetUrl}`,
+    html: `
+      <div style="font-family: sans-serif; max-width: 600px; margin: auto; padding: 20px; border: 1px solid #eee;">
+        <h2 style="color: #333; text-align: center;">Reset your Cevonne password</h2>
+        <p>We received a request to reset your password.</p>
+        <p style="margin: 28px 0; text-align: center;">
+          <a href="${resetUrl}" style="display: inline-block; background: #111; color: #fff; padding: 12px 20px; text-decoration: none; border-radius: 999px;">Reset password</a>
+        </p>
+        <p>This link expires in one hour. If you did not request it, you can safely ignore this email.</p>
+      </div>
+    `,
+  };
+
+  await transporter.sendMail(mailOptions);
+};
+
+export default { sendOTP, sendPasswordReset };

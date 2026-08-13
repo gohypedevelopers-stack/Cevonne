@@ -33,6 +33,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import { API_BASE, slugify } from "../utils";
+import { sanitizeRichTextForEditor } from "@/lib/sanitize-rich-text";
 import type { Product, ProductCollection, ProductImage, ProductShade } from "@/types/product";
 
 const FORMAT_ACTIONS = [
@@ -393,8 +394,9 @@ function ProductFormBase({
       reset(formValues);
       setManualSlug(true); // editing: keep current slug unless user toggles
       setExistingImages(Array.isArray(product.images) ? product.images : []);
-      if (editorRef.current) editorRef.current.innerHTML = product.description ?? "";
-      descriptionRef.current = product.description ?? "";
+      const safeDescription = sanitizeRichTextForEditor(product.description ?? "");
+      if (editorRef.current) editorRef.current.innerHTML = safeDescription;
+      descriptionRef.current = safeDescription;
       const mappedShades = Array.isArray(product.shades)
         ? product.shades.map((shade) => ({
           id: shade.id ?? generateShadeKey(),
@@ -464,7 +466,7 @@ function ProductFormBase({
     editorRef.current.focus();
     if (typeof document !== "undefined") {
       document.execCommand(command, false, undefined);
-      descriptionRef.current = editorRef.current.innerHTML; // no state update
+      descriptionRef.current = sanitizeRichTextForEditor(editorRef.current.innerHTML); // no state update
     }
   };
 
@@ -479,10 +481,11 @@ function ProductFormBase({
     const reader = new FileReader();
     reader.onload = () => {
       const text = typeof reader.result === "string" ? reader.result : "";
-      descriptionRef.current = text;
+      const safeText = sanitizeRichTextForEditor(text);
+      descriptionRef.current = safeText;
       setDescriptionFileName(file.name);
-      if (editorRef.current) editorRef.current.innerHTML = text;
-      setValue("description", text, { shouldDirty: true });
+      if (editorRef.current) editorRef.current.innerHTML = safeText;
+      setValue("description", safeText, { shouldDirty: true });
     };
     reader.readAsText(file, "utf-8");
   };
@@ -973,7 +976,9 @@ function ProductFormBase({
                             suppressContentEditableWarning
                             onInput={(e) => {
                               // No state updates here -> no scroll/caret jump
-                              descriptionRef.current = e.currentTarget.innerHTML;
+                              const safeDescription = sanitizeRichTextForEditor(e.currentTarget.innerHTML);
+                              if (e.currentTarget.innerHTML !== safeDescription) e.currentTarget.innerHTML = safeDescription;
+                              descriptionRef.current = safeDescription;
                             }}
                             onBlur={() => {
                               // Commit to RHF when the user leaves the editor

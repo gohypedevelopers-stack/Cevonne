@@ -30,59 +30,17 @@ export interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
-const readStorage = (key: string) => {
-  if (typeof window === "undefined") return null;
-  try {
-    return window.localStorage.getItem(key);
-  } catch {
-    return null;
-  }
-};
-
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const navigate = useNavigate();
-
-  const [user, setUser] = useState<PublicUser | null>(() => {
-    const storedUser = readStorage("user");
-    if (!storedUser) return null;
-    try {
-      return JSON.parse(storedUser) as PublicUser;
-    } catch {
-      return null;
-    }
-  });
-
-  const [token, setToken] = useState<string | null>(() => readStorage("token"));
+  const [user, setUser] = useState<PublicUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const saveToken = useCallback((authToken: string | null) => {
-    if (typeof window !== "undefined") {
-      if (authToken) {
-        window.localStorage.setItem("token", authToken);
-      } else {
-        window.localStorage.removeItem("token");
-      }
-    }
-    setToken(authToken);
-  }, []);
-
-  const saveUser = useCallback((userData: PublicUser | null) => {
-    if (typeof window !== "undefined") {
-      if (userData) {
-        window.localStorage.setItem("user", JSON.stringify(userData));
-      } else {
-        window.localStorage.removeItem("user");
-      }
-    }
-    setUser(userData);
-  }, []);
-
   const logout = useCallback(() => {
-    saveToken(null);
-    saveUser(null);
+    void fetch(`${API_BASE}/users/signout`, { method: "POST", credentials: "same-origin" }).catch(() => undefined);
+    setUser(null);
     toast.success("You have been logged out.");
     navigate("/login");
-  }, [navigate, saveToken, saveUser]);
+  }, [navigate]);
 
   const authFetch = useCallback(
     async (url: string, options: AuthFetchOptions = {}) => {
@@ -94,16 +52,13 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           ...(requestOptions.headers as Record<string, string> | undefined),
         };
 
-        if (token) {
-          headers.Authorization = `Bearer ${token}`;
-        }
-
         const response = await fetch(url, {
           ...requestOptions,
           headers,
+          credentials: "same-origin",
         });
 
-        if (response.status === 401 && token) {
+        if (response.status === 401 && user) {
           if (!silent) {
             toast.error("Session expired. Please log in again.");
           }
@@ -119,28 +74,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         throw err;
       }
     },
-    [token, logout]
+    [user, logout]
   );
 
   const verifyUser = useCallback(async () => {
-    if (!token) {
-      setIsLoading(false);
-      return;
-    }
-
     try {
       const response = await authFetch(`${API_BASE}/users/me`, { silent: true });
       if (!response.ok) throw new Error("Token verification failed");
       const userData = (await response.json()) as PublicUser;
-      saveUser(userData);
+      setUser(userData);
     } catch (error: any) {
-      if (error?.message !== "Unauthorized") {
-        // Keep existing local session state when the backend is unavailable.
-      }
+      setUser(null);
     } finally {
       setIsLoading(false);
     }
-  }, [token, authFetch, saveUser]);
+  }, [authFetch]);
 
   useEffect(() => {
     void verifyUser();
@@ -148,16 +96,16 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
 
   const login = useCallback(
     (userData: PublicUser | null, authToken: string | null) => {
-      saveToken(authToken);
-      saveUser(userData);
+      void authToken;
+      setUser(userData);
     },
-    [saveToken, saveUser]
+    []
   );
 
   const authValue = useMemo<AuthContextValue>(
     () => ({
       user,
-      token,
+      token: null,
       login,
       logout,
       authFetch,
@@ -166,7 +114,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       isAuthenticated: !!user,
       isLoading,
     }),
-    [user, token, login, logout, authFetch, verifyUser, isLoading]
+    [user, login, logout, authFetch, verifyUser, isLoading]
   );
 
   return (

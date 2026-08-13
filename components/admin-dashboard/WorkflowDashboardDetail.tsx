@@ -750,7 +750,6 @@ export default function WorkflowDashboardDetail({ workflowId }: { workflowId: Ad
 
     if (workflowId === "G11" && process.env.NODE_ENV !== "production") {
       console.log("G11 HTTP status:", response.status);
-      console.log("G11 create response:", body);
     }
 
     if (workflowId === "G11") {

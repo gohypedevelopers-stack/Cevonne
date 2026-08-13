@@ -1,10 +1,48 @@
 import { serializeError } from "@/server/http/responses";
 import { getPrisma } from "@/server/db/prismaClient";
-import { verifyToken } from "@/server/utils/jwt";
+import { SESSION_MAX_AGE_SECONDS, verifyToken } from "@/server/utils/jwt";
+import { env } from "@/server/config/env";
 
 type PrimitiveHeaders = Record<string, string>;
 type AuthUser = { id: string; email: string | null; role: string; name: string | null };
-type JwtAuthClaims = { id?: string; role?: string; email?: string | null; name?: string | null };
+type JwtAuthClaims = { id?: string; role?: string; email?: string | null; name?: string | null; sv?: number };
+
+export const SESSION_COOKIE_NAME = "cevonne_session";
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const sessionCookieAttributes = () =>
+  [
+    "Path=/",
+    "HttpOnly",
+    "SameSite=Lax",
+    env.nodeEnv === "production" ? "Secure" : "",
+  ]
+    .filter(Boolean)
+    .join("; ");
+
+export const createSessionCookie = (token: string) =>
+  `${SESSION_COOKIE_NAME}=${encodeURIComponent(token)}; Max-Age=${SESSION_MAX_AGE_SECONDS}; ${sessionCookieAttributes()}`;
+
+export const clearSessionCookie = () =>
+  `${SESSION_COOKIE_NAME}=; Max-Age=0; Expires=Thu, 01 Jan 1970 00:00:00 GMT; ${sessionCookieAttributes()}`;
+
+const getSessionToken = (request: Request) => {
+  const cookieHeader = request.headers.get("cookie") || "";
+  const cookie = cookieHeader
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(`${SESSION_COOKIE_NAME}=`));
+
+  if (!cookie) return null;
+
+  try {
+    return decodeURIComponent(cookie.slice(SESSION_COOKIE_NAME.length + 1));
+  } catch {
+    return null;
+  }
+};
 
 type ControllerRequest = {
   body?: unknown;
@@ -66,15 +104,7 @@ export const readJsonBody = async (request: Request) => {
   }
 };
 
-const canFallbackToTokenClaims = (error: unknown) => {
-  const code = typeof error === "object" && error !== null && "code" in error ? String((error as { code?: unknown }).code) : "";
-  const message =
-    typeof error === "object" && error !== null && "message" in error ? String((error as { message?: unknown }).message) : String(error ?? "");
-
-  return code === "P1001" || /can't reach database server|databasenotreachable/i.test(message);
-};
-
-const buildTokenAuthUser = (decoded: JwtAuthClaims): AuthUser | null => {
+const buildTokenAuthUser = (decoded: JwtAuthClaims): (AuthUser & { sessionVersion: number }) | null => {
   if (typeof decoded.id !== "string" || !decoded.id.trim()) {
     return null;
   }
@@ -83,11 +113,16 @@ const buildTokenAuthUser = (decoded: JwtAuthClaims): AuthUser | null => {
     return null;
   }
 
+  if (!Number.isInteger(decoded.sv) || (decoded.sv ?? 0) < 0) {
+    return null;
+  }
+
   return {
     id: decoded.id.trim(),
     email: typeof decoded.email === "string" && decoded.email.trim() ? decoded.email.trim() : null,
     role: decoded.role.trim(),
     name: typeof decoded.name === "string" && decoded.name.trim() ? decoded.name.trim() : null,
+    sessionVersion: decoded.sv as number,
   };
 };
 
@@ -163,6 +198,17 @@ const createControllerResponse = (): ControllerResponse => {
   return response;
 };
 
+const moveAuthTokenToHttpOnlyCookie = (response: ControllerResponse) => {
+  if (!isRecord(response.body) || typeof response.body.token !== "string" || !response.body.token) {
+    return;
+  }
+
+  const { token, ...body } = response.body;
+  response.body = body;
+  response.headers["set-cookie"] = createSessionCookie(token);
+  response.headers["cache-control"] = "no-store";
+};
+
 const createControllerRequest = (
   request: Request,
   options: {
@@ -217,6 +263,7 @@ export const runController = async (
       return jsonResponse(result.data, result.status, result.headers);
     }
 
+    moveAuthTokenToHttpOnlyCookie(res);
     return toResponse(res);
   } catch (error) {
     console.error("API controller error:", error);
@@ -229,12 +276,8 @@ export const runController = async (
 };
 
 export const getAuthUser = async (request: Request) => {
-  const header = request.headers.get("authorization") || "";
-  const [scheme, token] = header.split(" ");
-
-  if (scheme !== "Bearer" || !token) {
-    return null;
-  }
+  const token = getSessionToken(request);
+  if (!token) return null;
 
   try {
     const decoded = verifyToken(token) as JwtAuthClaims;
@@ -243,22 +286,17 @@ export const getAuthUser = async (request: Request) => {
       return null;
     }
 
-    try {
-      const prisma = await getPrisma();
-      const user = await prisma.user.findUnique({
-        where: { id: fallbackUser.id },
-        select: { id: true, email: true, role: true, name: true },
-      });
+    const prisma = await getPrisma();
+    const user = await prisma.user.findUnique({
+      where: { id: fallbackUser.id },
+      select: { id: true, email: true, role: true, name: true, sessionVersion: true },
+    });
 
-      return user ?? null;
-    } catch (error) {
-      if (!canFallbackToTokenClaims(error)) {
-        throw error;
-      }
-
-      console.warn("getAuthUser: falling back to JWT claims because the database is unreachable.");
-      return fallbackUser;
+    if (!user || user.sessionVersion !== fallbackUser.sessionVersion) {
+      return null;
     }
+
+    return user;
   } catch {
     return null;
   }

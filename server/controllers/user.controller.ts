@@ -5,16 +5,28 @@ import { z } from "zod";
 import { env } from "../config";
 import { getPrisma } from "../db/prismaClient";
 import { signToken } from "../utils/jwt";
-import { sendOTP } from "../utils/email";
+import { sendOTP, sendPasswordReset } from "../utils/email";
 import { sanitizeUser, buildAuthResponse } from "../services/auth.service";
 
 const cjsModule = { exports: {} as Record<string, any> };
 const exports = cjsModule.exports as Record<string, any>;
 
 
+const PASSWORD_MIN_LENGTH = 12;
+
+const passwordSchema = z
+  .string()
+  .min(PASSWORD_MIN_LENGTH, `Password must be at least ${PASSWORD_MIN_LENGTH} characters`)
+  .max(128, "Password is too long")
+  .regex(/[a-z]/, "Password must include a lowercase letter")
+  .regex(/[A-Z]/, "Password must include an uppercase letter")
+  .regex(/\d/, "Password must include a number");
+
+const emailSchema = z.string().trim().toLowerCase().email().max(254);
+
 const authSchema = z.object({
-  email: z.string().email(),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
+  email: emailSchema,
+  password: passwordSchema,
   name: z.string().trim().optional(),
 });
 
@@ -33,17 +45,20 @@ const hasOtpMailConfig =
 const otpFlowEnabled = process.env.NODE_ENV === 'production' && hasOtpMailConfig;
 
 const forgotSchema = z.object({
-  email: z.string().email(),
+  email: emailSchema,
 });
 
 const resetSchema = z.object({
-  password: z.string().min(6, 'Password must be at least 6 characters'),
+  password: passwordSchema,
 });
 
 const verifyOTPSchema = z.object({
-  email: z.string().email(),
+  email: emailSchema,
   otp: z.string().length(6, 'OTP must be 6 digits'),
 });
+
+const createOtp = () => crypto.randomInt(100000, 1_000_000).toString();
+const hashOtp = (otp: string) => crypto.createHash("sha256").update(otp).digest("hex");
 
 
 const updateProfileSchema = z
@@ -70,9 +85,7 @@ exports.signup = async (req, res, next) => {
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(password, salt);
 
-    const otp = otpFlowEnabled
-      ? Math.floor(100000 + Math.random() * 900000).toString()
-      : null;
+    const otp = otpFlowEnabled ? createOtp() : null;
     const otpExpiresAt = otpFlowEnabled ? new Date(Date.now() + 10 * 60 * 1000) : null;
 
     const user = await prisma.user.create({
@@ -80,7 +93,7 @@ exports.signup = async (req, res, next) => {
         email,
         name,
         passwordHash,
-        otp,
+        otp: otp ? hashOtp(otp) : null,
         otpExpiresAt,
       },
     });
@@ -145,12 +158,12 @@ exports.signin = async (req, res, next) => {
       return res.status(200).json(buildAuthResponse(user));
     }
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otp = createOtp();
     const otpExpiresAt = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
     await prisma.user.update({
       where: { email },
-      data: { otp, otpExpiresAt },
+      data: { otp: hashOtp(otp), otpExpiresAt },
     });
 
     const recipientEmail = email;
@@ -184,7 +197,7 @@ exports.verifyOTP = async (req, res, next) => {
 
     const user = await prisma.user.findUnique({ where: { email } });
 
-    if (!user || user.otp !== otp || !user.otpExpiresAt || user.otpExpiresAt < new Date()) {
+    if (!user || user.otp !== hashOtp(otp) || !user.otpExpiresAt || user.otpExpiresAt < new Date()) {
       return res.status(401).json({ message: 'Invalid or expired OTP' });
     }
 
@@ -273,6 +286,11 @@ exports.forgotPassword = async (req, res, next) => {
       return res.status(200).json({ message: 'If that email exists, a reset link has been sent.' });
     }
 
+    if (!env.frontendUrl) {
+      console.error("Password reset email is unavailable because FRONTEND_URL is not configured.");
+      return res.status(200).json({ message: 'If that email exists, a reset link has been sent.' });
+    }
+
     await prisma.passwordResetToken.deleteMany({ where: { userId: user.id } });
 
     const rawToken = crypto.randomBytes(32).toString('hex');
@@ -287,16 +305,16 @@ exports.forgotPassword = async (req, res, next) => {
       },
     });
 
-    const requestOrigin =
-      req.get('origin')?.trim().replace(/\/+$/, '') ||
-      `${req.protocol}://${req.get('host')}`;
-    const resetBaseUrl = env.frontendUrl || requestOrigin;
-    const resetUrl = `${String(resetBaseUrl).replace(/\/+$/, '')}/reset-password/${rawToken}`;
+    const resetUrl = `${env.frontendUrl.replace(/\/+$/, '')}/reset-password/${rawToken}`;
 
-    return res.status(200).json({
-      message: 'If that email exists, a reset link has been sent.',
-      resetUrl,
-    });
+    try {
+      await sendPasswordReset(user.email, resetUrl);
+    } catch (emailError) {
+      await prisma.passwordResetToken.deleteMany({ where: { userId: user.id } });
+      console.error('Failed to send password reset email:', emailError);
+    }
+
+    return res.status(200).json({ message: 'If that email exists, a reset link has been sent.' });
   } catch (error) {
     if (error instanceof z.ZodError) {
       return res.status(400).json({ message: error.issues?.[0]?.message || 'Invalid payload' });
@@ -325,7 +343,7 @@ exports.resetPassword = async (req, res, next) => {
 
     await prisma.user.update({
       where: { id: record.userId },
-      data: { passwordHash },
+      data: { passwordHash, sessionVersion: { increment: 1 } },
     });
 
     await prisma.passwordResetToken.delete({ where: { id: record.id } });

@@ -15,6 +15,7 @@ model User {
   createdAt    DateTime            @default(now())
   updatedAt    DateTime            @updatedAt
   role         String              @default("CUSTOMER")
+  sessionVersion Int               @default(0)
   otp          String?
   otpExpiresAt DateTime?
   orders       Order[]
@@ -159,6 +160,15 @@ model PasswordResetToken {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([token])
+}
+
+model SecurityRateLimit {
+  key       String   @id
+  count     Int
+  resetAt   DateTime
+  updatedAt DateTime @updatedAt
+
+  @@index([resetAt])
 }
 
 model Order {

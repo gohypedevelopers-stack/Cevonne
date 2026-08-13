@@ -17,6 +17,7 @@ import {
 } from "@/lib/cevonne/admin-model";
 import { env } from "@/server/config";
 import { getAuthUser, jsonResponse, readJsonBody } from "@/server/next/route-utils";
+import { consumeRateLimit, getClientIp } from "@/server/security/rate-limit";
 import { postN8nWebhook } from "@/lib/cevonne/n8nClient";
 import {
   recordCevonneAdminAuditLog,
@@ -29,13 +30,6 @@ const sourcePlatform = baseSource.toUpperCase();
 const actor = baseSource.toLowerCase();
 const PUBLIC_ROUTE_RATE_LIMIT_WINDOW_MS = 60_000;
 const PUBLIC_ROUTE_RATE_LIMIT_MAX_REQUESTS = 20;
-
-type RateLimitBucket = {
-  count: number;
-  resetAt: number;
-};
-
-const publicRouteRateLimits = new Map<string, RateLimitBucket>();
 
 const isRecord = (value: unknown): value is Record<string, unknown> => {
   return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -164,52 +158,11 @@ const getRequestFingerprintHash = (request: Request) => {
   return createHash("sha256").update(payload).digest("hex").slice(0, 16);
 };
 
-const getClientIp = (request: Request) => {
-  const headerValues = [
-    request.headers.get("x-forwarded-for"),
-    request.headers.get("x-real-ip"),
-    request.headers.get("cf-connecting-ip"),
-    request.headers.get("x-vercel-forwarded-for"),
-  ];
-
-  for (const headerValue of headerValues) {
-    if (!headerValue) {
-      continue;
-    }
-
-    const firstIp = headerValue.split(",")[0]?.trim();
-    if (firstIp) {
-      return firstIp;
-    }
-  }
-
-  return "unknown";
-};
-
-const consumePublicRouteQuota = (request: Request, routePath: string) => {
-  const key = `${routePath}:${getClientIp(request)}`;
-  const now = Date.now();
-  const existing = publicRouteRateLimits.get(key);
-
-  if (!existing || existing.resetAt <= now) {
-    publicRouteRateLimits.set(key, {
-      count: 1,
-      resetAt: now + PUBLIC_ROUTE_RATE_LIMIT_WINDOW_MS,
-    });
-
-    return { allowed: true as const };
-  }
-
-  if (existing.count >= PUBLIC_ROUTE_RATE_LIMIT_MAX_REQUESTS) {
-    return {
-      allowed: false as const,
-      retryAfterSeconds: Math.max(1, Math.ceil((existing.resetAt - now) / 1000)),
-    };
-  }
-
-  existing.count += 1;
-  return { allowed: true as const };
-};
+const consumePublicRouteQuota = (request: Request, routePath: string) =>
+  consumeRateLimit(request, `public:${routePath}`, {
+    limit: PUBLIC_ROUTE_RATE_LIMIT_MAX_REQUESTS,
+    windowMs: PUBLIC_ROUTE_RATE_LIMIT_WINDOW_MS,
+  });
 
 const emptyToUndefined = (value: unknown) => {
   if (value === null || value === undefined) {
@@ -470,7 +423,7 @@ const dispatchValidatedRoute = async <T extends Record<string, unknown>>(
     return manualOnlyResponse("Automation is temporarily disabled.");
   }
 
-  const rateLimit = consumePublicRouteQuota(request, routePath);
+  const rateLimit = await consumePublicRouteQuota(request, routePath);
   if (!rateLimit.allowed) {
     logCevonneRouteOutcome({
       requestId,
@@ -803,40 +756,14 @@ export const dispatchCevonneAttributionRoute = async (request: Request) => {
   );
 };
 
-export const dispatchCevonnePurchaseRoute = async (request: Request) => {
-  return dispatchValidatedRoute(
-    request,
-    purchaseInputSchema,
-    env.cevonneN8nPurchaseEventUrl,
-    "/api/cevonne/purchase",
-    (body) => ({
-      event_type: "PURCHASE_EVENT",
-      source_event: body.source_event || "checkout_success",
-      order_id: body.order_id,
-      contact_id: body.contact_id ?? null,
-      external_contact_id: body.external_contact_id ?? null,
-      user_id: body.user_id ?? null,
-      email: body.email ?? null,
-      phone: body.phone ?? null,
-      purchase_value: body.purchase_value ?? null,
-      currency: body.currency ?? null,
-      items: body.items ?? [],
-      privacy_policy_version: env.cevonnePrivacyPolicyVersion,
-    }),
-    (body) => [
-      body.order_id,
-      body.contact_id,
-      body.external_contact_id,
-      body.user_id,
-      body.email,
-      body.phone,
-      body.purchase_value,
-      body.currency,
-      JSON.stringify(body.items ?? []),
-      body.source_event || "checkout_success",
-    ],
+export const dispatchCevonnePurchaseRoute = async (_request: Request) =>
+  jsonResponse(
+    {
+      message: "Purchase events must be recorded by a verified payment-provider webhook or internal server workflow.",
+    },
+    403,
+    { "Cache-Control": "no-store" },
   );
-};
 
 export const dispatchCevonnePrivacyRequestRoute = async (request: Request) => {
   return dispatchValidatedRoute(

@@ -24,8 +24,8 @@ export default function ResetPassword() {
       toast.error("Missing reset token.");
       return;
     }
-    if (!password || password.length < 6) {
-      toast.error("Password must be at least 6 characters.");
+    if (!password || password.length < 12 || !/[a-z]/.test(password) || !/[A-Z]/.test(password) || !/\d/.test(password)) {
+      toast.error("Use at least 12 characters with uppercase, lowercase, and a number.");
       return;
     }
     if (password !== confirmPassword) {
@@ -76,6 +76,7 @@ export default function ResetPassword() {
                     disabled={isLoading}
                     required
                   />
+                  <p className="mt-2 text-xs text-muted-foreground">Use at least 12 characters with uppercase, lowercase, and a number.</p>
                 </Field>
                 <Field>
                   <FieldLabel htmlFor="confirmPassword">Confirm password</FieldLabel>

@@ -14,7 +14,6 @@ const FORGOT_PASSWORD_CAMPAIGN_IMAGE =
 export default function ForgotPassword() {
   const [email, setEmail] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [resetUrl, setResetUrl] = useState("");
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -37,7 +36,6 @@ export default function ForgotPassword() {
       }
 
       toast.success(payload?.message || "Password reset link sent.");
-      setResetUrl(payload?.resetUrl || "");
     } catch (error) {
       toast.error(error?.message || "Unable to request a password reset.");
     } finally {
@@ -105,22 +103,6 @@ export default function ForgotPassword() {
               </Link>
             </p>
 
-            {resetUrl ? (
-              <div className="border border-[#ded8d2] bg-[#fcfaf7] p-4 text-sm" aria-live="polite">
-                <p className="font-medium text-[#181614]">Reset link</p>
-                <a
-                  href={resetUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="mt-2 block break-all text-[#514b46] underline underline-offset-4 hover:text-[#685154]"
-                >
-                  {resetUrl}
-                </a>
-                <p className="mt-2 text-xs leading-5 text-[#6b645e]">
-                  This appears only in local development when the backend returns the generated link.
-                </p>
-              </div>
-            ) : null}
           </form>
         </div>
       </div>

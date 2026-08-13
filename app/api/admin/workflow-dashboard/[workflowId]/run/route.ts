@@ -119,14 +119,9 @@ export async function POST(
 
   try {
     if (workflowId === "G11") {
-      console.log("G11 API ROUTE HIT");
-      console.log("G11 API BODY:", body);
-
       const normalized = buildG11ForwardPayload((body ?? {}) as Record<string, unknown>);
       const webhookUrl =
         normalized.kind === "weekly" ? env.cevonneN8nWeeklyDigestUrl : env.cevonneN8nDecisionRecommendationUrl;
-
-      console.log("G11 FORWARD URL:", webhookUrl || "(missing)");
 
       if (!webhookUrl) {
         return jsonResponse(
@@ -138,8 +133,6 @@ export async function POST(
         );
       }
 
-      console.log("G11 NORMALIZED PAYLOAD:", normalized.payload);
-
       const result = await postN8nWebhook({
         url: webhookUrl,
         payload: normalized.payload,
@@ -147,9 +140,6 @@ export async function POST(
         timeoutMs: 120000,
         source: "g11",
       });
-
-      console.log("G11 N8N STATUS:", result.status);
-      console.log("G11 N8N RESPONSE:", result);
 
       return jsonResponse(result, 200);
     }
