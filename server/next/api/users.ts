@@ -9,12 +9,22 @@ import {
 } from "../route-utils";
 
 const unauthorizedResponse = () => jsonResponse({ message: "Unauthorized" }, 401);
+const forbiddenResponse = () => jsonResponse({ message: "Forbidden" }, 403);
+
+const requireAdmin = async (request: Request) => {
+  const user = await getAuthUser(request);
+  if (!user) return unauthorizedResponse();
+  if (user.role !== "ADMIN") return forbiddenResponse();
+  return null;
+};
 
 export const dispatchUsersRoute = async (request: Request, segments: string[] = []) => {
   const [first, second] = segments;
 
   if (!first) {
     if (request.method === "GET") {
+      const authFailure = await requireAdmin(request);
+      if (authFailure) return authFailure;
       return runController(request, userController.listUsers);
     }
     return methodNotAllowed(["GET"]);
@@ -36,12 +46,6 @@ export const dispatchUsersRoute = async (request: Request, segments: string[] = 
     const body = await readJsonBody(request);
     if (body instanceof Response) return body;
     return runController(request, userController.verifyOTP, { body });
-  }
-
-  if (first === "google" && request.method === "POST") {
-    const body = await readJsonBody(request);
-    if (body instanceof Response) return body;
-    return runController(request, userController.googleAuth, { body });
   }
 
   if (first === "forgot-password" && request.method === "POST") {
@@ -77,6 +81,8 @@ export const dispatchUsersRoute = async (request: Request, segments: string[] = 
   }
 
   if (segments.length === 2 && second === "role" && request.method === "PATCH") {
+    const authFailure = await requireAdmin(request);
+    if (authFailure) return authFailure;
     const body = await readJsonBody(request);
     if (body instanceof Response) return body;
     return runController(request, userController.updateRole, {

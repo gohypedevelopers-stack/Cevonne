@@ -1,58 +1,62 @@
 "use client";
 
 import { useState } from "react";
-import { Link, useLocation, useNavigate } from "@/lib/router";
-import axios from "axios";
-import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { toast } from "sonner";
-import { useAuth } from "@/context/AuthContext";
+import Image from "next/image";
 import { Eye, EyeOff } from "lucide-react";
+import axios from "axios";
+import { toast } from "sonner";
+
+import { Link, useLocation, useNavigate } from "@/lib/router";
+import { cn } from "@/lib/utils";
 import { API_BASE } from "@/lib/api";
 import { resolvePostAuthPath } from "@/lib/auth";
+import { useAuth } from "@/context/AuthContext";
 
-// Axios instance
+import { Input } from "@/components/ui/input";
+
 const api = axios.create({
   baseURL: API_BASE,
-  withCredentials: true, // using credentialed CORS; backend is configured for this
+  withCredentials: true,
   headers: { "Content-Type": "application/json" },
 });
+
+const SIGNUP_CAMPAIGN_IMAGE =
+  "https://cdn.cevonne.com/assets/images/ChatGPT%20Image%20Aug%2010%2C%202026%2C%2012_01_06%20PM.png";
 
 export default function SignupForm({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   const [formData, setFormData] = useState({
     name: "",
     email: "",
     password: "",
+    confirmPassword: "",
   });
   const [isLoading, setIsLoading] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+
   const navigate = useNavigate();
   const location = useLocation();
   const { login } = useAuth();
   const searchParams = new URLSearchParams(location.search || "");
   const redirectTo = searchParams.get("redirect") || "";
 
-  const handleChange = (e) => {
-    const { id, value } = e.target;
-    setFormData((prev) => ({ ...prev, [id]: value }));
+  const handleChange = (event) => {
+    const { id, value } = event.target;
+    setFormData((current) => ({ ...current, [id]: value }));
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (formData.password !== formData.confirmPassword) {
+      toast.error("Passwords do not match.");
+      return;
+    }
+
+    const { confirmPassword: _confirmPassword, ...signupData } = formData;
     setIsLoading(true);
 
     try {
-      // POST -> /api/users/signup (router mounted at /api/users)
-      const { data } = await api.post("/users/signup", formData);
+      const { data } = await api.post("/users/signup", signupData);
 
       if (data?.otpRequired) {
         const params = new URLSearchParams();
@@ -64,7 +68,6 @@ export default function SignupForm({ className, ...props }: React.HTMLAttributes
       }
 
       toast.success("Account created successfully!");
-      // Save auth in context
       login?.(data.user, data.token);
       navigate(
         resolvePostAuthPath({
@@ -72,12 +75,10 @@ export default function SignupForm({ className, ...props }: React.HTMLAttributes
           redirectTo,
         })
       );
-    } catch (err) {
-      console.error("Signup error:", err);
+    } catch (error) {
+      console.error("Signup error:", error);
       const message =
-        err.response?.data?.message ||
-        err.message ||
-        "Signup failed. Please try again.";
+        error.response?.data?.message || error.message || "Signup failed. Please try again.";
       toast.error(message);
     } finally {
       setIsLoading(false);
@@ -85,105 +86,190 @@ export default function SignupForm({ className, ...props }: React.HTMLAttributes
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-background p-4">
-      <Card className={cn("w-full max-w-md", className)} {...props}>
-        <CardHeader>
-          <CardTitle className="text-2xl">Create an account</CardTitle>
-          <CardDescription>
-            Enter your details below to create your new account.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <form onSubmit={handleSubmit}>
-            <div className="grid gap-4">
-              <div className="grid gap-2">
-                <Label htmlFor="name">Name</Label>
+    <div className="auth-page min-h-[100dvh] bg-[#fffefd] text-[#181614] lg:grid lg:grid-cols-2">
+      <aside className="relative hidden min-h-[100dvh] overflow-hidden bg-[#b9885b] lg:block">
+        <Image
+          src={SIGNUP_CAMPAIGN_IMAGE}
+          alt="Cevonne lipstick and perfume collection on a vanity"
+          fill
+          priority
+          sizes="(min-width: 1024px) 50vw, 100vw"
+          className="object-cover object-center"
+        />
+      </aside>
+
+      <div className="flex min-h-[100dvh] items-center justify-center px-5 py-10 sm:px-10 lg:px-16 xl:px-24">
+        <div className={cn("w-full max-w-[34rem]", className)} {...props}>
+          <header>
+            <h1 className="font-sans text-xl font-medium tracking-[-0.035em] sm:text-[1.35rem]">
+              Create your account
+            </h1>
+            <p className="mt-2 max-w-md text-sm leading-6 text-[#6b645e]">
+              Join Cevonne to save favourites, track orders, and check out faster.
+            </p>
+          </header>
+
+          <form onSubmit={handleSubmit} className="mt-9 space-y-4 sm:mt-10">
+            <div>
+              <label htmlFor="name" className="text-xs font-medium tracking-[0.01em]">
+                Full name<span aria-hidden="true">*</span>
+              </label>
+              <Input
+                id="name"
+                type="text"
+                autoComplete="name"
+                placeholder="Your full name"
+                value={formData.name}
+                onChange={handleChange}
+                disabled={isLoading}
+                required
+                className="mt-2.5 h-12 !rounded-[0.3rem] border-[#8b8580] bg-white px-4 text-sm text-[#181614] shadow-none placeholder:text-[#a6a09a] focus-visible:border-[#181614] focus-visible:ring-1 focus-visible:ring-[#181614]"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="email" className="text-xs font-medium tracking-[0.01em]">
+                Email address<span aria-hidden="true">*</span>
+              </label>
+              <Input
+                id="email"
+                type="email"
+                autoComplete="email"
+                placeholder="name@example.com"
+                value={formData.email}
+                onChange={handleChange}
+                disabled={isLoading}
+                required
+                className="mt-2.5 h-12 !rounded-[0.3rem] border-[#8b8580] bg-white px-4 text-sm text-[#181614] shadow-none placeholder:text-[#a6a09a] focus-visible:border-[#181614] focus-visible:ring-1 focus-visible:ring-[#181614]"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="password" className="text-xs font-medium tracking-[0.01em]">
+                Password<span aria-hidden="true">*</span>
+              </label>
+              <div className="relative mt-2.5">
                 <Input
-                  id="name"
-                  type="text"
-                  placeholder="John Doe"
-                  value={formData.name}
+                  id="password"
+                  type={showPassword ? "text" : "password"}
+                  autoComplete="new-password"
+                  placeholder="••••••••"
+                  value={formData.password}
                   onChange={handleChange}
                   disabled={isLoading}
-                  className="bg-background"
                   required
+                  className="h-12 !rounded-[0.3rem] border-[#8b8580] bg-white px-4 pr-12 text-sm text-[#181614] shadow-none placeholder:text-[#a6a09a] focus-visible:border-[#181614] focus-visible:ring-1 focus-visible:ring-[#181614]"
                 />
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="name@example.com"
-                  value={formData.email}
-                  onChange={handleChange}
-                  disabled={isLoading}
-                  className="bg-background"
-                  required
-                />
-              </div>
-
-              <div className="grid gap-2">
-                <Label htmlFor="password">Password</Label>
-                <div className="relative">
-                  <Input
-                    id="password"
-                    type={showPassword ? "text" : "password"}
-                    placeholder="••••••••"
-                    value={formData.password}
-                    onChange={handleChange}
-                    disabled={isLoading}
-                    className="bg-background pr-12"
-                    required
-                  />
-                  {formData.password.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((v) => !v)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 z-20
-                                 flex items-center justify-center p-1
-                                 text-primary hover:text-primary
-                                 focus:outline-none"
-                      aria-label={showPassword ? "Hide password" : "Show password"}
-                      aria-pressed={showPassword}
-                      title={showPassword ? "Hide password" : "Show password"}
-                    >
-                      {showPassword ? (
-                        <EyeOff className="h-4 w-4" />
-                      ) : (
-                        <Eye className="h-4 w-4" />
-                      )}
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-3 pt-2">
-                <Button type="submit" className="w-full" disabled={isLoading}>
-                  {isLoading ? "Creating account..." : "Create Account"}
-                </Button>
-                <Button
-                  variant="outline"
-                  className="w-full bg-background"
-                  disabled={isLoading}
+                <button
                   type="button"
-                  onClick={() => toast.info("Google signup coming soon")}
+                  onClick={() => setShowPassword((value) => !value)}
+                  className="absolute right-3 top-1/2 z-10 flex size-8 -translate-y-1/2 items-center justify-center !rounded-full text-[#514b46] transition-colors hover:bg-[#f5f1ec] hover:text-[#181614] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-black"
+                  aria-label={showPassword ? "Hide password" : "Show password"}
+                  aria-pressed={showPassword}
                 >
-                  Sign up with Google
-                </Button>
+                  {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </button>
               </div>
             </div>
 
-            <div className="mt-4 text-center text-sm">
-              Already have an account{" "}
-              <Link href="/login" className="underline underline-offset-4">
-                Log in
-              </Link>
+            <div>
+              <label htmlFor="confirmPassword" className="text-xs font-medium tracking-[0.01em]">
+                Confirm password<span aria-hidden="true">*</span>
+              </label>
+              <div className="relative mt-2.5">
+                <Input
+                  id="confirmPassword"
+                  type={showConfirmPassword ? "text" : "password"}
+                  autoComplete="new-password"
+                  placeholder="••••••••"
+                  value={formData.confirmPassword}
+                  onChange={handleChange}
+                  disabled={isLoading}
+                  required
+                  className="h-12 !rounded-[0.3rem] border-[#8b8580] bg-white px-4 pr-12 text-sm text-[#181614] shadow-none placeholder:text-[#a6a09a] focus-visible:border-[#181614] focus-visible:ring-1 focus-visible:ring-[#181614]"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowConfirmPassword((value) => !value)}
+                  className="absolute right-3 top-1/2 z-10 flex size-8 -translate-y-1/2 items-center justify-center !rounded-full text-[#514b46] transition-colors hover:bg-[#f5f1ec] hover:text-[#181614] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-black"
+                  aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
+                  aria-pressed={showConfirmPassword}
+                >
+                  {showConfirmPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+                </button>
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="mt-1 flex h-12 w-full items-center justify-center bg-black px-6 text-sm font-semibold text-white !rounded-full transition-[background-color,transform] hover:bg-[#2c2927] active:scale-[0.99] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isLoading ? "Creating account…" : "Create Account"}
+            </button>
+
+            <div className="pt-1">
+              <div className="mb-5 flex items-center gap-3" aria-hidden="true">
+                <span className="h-px flex-1 bg-[#ded8d2]" />
+                <span className="text-[0.6875rem] font-medium tracking-[0.08em] text-[#756d67]">
+                  OR
+                </span>
+                <span className="h-px flex-1 bg-[#ded8d2]" />
+              </div>
+              <button
+                type="button"
+                disabled={isLoading}
+                onClick={() => toast.info("Google sign-up is coming soon.")}
+                className="flex h-13 w-full items-center justify-center gap-3 border border-[#24201d] bg-transparent px-5 text-sm font-medium tracking-[-0.01em] !rounded-full transition-colors hover:bg-[#f7f3ef] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-black disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <GoogleMark />
+                Sign up with Google
+              </button>
+            </div>
+
+            <div className="space-y-2 pt-1">
+              <p className="text-center text-xs leading-5 text-[#6b645e]">
+                By creating an account, you agree to our{" "}
+                <Link
+                  href="/terms"
+                  className="font-medium text-[#181614] underline decoration-[#514b46] underline-offset-4 transition-colors hover:text-[#685154]"
+                >
+                  Terms of Service
+                </Link>{" "}
+                and{" "}
+                <Link
+                  href="/privacy-policy"
+                  className="font-medium text-[#181614] underline decoration-[#514b46] underline-offset-4 transition-colors hover:text-[#685154]"
+                >
+                  Privacy Policy
+                </Link>
+                .
+              </p>
+
+              <p className="text-center text-sm text-[#514b46]">
+                Already have an account?{" "}
+                <Link
+                  href="/login"
+                  className="font-medium text-[#181614] underline decoration-[#514b46] underline-offset-4 transition-colors hover:text-[#685154]"
+                >
+                  Login
+                </Link>
+              </p>
             </div>
           </form>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
+  );
+}
+
+function GoogleMark() {
+  return (
+    <svg viewBox="0 0 24 24" className="size-5" aria-hidden="true">
+      <path fill="#4285F4" d="M21.6 12.23c0-.71-.06-1.39-.18-2.05H12v3.88h5.38a4.6 4.6 0 0 1-1.99 3.02v2.51h3.23c1.89-1.74 2.98-4.31 2.98-7.36Z" />
+      <path fill="#34A853" d="M12 22c2.7 0 4.96-.9 6.62-2.41l-3.23-2.51c-.9.6-2.05.96-3.39.96-2.6 0-4.8-1.75-5.58-4.11H3.08v2.59A10 10 0 0 0 12 22Z" />
+      <path fill="#FBBC05" d="M6.42 13.93A6.02 6.02 0 0 1 6.11 12c0-.67.11-1.32.31-1.93V7.48H3.08A10 10 0 0 0 2 12c0 1.61.39 3.13 1.08 4.52l3.34-2.59Z" />
+      <path fill="#EA4335" d="M12 5.96c1.47 0 2.79.51 3.83 1.51l2.87-2.87C16.96 2.98 14.7 2 12 2a10 10 0 0 0-8.92 5.48l3.34 2.59C7.2 7.71 9.4 5.96 12 5.96Z" />
+    </svg>
   );
 }

@@ -25,10 +25,6 @@ const baseReviewSchema = z.object({
 
 const createReviewSchema = baseReviewSchema.extend({
   productId: z.string().min(1, 'Product id is required'),
-  userId: z.string().min(1, 'User id is required'),
-  status: z
-    .enum(['PENDING', 'PUBLISHED', 'REJECTED'])
-    .optional(),
 });
 
 const updateReviewSchema = baseReviewSchema
@@ -64,7 +60,6 @@ const reviewInclude = {
     select: {
       id: true,
       name: true,
-      email: true,
     },
   },
   product: {
@@ -81,11 +76,16 @@ exports.listReviews = async (req, res, next) => {
   try {
     const prisma = await getPrisma();
     const parsed = querySchema.parse(req.query ?? {});
+    const isAdmin = req.user?.role === 'ADMIN';
+
+    // Unauthenticated visitors and customers may only see published reviews.
+    // Admin review tools receive the authenticated actor and can request other states.
+    const visibleStatus = isAdmin ? parsed.status : 'PUBLISHED';
 
     const where = {
       productId: parsed.productId,
       userId: parsed.userId,
-      status: parsed.status === 'ALL' ? undefined : parsed.status,
+      status: visibleStatus === 'ALL' ? undefined : visibleStatus,
       OR: parsed.search
         ? [
             { title: { contains: parsed.search, mode: Prisma.QueryMode.insensitive } },
@@ -163,7 +163,8 @@ exports.getReview = async (req, res, next) => {
       where: { id: req.params.id },
       include: reviewInclude,
     });
-    if (!review) {
+    const canViewUnpublished = req.user?.role === 'ADMIN' || req.user?.id === review?.userId;
+    if (!review || (review.status !== 'PUBLISHED' && !canViewUnpublished)) {
       return res.status(404).json({ message: 'Review not found' });
     }
     return res.status(200).json(review);
@@ -175,6 +176,10 @@ exports.getReview = async (req, res, next) => {
 exports.createReview = async (req, res, next) => {
   try {
     const payload = createReviewSchema.parse(req.body);
+    const actor = req.user;
+    if (!actor?.id) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
     const prisma = await getPrisma();
 
     const review = await prisma.review.create({
@@ -182,9 +187,9 @@ exports.createReview = async (req, res, next) => {
         rating: payload.rating,
         title: payload.title ?? null,
         comment: payload.comment ?? null,
-        status: payload.status ?? 'PENDING',
+        status: 'PENDING',
         product: { connect: { id: payload.productId } },
-        user: { connect: { id: payload.userId } },
+        user: { connect: { id: actor.id } },
         media: payload.media?.length
           ? {
               create: payload.media.map((item) => ({ url: item.url })),
@@ -201,7 +206,7 @@ exports.createReview = async (req, res, next) => {
       });
     }
     if (error.code === 'P2003') {
-      return res.status(400).json({ message: 'Invalid productId or userId' });
+      return res.status(400).json({ message: 'Invalid productId' });
     }
     return next(error);
   }
@@ -210,7 +215,25 @@ exports.createReview = async (req, res, next) => {
 exports.updateReview = async (req, res, next) => {
   try {
     const payload = updateReviewSchema.parse(req.body);
+    const actor = req.user;
+    if (!actor?.id) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+    if (payload.status !== undefined && actor.role !== 'ADMIN') {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
     const prisma = await getPrisma();
+
+    const existing = await prisma.review.findUnique({
+      where: { id: req.params.id },
+      select: { userId: true },
+    });
+    if (!existing) {
+      return res.status(404).json({ message: 'Review not found' });
+    }
+    if (actor.role !== 'ADMIN' && existing.userId !== actor.id) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
 
     const review = await prisma.review.update({
       where: { id: req.params.id },
@@ -244,7 +267,22 @@ exports.updateReview = async (req, res, next) => {
 
 exports.deleteReview = async (req, res, next) => {
   try {
+    const actor = req.user;
+    if (!actor?.id) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
     const prisma = await getPrisma();
+
+    const existing = await prisma.review.findUnique({
+      where: { id: req.params.id },
+      select: { userId: true },
+    });
+    if (!existing) {
+      return res.status(404).json({ message: 'Review not found' });
+    }
+    if (actor.role !== 'ADMIN' && existing.userId !== actor.id) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
     await prisma.review.delete({
       where: { id: req.params.id },
     });

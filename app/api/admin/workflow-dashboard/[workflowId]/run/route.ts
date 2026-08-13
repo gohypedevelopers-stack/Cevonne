@@ -91,7 +91,7 @@ const buildG11ForwardPayload = (body: Record<string, unknown>) => {
 
 export async function POST(
   request: Request,
-  { params }: { params: Promise<{ workflowId?: string }> | { workflowId?: string } },
+  { params }: { params: Promise<{ workflowId?: string }> },
 ) {
   const auth = await getAuthUser(request);
   if (!auth) {

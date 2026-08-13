@@ -20,6 +20,17 @@ body {
   background: #ffffff;
 }
 
+/* Keep browser password-manager and autofill values visually consistent with auth fields. */
+.auth-page input:-webkit-autofill,
+.auth-page input:-webkit-autofill:hover,
+.auth-page input:-webkit-autofill:focus,
+.auth-page input:-webkit-autofill:active {
+  -webkit-text-fill-color: #181614;
+  -webkit-box-shadow: 0 0 0 1000px #ffffff inset;
+  box-shadow: 0 0 0 1000px #ffffff inset;
+  caret-color: #181614;
+}
+
 /* Hide the global scrollbar (keep scrolling functional) */
 *, html, body {
   scrollbar-width: none;

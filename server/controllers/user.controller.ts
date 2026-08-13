@@ -203,42 +203,6 @@ exports.verifyOTP = async (req, res, next) => {
   }
 };
 
-const googleAuthSchema = z.object({
-  email: z.string().email(),
-  name: z.string().trim().optional(),
-});
-
-exports.googleAuth = async (req, res, next) => {
-  try {
-    const { email, name } = googleAuthSchema.parse(req.body);
-    const prisma = await getPrisma();
-
-    let user = await prisma.user.findUnique({ where: { email } });
-
-    if (!user) {
-      // Create user if they don't exist
-      user = await prisma.user.create({
-        data: {
-          email,
-          name: name || 'Google User',
-          // Random password hash since they use Google to login
-          passwordHash: await bcrypt.hash(crypto.randomBytes(16).toString('hex'), 10),
-        },
-      });
-    }
-
-    // Google login bypasses OTP since Google is already a verified provider
-    return res.status(200).json(buildAuthResponse(user));
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      return res.status(400).json({ message: error.issues?.[0]?.message || 'Invalid payload' });
-    }
-    return next(error);
-  }
-};
-
-
-
 exports.getProfile = async (req, res, next) => {
   try {
     const prisma = await getPrisma();
@@ -398,7 +362,6 @@ cjsModule.exports = {
   signup: exports.signup,
   signin: exports.signin,
   verifyOTP: exports.verifyOTP,
-  googleAuth: exports.googleAuth,
   getProfile: exports.getProfile,
   listUsers: exports.listUsers,
   updateRole: exports.updateRole,

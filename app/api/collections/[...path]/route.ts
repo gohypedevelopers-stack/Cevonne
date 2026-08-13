@@ -8,18 +8,18 @@ const resolveSegments = async (params: unknown) => {
   return resolved?.path ?? [];
 };
 
-export async function GET(request: Request, context: { params?: Promise<{ path?: string[] }> }) {
+export async function GET(request: Request, context: { params: Promise<{ path?: string[] }> }) {
   return dispatchCollectionsRoute(request, await resolveSegments(context?.params));
 }
 
-export async function POST(request: Request, context: { params?: Promise<{ path?: string[] }> }) {
+export async function POST(request: Request, context: { params: Promise<{ path?: string[] }> }) {
   return dispatchCollectionsRoute(request, await resolveSegments(context?.params));
 }
 
-export async function PUT(request: Request, context: { params?: Promise<{ path?: string[] }> }) {
+export async function PUT(request: Request, context: { params: Promise<{ path?: string[] }> }) {
   return dispatchCollectionsRoute(request, await resolveSegments(context?.params));
 }
 
-export async function DELETE(request: Request, context: { params?: Promise<{ path?: string[] }> }) {
+export async function DELETE(request: Request, context: { params: Promise<{ path?: string[] }> }) {
   return dispatchCollectionsRoute(request, await resolveSegments(context?.params));
 }

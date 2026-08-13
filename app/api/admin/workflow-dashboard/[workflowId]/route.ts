@@ -7,7 +7,7 @@ import { getAuthUser, jsonResponse, methodNotAllowed } from "@/server/next/route
 const unauthorizedResponse = () => jsonResponse({ message: "Unauthorized" }, 401);
 const forbiddenResponse = () => jsonResponse({ message: "Forbidden" }, 403);
 
-export async function GET(request: Request, { params }: { params: Promise<{ workflowId?: string }> | { workflowId?: string } }) {
+export async function GET(request: Request, { params }: { params: Promise<{ workflowId?: string }> }) {
   const auth = await getAuthUser(request);
   if (!auth) {
     return unauthorizedResponse();

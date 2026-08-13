@@ -25,7 +25,7 @@ const getContentType = (filename: string) => {
 
 export async function GET(
   _request: Request,
-  context: { params?: Promise<{ filename?: string }> }
+  context: { params: Promise<{ filename?: string }> }
 ) {
   const resolved = await Promise.resolve(context?.params);
   const filename = resolved?.filename ? path.basename(decodeURIComponent(resolved.filename)) : "";

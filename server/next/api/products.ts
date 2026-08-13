@@ -1,11 +1,22 @@
 import productController from "@/server/controllers/product.controller";
 
 import {
+  getAuthUser,
   jsonResponse,
   methodNotAllowed,
   readJsonBody,
   runController,
 } from "../route-utils";
+
+const unauthorizedResponse = () => jsonResponse({ message: "Unauthorized" }, 401);
+const forbiddenResponse = () => jsonResponse({ message: "Forbidden" }, 403);
+
+const requireAdmin = async (request: Request) => {
+  const user = await getAuthUser(request);
+  if (!user) return unauthorizedResponse();
+  if (user.role !== "ADMIN") return forbiddenResponse();
+  return null;
+};
 
 export const dispatchProductsRoute = async (request: Request, segments: string[] = []) => {
   const [first] = segments;
@@ -16,6 +27,8 @@ export const dispatchProductsRoute = async (request: Request, segments: string[]
     }
 
     if (request.method === "POST") {
+      const authFailure = await requireAdmin(request);
+      if (authFailure) return authFailure;
       const body = await readJsonBody(request);
       if (body instanceof Response) return body;
       return runController(request, productController.createProduct, { body });
@@ -25,10 +38,14 @@ export const dispatchProductsRoute = async (request: Request, segments: string[]
   }
 
   if (first === "export" && request.method === "GET") {
+    const authFailure = await requireAdmin(request);
+    if (authFailure) return authFailure;
     return runController(request, productController.exportProducts);
   }
 
   if (first === "bulk-import" && request.method === "POST") {
+    const authFailure = await requireAdmin(request);
+    if (authFailure) return authFailure;
     const body = await readJsonBody(request);
     if (body instanceof Response) return body;
     return runController(request, productController.bulkImportProducts, { body });
@@ -39,6 +56,8 @@ export const dispatchProductsRoute = async (request: Request, segments: string[]
   }
 
   if (request.method === "PUT") {
+    const authFailure = await requireAdmin(request);
+    if (authFailure) return authFailure;
     const body = await readJsonBody(request);
     if (body instanceof Response) return body;
     return runController(request, productController.updateProduct, {
@@ -48,6 +67,8 @@ export const dispatchProductsRoute = async (request: Request, segments: string[]
   }
 
   if (request.method === "DELETE") {
+    const authFailure = await requireAdmin(request);
+    if (authFailure) return authFailure;
     return runController(request, productController.deleteProduct, {
       params: { id: first },
     });

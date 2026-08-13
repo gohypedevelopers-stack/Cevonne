@@ -9,20 +9,22 @@ import CevonneAttributionTracker from "@/components/CevonneAttributionTracker";
 import { useLocation } from "@/lib/router";
 
 const HIDE_FOOTER_PATHS = new Set(["/cart", "/checkout"]);
+const ACCOUNT_PATHS = new Set(["/login", "/signup", "/forgot-password"]);
 
 export default function SiteShell({ children }) {
   const location = useLocation();
   const shouldHideFooter = HIDE_FOOTER_PATHS.has(location.pathname);
+  const isAccountRoute = ACCOUNT_PATHS.has(location.pathname);
 
   return (
     <main className="min-h-screen bg-background text-foreground">
       <CevonneAttributionTracker />
-      <Navbar />
-      <MobileTopBar />
+      {!isAccountRoute && <Navbar />}
+      {!isAccountRoute && <MobileTopBar />}
       {children}
-      <ShopDrawer />
-      {!shouldHideFooter && <Footer />}
-      <MobileBottomNav />
+      {!isAccountRoute && <ShopDrawer />}
+      {!shouldHideFooter && !isAccountRoute && <Footer />}
+      {!isAccountRoute && <MobileBottomNav />}
     </main>
   );
 }

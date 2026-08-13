@@ -10,7 +10,7 @@ const resolveId = async (params: unknown) => {
   return resolved?.id ?? "";
 };
 
-export async function POST(request: Request, context: { params?: Promise<{ id?: string }> }) {
+export async function POST(request: Request, context: { params: Promise<{ id?: string }> }) {
   const discountId = await resolveId(context?.params);
   if (!discountId) {
     return jsonResponse({ message: "Discount not found." }, 404);

@@ -8,7 +8,7 @@ const resolveId = async (params: unknown) => {
   return resolved?.id ?? "";
 };
 
-export async function GET(request: Request, context: { params?: Promise<{ id?: string }> }) {
+export async function GET(request: Request, context: { params: Promise<{ id?: string }> }) {
   const discountId = await resolveId(context?.params);
   if (!discountId) {
     return new Response(JSON.stringify({ message: "Discount not found." }), { status: 404 });

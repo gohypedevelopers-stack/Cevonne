@@ -11,7 +11,7 @@ import { getG4WorkflowDetail } from "@/server/next/api/g4-content-check-adapter"
 export default async function Page({
   params,
 }: {
-  params: Promise<{ workflowGroup?: string }> | { workflowGroup?: string };
+  params: Promise<{ workflowGroup?: string }>;
 }) {
   const resolvedParams = await Promise.resolve(params);
   const workflowId = normalizeWorkflowId(resolvedParams?.workflowGroup);

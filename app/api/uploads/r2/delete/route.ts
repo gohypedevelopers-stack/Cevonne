@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic";
 
 import { z } from "zod";
 
-import { jsonResponse, methodNotAllowed } from "@/server/next/route-utils";
+import { getAuthUser, jsonResponse, methodNotAllowed } from "@/server/next/route-utils";
 import { deleteFileFromR2 } from "@/server/services/r2";
 
 const requestSchema = z.object({
@@ -11,6 +11,10 @@ const requestSchema = z.object({
 });
 
 const handleDelete = async (request: Request) => {
+  const auth = await getAuthUser(request);
+  if (!auth) return jsonResponse({ message: "Unauthorized" }, 401);
+  if (auth.role !== "ADMIN") return jsonResponse({ message: "Forbidden" }, 403);
+
   let body: unknown;
 
   try {

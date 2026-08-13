@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import { env } from "@/server/config/env";
 import { COLLECTION_VIDEO_MAX_BYTES, UPLOAD_MAX_BYTES, UPLOADS_DIR, ensureUploadsDir } from "@/server/config/upload";
 import { deleteFileFromR2, hasR2Storage, inferMediaKind, uploadFileToR2 } from "@/server/services/r2";
-import { jsonResponse, methodNotAllowed } from "../route-utils";
+import { getAuthUser, jsonResponse, methodNotAllowed } from "../route-utils";
 
 const uploadsDisabledResponse = () =>
   jsonResponse(
@@ -25,6 +25,16 @@ const fileDeleteDisabledResponse = () =>
     501
   );
 
+const unauthorizedResponse = () => jsonResponse({ message: "Unauthorized" }, 401);
+const forbiddenResponse = () => jsonResponse({ message: "Forbidden" }, 403);
+
+const requireAdmin = async (request: Request) => {
+  const user = await getAuthUser(request);
+  if (!user) return unauthorizedResponse();
+  if (user.role !== "ADMIN") return forbiddenResponse();
+  return null;
+};
+
 const isUploadRuntimeDisabled = () => !hasR2Storage() && (env.isVercel || Boolean(process.env.VERCEL));
 
 const createUploadFilename = (originalName: string) => {
@@ -36,6 +46,9 @@ const createUploadFilename = (originalName: string) => {
 export const dispatchUploadsRoute = async (request: Request, segments: string[] = []) => {
   const [filename] = segments;
   const useR2 = hasR2Storage();
+
+  const authFailure = await requireAdmin(request);
+  if (authFailure) return authFailure;
 
   if (isUploadRuntimeDisabled()) {
     if (request.method === "POST") {

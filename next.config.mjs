@@ -2,7 +2,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** @type {import('next').NextConfig} */
-const r2RemotePatterns = [{ protocol: "https", hostname: "*.r2.dev" }];
+const r2RemotePatterns = [
+  { protocol: "https", hostname: "*.r2.dev" },
+  { protocol: "https", hostname: "cdn.cevonne.com" },
+];
 
 const projectRoot = path.dirname(fileURLToPath(import.meta.url));
 

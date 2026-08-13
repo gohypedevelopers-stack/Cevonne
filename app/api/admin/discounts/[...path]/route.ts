@@ -8,14 +8,14 @@ const resolveSegments = async (params: unknown) => {
   return resolved?.path ?? [];
 };
 
-export async function GET(request: Request, context: { params?: Promise<{ path?: string[] }> }) {
+export async function GET(request: Request, context: { params: Promise<{ path?: string[] }> }) {
   return dispatchAdminDiscountsRoute(request, await resolveSegments(context?.params));
 }
 
-export async function PUT(request: Request, context: { params?: Promise<{ path?: string[] }> }) {
+export async function PUT(request: Request, context: { params: Promise<{ path?: string[] }> }) {
   return dispatchAdminDiscountsRoute(request, await resolveSegments(context?.params));
 }
 
-export async function PATCH(request: Request, context: { params?: Promise<{ path?: string[] }> }) {
+export async function PATCH(request: Request, context: { params: Promise<{ path?: string[] }> }) {
   return dispatchAdminDiscountsRoute(request, await resolveSegments(context?.params));
 }

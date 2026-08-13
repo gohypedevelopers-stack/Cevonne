@@ -377,7 +377,6 @@ const productInclude = {
         select: {
           id: true,
           name: true,
-          email: true,
         },
       },
     },
