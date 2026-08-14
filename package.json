@@ -13,6 +13,7 @@
     "postinstall": "npm run prisma:generate",
     "typecheck": "tsc --noEmit",
     "test:g9": "node --experimental-strip-types --test server/next/api/g9-state.test.ts",
+    "test:g8": "node --experimental-strip-types --test lib/admin/g8-creator-proof.test.ts",
     "lint": "eslint",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate deploy",

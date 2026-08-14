@@ -716,7 +716,7 @@ export const WORKFLOW_CATALOG: Record<AdminWorkflowId, WorkflowCatalogEntry> = {
     id: "G8",
     title: "G8 - UGC + Creator Proof",
     purpose: "Verifies creator rights, consent, and disclosure proof.",
-    detailHref: "/admin/ai-automations/g8-ugc-creator-proof",
+    detailHref: "/dashboard/n8n-automations/g8",
     runLabel: "Open UGC Queue",
     runEnabled: false,
     runDisabledReason: "Use the G8 queue to record each creator and review decision.",

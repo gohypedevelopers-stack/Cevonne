@@ -172,6 +172,7 @@ export const env = Object.freeze({
   n8nG8CreatorPerformanceEventPath: process.env.N8N_G8_CREATOR_PERFORMANCE_EVENT_PATH || "g8-v2-creator-performance-event",
   n8nG8DashboardSummaryPath: process.env.N8N_G8_DASHBOARD_SUMMARY_PATH || "g8-v2-dashboard-summary",
   n8nG8G5ApprovalResultPath: process.env.N8N_G8_G5_APPROVAL_RESULT_PATH || "g8-v2-g5-approval-result",
+  n8nG8EvidenceBucket: process.env.N8N_G8_EVIDENCE_BUCKET || "",
   n8nG9ReviewPath: process.env.N8N_G9_REVIEW_PATH || "g9-ads-review",
   n8nG9ApprovalDecisionPath: process.env.N8N_G9_APPROVAL_DECISION_PATH || "g9-approval-decision",
   n8nG9ExecuteApprovedActionPath: process.env.N8N_G9_EXECUTE_APPROVED_ACTION_PATH || "g9-execute-approved-action",

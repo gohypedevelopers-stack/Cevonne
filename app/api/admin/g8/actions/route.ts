@@ -28,13 +28,23 @@ const permissionSchema = z.object({
   action: z.enum(["PERMISSION_YES", "PERMISSION_NO"]),
   itemKey,
   reviewerNote: nullableText,
+  permissionRequestText: z.string().trim().min(1, "The approved permission request is required.").max(5_000),
+  creatorReplyText: z.string().trim().min(1, "Enter the creator's reply shown in the proof.").max(5_000),
+  requestEvidenceUrl: z.url("Attach the permission request proof."),
+  replyEvidenceUrl: z.url("Attach the creator reply proof."),
   confirmed: z.boolean().refine((value) => value, { message: "Confirm that you checked the creator response in ManyChat." }),
+}).superRefine((value, context) => {
+  const expectedReply = value.action === "PERMISSION_YES" ? "YES" : "NO";
+  if (!new RegExp(`^${expectedReply}\\b`, "i").test(value.creatorReplyText)) {
+    context.addIssue({ code: "custom", path: ["creatorReplyText"], message: `The recorded reply must begin with ${expectedReply}.` });
+  }
 });
 
 const safetySchema = z.object({
   action: z.enum(["SAFETY_PASS", "SAFETY_BLOCK"]),
   itemKey,
   musicRights: z.enum(["PASS", "NOT_APPLICABLE", "BLOCK"]),
+  evidenceUrl: z.url().nullable().optional().transform((value) => value || null),
   reviewerNote: nullableText,
   blockReason: z.enum(["CHILD_VISIBLE", "COMPETITOR_VISIBLE", "PRIVATE_CONTENT", "PROHIBITED_CONTENT", "CLAIM_RISK", "COPYRIGHT_NOT_CLEARED", "MUSIC_NOT_CLEARED"]).nullable().optional().transform((value) => value || null),
   confirmedChecks: z.array(z.string()).max(7).default([]),
@@ -63,7 +73,6 @@ const disclosureSchema = z.object({
   if (value.relationshipType === "ORGANIC") return;
   if (!value.disclosureText) context.addIssue({ code: "custom", message: "Add the disclosure text." });
   if (!value.disclosureVisible) context.addIssue({ code: "custom", message: "Confirm that the disclosure is clearly visible." });
-  if (!value.evidenceUrl) context.addIssue({ code: "custom", message: "Add the disclosure reference link." });
   if (value.relationshipType === "PAID" && !value.paidPartnershipLabel) {
     context.addIssue({ code: "custom", message: "Confirm the paid partnership label." });
   }
@@ -72,8 +81,6 @@ const disclosureSchema = z.object({
 const approvalSchema = z.object({
   action: z.literal("SEND_FOR_APPROVAL"),
   itemKey,
-  assetTitle: z.string().trim().min(1, "Add an asset title.").max(180),
-  contentText: z.string().trim().min(1, "Add the content text.").max(5_000),
 });
 
 const revocationSchema = z.object({

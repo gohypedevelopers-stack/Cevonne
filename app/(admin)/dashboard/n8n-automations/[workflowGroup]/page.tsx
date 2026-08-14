@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 
 import G4ContentClaimCheckPage from "@/components/admin-dashboard/G4ContentClaimCheckPage";
 import G5PublishingSchedulerPage from "@/components/admin-dashboard/G5PublishingSchedulerPage";
+import G8CreatorProofPage from "@/components/admin-dashboard/G8CreatorProofPage";
 import WorkflowDashboardDetail from "@/components/admin-dashboard/WorkflowDashboardDetail";
 import { getWorkflowCatalogEntry, normalizeWorkflowId } from "@/lib/admin/workflows";
 import { getG4WorkflowDetail } from "@/server/next/api/g4-content-check-adapter";
@@ -41,6 +42,10 @@ export default async function Page({
 
   if (workflowId === "G5") {
     return <G5PublishingSchedulerPage />;
+  }
+
+  if (workflowId === "G8") {
+    return <G8CreatorProofPage />;
   }
 
   return <WorkflowDashboardDetail workflowId={workflowId} />;

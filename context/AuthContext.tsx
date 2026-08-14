@@ -7,6 +7,7 @@ import React, {
   useEffect,
   useCallback,
   useMemo,
+  useRef,
   type ReactNode,
 } from "react";
 import { useNavigate } from "@/lib/router";
@@ -33,10 +34,12 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const navigate = useNavigate();
   const [user, setUser] = useState<PublicUser | null>(null);
+  const userRef = useRef<PublicUser | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   const logout = useCallback(() => {
     void fetch(`${API_BASE}/users/signout`, { method: "POST", credentials: "same-origin" }).catch(() => undefined);
+    userRef.current = null;
     setUser(null);
     toast.success("You have been logged out.");
     navigate("/login");
@@ -58,7 +61,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
           credentials: "same-origin",
         });
 
-        if (response.status === 401 && user) {
+        if (response.status === 401 && userRef.current) {
           if (!silent) {
             toast.error("Session expired. Please log in again.");
           }
@@ -74,7 +77,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         throw err;
       }
     },
-    [user, logout]
+    [logout]
   );
 
   const verifyUser = useCallback(async () => {
@@ -82,8 +85,10 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       const response = await authFetch(`${API_BASE}/users/me`, { silent: true });
       if (!response.ok) throw new Error("Token verification failed");
       const userData = (await response.json()) as PublicUser;
+      userRef.current = userData;
       setUser(userData);
     } catch (error: any) {
+      userRef.current = null;
       setUser(null);
     } finally {
       setIsLoading(false);
@@ -97,6 +102,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const login = useCallback(
     (userData: PublicUser | null, authToken: string | null) => {
       void authToken;
+      userRef.current = userData;
       setUser(userData);
     },
     []

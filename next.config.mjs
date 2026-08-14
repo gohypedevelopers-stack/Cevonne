@@ -60,6 +60,9 @@ if (r2PublicBaseUrl) {
 const nextConfig = {
   poweredByHeader: false,
   reactStrictMode: true,
+  experimental: {
+    optimizePackageImports: ["lucide-react"],
+  },
   typescript: {
     tsconfigPath: "./tsconfig.next.json",
   },

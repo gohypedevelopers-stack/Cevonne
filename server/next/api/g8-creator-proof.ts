@@ -5,14 +5,13 @@ import { randomUUID } from "node:crypto";
 import type {
   G8ActionName,
   G8ActionResponse,
-  G8CreatorPerformance,
   G8DashboardData,
   G8DashboardSummary,
-  G8FriendlyStatus,
   G8StepState,
   G8UgcItem,
   G8WorkflowStep,
 } from "@/lib/admin/g8-creator-proof";
+import { deduplicateG8Records, getG8DisplayState } from "@/lib/admin/g8-creator-proof";
 import { buildN8nWebhookUrl } from "@/lib/n8n-client";
 import { getN8nSupabaseAdmin } from "@/lib/n8n-supabase-admin";
 import { env } from "@/server/config";
@@ -28,6 +27,7 @@ type UgcRow = {
   source_url: string | null;
   media_url: string | null;
   media_type: string | null;
+  permission_route: string | null;
   caption: string | null;
   attribution_text: string | null;
   permission_status: string | null;
@@ -56,12 +56,17 @@ type PermissionRow = {
   editing_allowed: boolean | null;
   territory: string | null;
   attribution_text: string | null;
+  proof_source: string | null;
+  provider_conversation_id: string | null;
+  provider_request_message_id: string | null;
+  provider_reply_message_id: string | null;
   created_at: string;
 };
 
 type SafetyRow = {
   ugc_id: string;
   safety_decision: string | null;
+  evidence_url: string | null;
   failure_reasons: string[] | null;
   created_at: string;
 };
@@ -70,6 +75,7 @@ type DisclosureRow = {
   ugc_id: string;
   relationship_type: string | null;
   disclosure_status: string | null;
+  evidence_url: string | null;
   failure_reasons: string[] | null;
   created_at: string;
 };
@@ -95,26 +101,6 @@ type ManualTaskRow = {
   created_at: string;
 };
 
-type TrackingRow = {
-  tracking_id: string;
-  creator_username: string | null;
-  creator_fee: number | string | null;
-  currency: string | null;
-  clicks: number | string | null;
-  leads: number | string | null;
-  purchases: number | string | null;
-  revenue: number | string | null;
-  roi: number | string | null;
-};
-
-type PerformanceEventRow = {
-  tracking_id: string | null;
-  creator_platform_id: string | null;
-  event_type: string | null;
-  value: number | string | null;
-  currency: string | null;
-};
-
 type G8Source = {
   ugcRows: UgcRow[];
   permissionRows: PermissionRow[];
@@ -122,8 +108,6 @@ type G8Source = {
   disclosureRows: DisclosureRow[];
   handoffRows: HandoffRow[];
   manualTaskRows: ManualTaskRow[];
-  trackingRows: TrackingRow[];
-  performanceRows: PerformanceEventRow[];
 };
 
 type G8WebhookResult = {
@@ -148,11 +132,16 @@ export type G8IntakeInput = {
 export type G8PermissionInput = {
   itemKey: string;
   reviewerNote: string | null;
+  permissionRequestText: string;
+  creatorReplyText: string;
+  requestEvidenceUrl: string;
+  replyEvidenceUrl: string;
 };
 
 export type G8SafetyInput = {
   itemKey: string;
   musicRights: "PASS" | "NOT_APPLICABLE" | "BLOCK";
+  evidenceUrl: string | null;
   reviewerNote: string | null;
   blockReason: string | null;
 };
@@ -169,8 +158,6 @@ export type G8DisclosureInput = {
 
 export type G8ApprovalInput = {
   itemKey: string;
-  assetTitle: string;
-  contentText: string;
 };
 
 export type G8RevocationInput = {
@@ -194,11 +181,6 @@ const pendingG5Callbacks = new Map<string, Promise<void>>();
 const normalize = (value: unknown) => String(value ?? "").trim().toUpperCase();
 const isRecord = (value: unknown): value is JsonRecord => typeof value === "object" && value !== null && !Array.isArray(value);
 const textOrNull = (value: unknown) => typeof value === "string" && value.trim() ? value.trim() : null;
-const toNumber = (value: unknown) => {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
-
 const latestByUgc = <T extends { ugc_id: string; created_at: string }>(rows: T[]) => {
   const output = new Map<string, T>();
   [...rows]
@@ -216,6 +198,10 @@ const friendlyFailureMessages: Record<string, string> = {
   CLAIM_RISK_NOT_PASS: "The content contains claims that require review.",
   COPYRIGHT_STATUS_NOT_PASS: "Copyright clearance has not been confirmed.",
   MUSIC_RIGHTS_STATUS_NOT_PASS: "Music usage rights have not been confirmed.",
+  PERMISSION_REQUEST_PROOF_REQUIRED: "Attach the conversation screenshot before recording this decision.",
+  CREATOR_REPLY_PROOF_REQUIRED: "Attach the conversation screenshot before recording this decision.",
+  INVALID_PERMISSION_PROOF_SOURCE: "This permission decision needs the approved proof before it can be recorded.",
+  REVIEWER_ID_REQUIRED_FOR_MANUAL_DECISION: "Confirm the creator response before recording this decision.",
   PERMISSION_NOT_GRANTED: "Creator permission is required before this can continue.",
   RIGHTS_NOT_ACTIVE: "Creator rights are not currently active.",
   RIGHTS_EXPIRED: "Creator permission has expired.",
@@ -247,12 +233,11 @@ const friendlyFailure = (values: Array<string | null | undefined>, fallback: str
   return fallback;
 };
 
-const mapSourceType = (row: UgcRow) => {
+const getSourceDetails = (row: UgcRow) => {
   const source = `${row.source_event ?? ""} ${row.media_type ?? ""}`.toUpperCase();
-  if (source.includes("STORY")) return "Story mention";
-  if (source.includes("REEL") || source.includes("VIDEO")) return "Reel";
-  if (source.includes("FEED") || source.includes("POST")) return "Feed post";
-  return "Manual intake";
+  if (source.includes("STORY")) return { contentType: "Story" as const, sourceType: "Story Mention", isStoryMention: true };
+  if (source.includes("REEL") || source.includes("VIDEO")) return { contentType: "Reel" as const, sourceType: "Reel Mention", isStoryMention: false };
+  return { contentType: "Post" as const, sourceType: "Post Mention", isStoryMention: false };
 };
 
 const relationType = (value: unknown): G8UgcItem["relationshipType"] => {
@@ -261,9 +246,6 @@ const relationType = (value: unknown): G8UgcItem["relationshipType"] => {
   return "ORGANIC";
 };
 
-const rightsAreExpired = (value: string | null) => Boolean(value && Date.parse(value) <= Date.now());
-const permissionGranted = (permission: string, rights: string) =>
-  ["APPROVED", "GRANTED", "YES", "PASS"].includes(permission) && rights === "ACTIVE";
 const permissionDeclined = (permission: string) => ["DECLINED", "DENIED", "NO", "REJECTED"].includes(permission);
 const safetyPassed = (value: string) => value === "PASS";
 const disclosurePassed = (value: string) => ["PASS", "NOT_REQUIRED"].includes(value);
@@ -271,13 +253,45 @@ const isBlockedStatus = (value: string) => ["BLOCK", "BLOCKED", "DECLINED", "DEN
 
 const makeStep = (label: string, state: G8StepState): G8WorkflowStep => ({ label, state });
 
+const taskIsPermissionRequest = (task: ManualTaskRow) => normalize(task.task_type).includes("PERMISSION");
+
+const buildActivity = (
+  row: UgcRow,
+  permissionRow: PermissionRow | undefined,
+  safetyRow: SafetyRow | undefined,
+  disclosureRow: DisclosureRow | undefined,
+  handoff: HandoffRow | undefined,
+  sourceDetails: ReturnType<typeof getSourceDetails>,
+  permissionRequestSent: boolean,
+  isAutomaticPermissionFlow: boolean,
+  isActuallySentToG4: boolean,
+) => {
+  const permission = normalize(permissionRow?.decision || permissionRow?.status || row.permission_status);
+  const events = [
+    { label: `${sourceDetails.contentType} mention received`, occurredAt: row.created_at },
+    permissionRequestSent ? { label: isAutomaticPermissionFlow ? "Permission request sent automatically" : "Permission request prepared", occurredAt: row.updated_at || row.created_at } : null,
+    permissionRow
+      ? { label: permissionDeclined(permission) ? "Creator declined permission" : "Creator granted permission", occurredAt: permissionRow.created_at }
+      : null,
+    safetyRow ? { label: isBlockedStatus(normalize(safetyRow.safety_decision)) ? "Brand safety review blocked" : "Brand safety approved", occurredAt: safetyRow.created_at } : null,
+    disclosureRow
+      ? { label: normalize(disclosureRow.disclosure_status) === "NOT_REQUIRED" ? "Disclosure not required" : "Disclosure review completed", occurredAt: disclosureRow.created_at }
+      : null,
+    handoff && isActuallySentToG4 ? { label: "Sent to G4", occurredAt: handoff.updated_at || handoff.created_at } : null,
+  ].filter((event): event is { label: string; occurredAt: string } => Boolean(event?.occurredAt));
+
+  return events.sort((a, b) => Date.parse(b.occurredAt) - Date.parse(a.occurredAt)).slice(0, 6);
+};
+
 const deriveItem = (
   row: UgcRow,
   permissionRow: PermissionRow | undefined,
   safetyRow: SafetyRow | undefined,
   disclosureRow: DisclosureRow | undefined,
   handoff: HandoffRow | undefined,
+  manualTasks: ManualTaskRow[],
 ): G8UgcItem => {
+  const sourceDetails = getSourceDetails(row);
   const permission = normalize(permissionRow?.decision || permissionRow?.status || row.permission_status);
   const rights = normalize(row.rights_status);
   const safety = normalize(safetyRow?.safety_decision || row.brand_safety_status);
@@ -287,65 +301,43 @@ const deriveItem = (
   const handoffStatus = normalize(handoff?.handoff_status);
   const g4Status = normalize(handoff?.g4_status);
   const g5Status = normalize(handoff?.g5_status);
+  const permissionRoute = normalize(row.permission_route);
+  const proofSource = normalize(permissionRow?.proof_source);
+  const hasProviderMessageProof = Boolean(permissionRow?.provider_conversation_id || permissionRow?.provider_request_message_id || permissionRow?.provider_reply_message_id);
+  const hasAuthenticatedProviderProof = ["MANYCHAT_API", "META_MESSAGING_API"].includes(proofSource) || hasProviderMessageProof;
+  const isAutomaticPermissionFlow = permissionRoute === "MANYCHAT_PAID_STORY_MENTION_AUTOMATION" || hasAuthenticatedProviderProof;
+  const requiresManualPermission = !isAutomaticPermissionFlow;
+  const permissionRequestSent = isAutomaticPermissionFlow;
+  const allowedUses = permissionRow?.allowed_uses || row.allowed_uses || [];
+  const organicSocialAllowed = allowedUses.some((use) => normalize(use) === "ORGANIC_SOCIAL");
+  const isActuallySentToG4 = Boolean(handoff?.handoff_id) && g4Status === "PASS" && !isBlockedStatus(handoffStatus);
   const expiresAt = permissionRow?.rights_end_at || row.rights_end_at;
-  const expired = rights === "EXPIRED" || rightsAreExpired(expiresAt);
+  const reviewMediaUrl = textOrNull(safetyRow?.evidence_url) || textOrNull(disclosureRow?.evidence_url) || textOrNull(row.media_url) || textOrNull(row.source_url);
+  const lifecycle = getG8DisplayState({
+    permission,
+    rights,
+    safety,
+    disclosure,
+    overall,
+    asset,
+    handoffStatus,
+    g4Status,
+    g5Status,
+    expiresAt,
+    isAutomaticPermissionFlow,
+    permissionRequestSent,
+    organicSocialAllowed,
+    isActuallySentToG4,
+    hasReviewMedia: Boolean(reviewMediaUrl),
+  });
+  const { currentStatus, nextAction, granted, pendingApproval, ready, isReadyForG4, terminalBlock, expired, declined, safetyBlock, approvalBlock } = lifecycle;
   const revoked = rights === "REVOKED";
-  const declined = permissionDeclined(permission);
-  const granted = permissionGranted(permission, rights) && !expired && !revoked;
-  const safetyBlock = isBlockedStatus(safety);
-  const approvalBlock = isBlockedStatus(handoffStatus) || isBlockedStatus(g4Status) || isBlockedStatus(g5Status) || isBlockedStatus(asset);
-  const terminalBlock = declined || revoked || expired || safetyBlock || approvalBlock || overall === "BLOCK";
-  const pendingApproval = [handoffStatus, g5Status, asset, overall].some((value) => ["PENDING", "PENDING_APPROVAL", "WAITING_APPROVAL", "AWAITING_APPROVAL"].includes(value));
-  const ready = [g5Status, asset, overall].some((value) => ["APPROVED", "READY", "PASS"].includes(value));
-
-  let currentStatus: G8FriendlyStatus;
-  let nextAction: string;
-  if (revoked) {
-    currentStatus = "Rights Revoked";
-    nextAction = "No further use is allowed";
-  } else if (declined) {
-    currentStatus = "Permission Declined";
-    nextAction = "No further action";
-  } else if (expired) {
-    currentStatus = "Rights Expired";
-    nextAction = "Request new permission";
-  } else if (safetyBlock) {
-    currentStatus = "Safety Blocked";
-    nextAction = "Keep content blocked";
-  } else if (approvalBlock || overall === "BLOCK") {
-    currentStatus = "Blocked";
-    nextAction = "Review the content decision";
-  } else if (!granted) {
-    currentStatus = permission === "PENDING" || overall === "MANUAL_ONLY" ? "Awaiting Permission" : "Permission Required";
-    nextAction = "Record creator response";
-  } else if (!safetyPassed(safety)) {
-    currentStatus = "Safety Review Needed";
-    nextAction = "Complete safety review";
-  } else if (!disclosurePassed(disclosure)) {
-    currentStatus = "Disclosure Review Needed";
-    nextAction = "Complete disclosure review";
-  } else if (pendingApproval) {
-    currentStatus = "Waiting for Approval";
-    nextAction = "Wait for human approval";
-  } else if (ready) {
-    currentStatus = "Ready";
-    nextAction = "Ready for approved reuse";
-  } else if (overall === "ERROR") {
-    currentStatus = "Could Not Complete";
-    nextAction = "Retry the current step";
-  } else if (overall === "NEEDS_EVIDENCE") {
-    currentStatus = "Needs Review";
-    nextAction = "Review the missing requirement";
-  } else {
-    currentStatus = disclosure === "NOT_REQUIRED" ? "Disclosure Not Required" : "Disclosure Passed";
-    nextAction = "Send for content approval";
-  }
 
   const permissionState: G8StepState = terminalBlock ? "BLOCKED" : granted ? "COMPLETE" : "CURRENT";
   const safetyState: G8StepState = safetyBlock ? "BLOCKED" : safetyPassed(safety) ? "COMPLETE" : granted ? "CURRENT" : "NOT_STARTED";
   const disclosureState: G8StepState = terminalBlock && !safetyPassed(safety) ? "BLOCKED" : disclosurePassed(disclosure) ? "COMPLETE" : safetyPassed(safety) ? "CURRENT" : "NOT_STARTED";
-  const contentState: G8StepState = approvalBlock && g4Status !== "PASS" ? "BLOCKED" : g4Status === "PASS" || ready || pendingApproval ? "COMPLETE" : disclosurePassed(disclosure) ? "CURRENT" : "NOT_STARTED";
-  const approvalState: G8StepState = isBlockedStatus(g5Status) ? "BLOCKED" : ready ? "COMPLETE" : pendingApproval ? "CURRENT" : "NOT_STARTED";
+  const contentState: G8StepState = approvalBlock && g4Status !== "PASS" ? "BLOCKED" : isActuallySentToG4 || ready ? "COMPLETE" : disclosurePassed(disclosure) ? "CURRENT" : "NOT_STARTED";
+  const approvalState: G8StepState = isBlockedStatus(g5Status) ? "BLOCKED" : ready ? "COMPLETE" : isActuallySentToG4 ? "CURRENT" : "NOT_STARTED";
   const readyState: G8StepState = ready ? "COMPLETE" : terminalBlock ? "BLOCKED" : "NOT_STARTED";
 
   const latestFailures = [
@@ -353,44 +345,59 @@ const deriveItem = (
     ...(disclosureRow?.failure_reasons ?? []),
     ...(handoff?.failure_reasons ?? []),
   ];
+  const rawCaption = row.caption?.trim() || "";
+  const caption = /^@?cevonneofficial$/i.test(rawCaption) ? "" : rawCaption;
 
   return {
     itemKey: row.ugc_id,
     creatorUsername: row.creator_username?.trim() || "Creator",
     creatorDisplayName: textOrNull(row.creator_display_name),
-    caption: row.caption?.trim() || "No caption provided.",
+    caption,
     mediaUrl: textOrNull(row.media_url),
     sourceUrl: textOrNull(row.source_url),
     mediaType: row.media_type?.trim() || "UNKNOWN",
-    sourceType: mapSourceType(row),
+    contentType: sourceDetails.contentType,
+    sourceType: sourceDetails.sourceType,
+    isStoryMention: sourceDetails.isStoryMention,
+    isAutomaticPermissionFlow,
+    requiresManualPermission,
+    permissionRequestSent,
+    isReadyForG4,
+    isActuallySentToG4,
     receivedAt: row.created_at,
     currentStatus,
     nextAction,
-    permissionLabel: declined ? "Permission Declined" : granted ? "Permission Granted" : "Awaiting Permission",
+    nextActionKind: lifecycle.nextActionKind,
+    needsMediaAttachment: lifecycle.nextActionKind === "ADD_STORY_MEDIA",
+    permissionLabel: declined ? "Permission Denied" : granted ? "Permission Granted" : isAutomaticPermissionFlow ? "Permission Pending" : "Permission Required",
     rightsLabel: revoked ? "Rights Revoked" : expired ? "Rights Expired" : rights === "ACTIVE" ? "Active" : "Permission Required",
+    rightsStartedAt: permissionRow?.created_at || null,
     rightsExpiresAt: expiresAt || null,
     safetyLabel: safetyBlock ? "Safety Blocked" : safetyPassed(safety) ? "Safety Passed" : "Safety Review Needed",
     disclosureLabel: disclosure === "NOT_REQUIRED" ? "Disclosure Not Required" : disclosure === "PASS" ? "Disclosure Passed" : "Disclosure Review Needed",
-    approvalLabel: ready ? "Approved" : pendingApproval ? "Waiting for Approval" : approvalBlock ? "Declined" : "Not submitted",
+    approvalLabel: ready ? "Approved" : pendingApproval ? "Sent to Content Review" : approvalBlock ? "Declined" : "Not submitted",
     relationshipType: relationType(disclosureRow?.relationship_type || row.relationship_type),
-    allowedUses: permissionRow?.allowed_uses || row.allowed_uses || [],
+    allowedUses,
     adUsageAllowed: Boolean(permissionRow?.ad_usage_allowed ?? row.ad_usage_allowed),
     editingAllowed: Boolean(permissionRow?.editing_allowed ?? row.editing_allowed),
     territory: textOrNull(permissionRow?.territory || row.territory),
     attributionText: textOrNull(permissionRow?.attribution_text || row.attribution_text || row.creator_username),
+    safetyEvidenceUrl: textOrNull(safetyRow?.evidence_url),
+    disclosureEvidenceUrl: textOrNull(disclosureRow?.evidence_url),
     progress: [
       makeStep("UGC Received", "COMPLETE"),
       makeStep("Creator Permission", permissionState),
       makeStep("Safety Review", safetyState),
       makeStep("Disclosure Review", disclosureState),
-      makeStep("Content Review", contentState),
+      makeStep("G4 Review", contentState),
       makeStep("Human Approval", approvalState),
       makeStep("Ready", readyState),
     ],
-    canRecordPermission: !granted && !terminalBlock,
+    activity: buildActivity(row, permissionRow, safetyRow, disclosureRow, handoff, sourceDetails, permissionRequestSent, isAutomaticPermissionFlow, isActuallySentToG4),
+    canRecordPermission: requiresManualPermission && !granted && !terminalBlock,
     canReviewSafety: granted && !safetyPassed(safety) && !terminalBlock,
     canReviewDisclosure: granted && safetyPassed(safety) && !disclosurePassed(disclosure) && !terminalBlock,
-    canSendForApproval: granted && safetyPassed(safety) && disclosurePassed(disclosure) && !pendingApproval && !ready && !terminalBlock,
+    canSendForApproval: isReadyForG4,
     canRevokePermission: granted,
     isTerminallyBlocked: terminalBlock,
     latestMessage: latestFailures.length ? friendlyFailure(latestFailures, "This item needs a manual review before it can continue.") : null,
@@ -410,88 +417,57 @@ const queryRows = async <T>(table: string, select: string, orderBy = "created_at
 };
 
 const loadSource = async (): Promise<G8Source> => {
-  const [ugcRows, permissionRows, safetyRows, disclosureRows, handoffRows, manualTaskRows, trackingRows, performanceRows] = await Promise.all([
-    queryRows<UgcRow>("g8_v2_ugc_items", "ugc_id, source_event, creator_username, creator_display_name, source_url, media_url, media_type, caption, attribution_text, permission_status, rights_status, allowed_uses, ad_usage_allowed, editing_allowed, territory, rights_end_at, brand_safety_status, disclosure_status, relationship_type, asset_status, status, created_at, updated_at"),
-    queryRows<PermissionRow>("g8_v2_permission_evidence", "ugc_id, decision, status, rights_end_at, allowed_uses, ad_usage_allowed, editing_allowed, territory, attribution_text, created_at"),
-    queryRows<SafetyRow>("g8_v2_brand_safety_reviews", "ugc_id, safety_decision, failure_reasons, created_at"),
-    queryRows<DisclosureRow>("g8_v2_disclosure_reviews", "ugc_id, relationship_type, disclosure_status, failure_reasons, created_at"),
+  const [ugcRows, permissionRows, safetyRows, disclosureRows, handoffRows, manualTaskRows] = await Promise.all([
+    queryRows<UgcRow>("g8_v2_ugc_items", "ugc_id, source_event, creator_username, creator_display_name, source_url, media_url, media_type, caption, attribution_text, permission_route, permission_status, rights_status, allowed_uses, ad_usage_allowed, editing_allowed, territory, rights_end_at, brand_safety_status, disclosure_status, relationship_type, asset_status, status, created_at, updated_at"),
+    queryRows<PermissionRow>("g8_v2_permission_evidence", "ugc_id, decision, status, rights_end_at, allowed_uses, ad_usage_allowed, editing_allowed, territory, attribution_text, proof_source, provider_conversation_id, provider_request_message_id, provider_reply_message_id, created_at"),
+    queryRows<SafetyRow>("g8_v2_brand_safety_reviews", "ugc_id, safety_decision, evidence_url, failure_reasons, created_at"),
+    queryRows<DisclosureRow>("g8_v2_disclosure_reviews", "ugc_id, relationship_type, disclosure_status, evidence_url, failure_reasons, created_at"),
     queryRows<HandoffRow>("g8_v2_asset_handoffs", "handoff_id, ugc_id, handoff_status, g4_status, g5_status, g5_asset_id, g5_approval_id, failure_reasons, created_at, updated_at"),
     queryRows<ManualTaskRow>("g8_v2_manual_tasks", "ugc_id, task_type, status, instructions, created_at"),
-    queryRows<TrackingRow>("g8_v2_creator_tracking", "tracking_id, creator_username, creator_fee, currency, clicks, leads, purchases, revenue, roi"),
-    queryRows<PerformanceEventRow>("g8_v2_performance_events", "tracking_id, creator_platform_id, event_type, value, currency"),
   ]);
 
-  return { ugcRows, permissionRows, safetyRows, disclosureRows, handoffRows, manualTaskRows, trackingRows, performanceRows };
-};
-
-const buildPerformance = (trackingRows: TrackingRow[], events: PerformanceEventRow[]): G8CreatorPerformance[] => {
-  const eventsByTracking = new Map<string, PerformanceEventRow[]>();
-  events.forEach((event) => {
-    if (!event.tracking_id) return;
-    const current = eventsByTracking.get(event.tracking_id) ?? [];
-    current.push(event);
-    eventsByTracking.set(event.tracking_id, current);
-  });
-
-  return trackingRows
-    .map((row) => {
-      const rowEvents = eventsByTracking.get(row.tracking_id) ?? [];
-      const eventCount = (type: string) => rowEvents.filter((event) => normalize(event.event_type).includes(type)).length;
-      const eventValue = (type: string) => rowEvents.filter((event) => normalize(event.event_type).includes(type)).reduce((sum, event) => sum + toNumber(event.value), 0);
-      const revenue = toNumber(row.revenue) || eventValue("REVENUE");
-      const cost = toNumber(row.creator_fee);
-      const storedRoi = row.roi === null ? null : toNumber(row.roi);
-      return {
-        creatorUsername: row.creator_username?.trim() || "Creator",
-        clicks: toNumber(row.clicks) || eventCount("CLICK"),
-        leads: toNumber(row.leads) || eventCount("LEAD"),
-        purchases: toNumber(row.purchases) || eventCount("PURCHASE"),
-        revenue,
-        creatorCost: cost,
-        roi: storedRoi ?? (cost > 0 ? ((revenue - cost) / cost) * 100 : null),
-        currency: row.currency?.trim() || rowEvents.find((event) => event.currency)?.currency || "INR",
-      };
-    })
-    .filter((row) => row.clicks > 0 || row.leads > 0 || row.purchases > 0 || row.revenue > 0 || row.creatorCost > 0);
+  return { ugcRows, permissionRows, safetyRows, disclosureRows, handoffRows, manualTaskRows };
 };
 
 const buildSummary = (items: G8UgcItem[]): G8DashboardSummary => ({
   total: items.length,
-  awaitingPermission: items.filter((item) => item.currentStatus === "Awaiting Permission" || item.currentStatus === "Permission Required").length,
+  newUgc: items.filter((item) => item.nextActionKind === "REQUEST_PERMISSION").length,
+  awaitingPermission: items.filter((item) => item.currentStatus === "Awaiting Permission").length,
   needsReview: items.filter((item) => ["Safety Review Needed", "Disclosure Review Needed", "Needs Review", "Could Not Complete"].includes(item.currentStatus)).length,
-  pendingApproval: items.filter((item) => item.currentStatus === "Waiting for Approval").length,
-  readyApproved: items.filter((item) => item.currentStatus === "Ready").length,
+  pendingApproval: items.filter((item) => item.isActuallySentToG4).length,
+  readyApproved: items.filter((item) => item.isReadyForG4).length,
 });
 
-export async function getG8DashboardData(actor = "website_admin", includeRemoteSummary = true): Promise<G8DashboardData> {
-  const [source, remoteSummary] = await Promise.all([
-    loadSource(),
-    includeRemoteSummary
-      ? postG8Webhook(env.n8nG8DashboardSummaryPath, { days: 30, actor }).catch((error) => {
-          console.warn("[g8] dashboard summary webhook unavailable; using table counts", { message: error instanceof Error ? error.message : String(error) });
-          return null;
-        })
-      : Promise.resolve(null),
-  ]);
+export async function getG8DashboardData(_actor = "website_admin", _includeRemoteSummary = true): Promise<G8DashboardData> {
+  const source = await loadSource();
   const permissionMap = latestByUgc(source.permissionRows);
   const safetyMap = latestByUgc(source.safetyRows);
   const disclosureMap = latestByUgc(source.disclosureRows);
   const handoffMap = latestByUgc(source.handoffRows);
-  const items = source.ugcRows.map((row) => deriveItem(row, permissionMap.get(row.ugc_id), safetyMap.get(row.ugc_id), disclosureMap.get(row.ugc_id), handoffMap.get(row.ugc_id)));
+  const manualTasksByUgc = new Map<string, ManualTaskRow[]>();
+  source.manualTaskRows.forEach((task) => {
+    const tasks = manualTasksByUgc.get(task.ugc_id) ?? [];
+    tasks.push(task);
+    manualTasksByUgc.set(task.ugc_id, tasks);
+  });
+  const uniqueUgcRows = deduplicateG8Records(
+    [...source.ugcRows].sort((a, b) => Date.parse(b.updated_at || b.created_at) - Date.parse(a.updated_at || a.created_at)),
+    (row) => textOrNull(row.source_url) || textOrNull(row.media_url) || row.ugc_id,
+  );
+  const items = uniqueUgcRows.map((row) => deriveItem(
+    row,
+    permissionMap.get(row.ugc_id),
+    safetyMap.get(row.ugc_id),
+    disclosureMap.get(row.ugc_id),
+    handoffMap.get(row.ugc_id),
+    manualTasksByUgc.get(row.ugc_id) ?? [],
+  ));
 
   const localSummary = buildSummary(items);
-  const remoteRaw = remoteSummary?.httpStatus === 200 ? remoteSummary.raw : null;
-  const remoteCount = (key: string, fallback: number) => typeof remoteRaw?.[key] === "number" ? Number(remoteRaw[key]) : fallback;
-
   return {
-    summary: {
-      ...localSummary,
-      total: remoteCount("total_ugc", localSummary.total),
-      awaitingPermission: remoteCount("pending_permission", localSummary.awaitingPermission),
-      pendingApproval: remoteCount("pending_g5_approval", localSummary.pendingApproval),
-    },
+    summary: localSummary,
     items,
-    performance: buildPerformance(source.trackingRows, source.performanceRows),
+    performance: [],
     refreshedAt: new Date().toISOString(),
   };
 }
@@ -537,6 +513,17 @@ const postG8Webhook = async (path: string, payload: JsonRecord): Promise<G8Webho
     const singleFailure = textOrNull(raw.fail_reason);
     if (singleFailure) failures.unshift(singleFailure);
     const workflowStatus = normalize(raw.status || raw.result || raw.decision || (response.status === 202 ? "PENDING" : response.ok ? "PASS" : "ERROR"));
+
+    if (response.status >= 400 || ["BLOCK", "BLOCKED", "DECLINED", "DENIED", "REJECTED", "ERROR"].includes(workflowStatus)) {
+      console.error("[g8] workflow rejected action", {
+        path,
+        httpStatus: response.status,
+        workflowStatus,
+        failureReasons: failures,
+        response: raw,
+        requestId,
+      });
+    }
 
     if (!response.ok && response.status !== 400 && response.status !== 422) {
       console.error("[g8] webhook request failed", { path, httpStatus: response.status, workflowStatus, requestId });
@@ -597,6 +584,9 @@ const getItem = async (itemKey: string) => {
   return item;
 };
 
+const resolveReviewMedia = (item: G8UgcItem, suppliedUrl: string | null) =>
+  suppliedUrl || item.safetyEvidenceUrl || item.disclosureEvidenceUrl || item.mediaUrl || item.sourceUrl;
+
 const executeAction = async (input: G8ActionInput, actor: string): Promise<G8ActionResponse> => {
   if (input.action === "INTAKE") {
     const result = await postG8Webhook(env.n8nG8UgcIntakePath, {
@@ -629,9 +619,13 @@ const executeAction = async (input: G8ActionInput, actor: string): Promise<G8Act
       ugc_id: item.itemKey,
       creator_username: item.creatorUsername,
       decision: yes ? "YES" : "NO",
-      proof_source: "MANYCHAT_FREE_ADMIN_CONFIRMED",
+      proof_source: "MANUAL_WRITTEN_PERMISSION",
+      permission_request_text: input.permissionRequestText,
+      creator_reply_text: input.creatorReplyText,
+      request_evidence_url: input.requestEvidenceUrl,
+      reply_evidence_url: input.replyEvidenceUrl,
       reviewer_id: actor,
-      reviewer_note: input.reviewerNote || `ManyChat ${yes ? "YES" : "NO"} response manually confirmed by admin.`,
+      reviewer_note: input.reviewerNote || `Creator ${yes ? "YES" : "NO"} response verified by admin.`,
       recorded_at: new Date().toISOString(),
       actor,
     });
@@ -640,12 +634,14 @@ const executeAction = async (input: G8ActionInput, actor: string): Promise<G8Act
     }
     return mapWebhookResult(result, {
       success: yes ? "Permission granted." : "Permission declined. This content will not be used.",
-      blocked: "The creator response could not be recorded. Please check the item and try again.",
+      blocked: "We couldn't record this permission decision. Please try again.",
     });
   }
 
   if (input.action === "SAFETY_PASS" || input.action === "SAFETY_BLOCK") {
     if (!item.canReviewSafety) throw new Error("Complete creator permission before the safety review.");
+    const reviewMediaUrl = resolveReviewMedia(item, input.evidenceUrl);
+    if (!reviewMediaUrl) throw new Error("Add Story Media before reviewing safety.");
     const pass = input.action === "SAFETY_PASS";
     const blockCode = normalize(input.blockReason);
     const result = await postG8Webhook(env.n8nG8BrandSafetyCheckPath, {
@@ -659,7 +655,7 @@ const executeAction = async (input: G8ActionInput, actor: string): Promise<G8Act
       claim_risk_status: pass ? "PASS" : blockCode === "CLAIM_RISK" ? "BLOCK" : "PASS",
       copyright_status: pass ? "PASS" : blockCode === "COPYRIGHT_NOT_CLEARED" ? "BLOCK" : "PASS",
       music_rights_status: pass ? input.musicRights : blockCode === "MUSIC_NOT_CLEARED" ? "BLOCK" : input.musicRights,
-      evidence_url: item.sourceUrl || item.mediaUrl,
+      evidence_url: reviewMediaUrl,
       reviewer_id: actor,
       reviewer_note: input.reviewerNote || safetyBlockNotes[blockCode] || null,
       actor,
@@ -676,6 +672,8 @@ const executeAction = async (input: G8ActionInput, actor: string): Promise<G8Act
   if (input.action === "DISCLOSURE") {
     if (!item.canReviewDisclosure) throw new Error("Complete the safety review before disclosure.");
     const organic = input.relationshipType === "ORGANIC";
+    const reviewMediaUrl = resolveReviewMedia(item, input.evidenceUrl);
+    if (!reviewMediaUrl) throw new Error("Add Story Media before reviewing disclosure.");
     const result = await postG8Webhook(env.n8nG8DisclosureCheckPath, {
       ugc_id: item.itemKey,
       relationship_type: input.relationshipType,
@@ -683,7 +681,7 @@ const executeAction = async (input: G8ActionInput, actor: string): Promise<G8Act
       disclosure_text: organic ? null : input.disclosureText,
       paid_partnership_label_present: input.relationshipType === "PAID" ? input.paidPartnershipLabel : false,
       disclosure_visible: organic ? false : input.disclosureVisible,
-      evidence_url: organic ? item.sourceUrl || item.mediaUrl : input.evidenceUrl,
+      evidence_url: reviewMediaUrl,
       reviewer_id: actor,
       reviewer_note: input.reviewerNote,
       actor,
@@ -695,26 +693,45 @@ const executeAction = async (input: G8ActionInput, actor: string): Promise<G8Act
   }
 
   if (input.action === "SEND_FOR_APPROVAL") {
+    if (item.isActuallySentToG4) return { status: "SUCCESS", message: "This content has already been sent to G4." };
     if (!item.canSendForApproval) throw new Error("Complete permission, safety and disclosure before sending this content.");
     const accountId = await resolveInstagramAccountId();
+    const assetTitle = `${item.contentType} by @${item.creatorUsername.replace(/^@/, "")}`;
+    const originalCaption = textOrNull(item.caption);
     const result = await postG8Webhook(env.n8nG8CreateApprovedAssetPath, {
       ugc_id: item.itemKey,
       requested_use: "ORGANIC_SOCIAL",
       asset_type: "UGC_REEL_DRAFT",
       platform: "INSTAGRAM",
       account_id: accountId,
-      asset_title: input.assetTitle,
-      content_text: input.contentText,
+      // Preserve the creator's original caption when present. Visual-only Stories
+      // intentionally reach G4 with no synthetic caption.
+      asset_title: assetTitle,
+      content_text: originalCaption,
+      caption: originalCaption,
       media_url: item.mediaUrl,
       source_url: item.sourceUrl,
       relationship_type: item.relationshipType,
       actor,
     });
-    return mapWebhookResult(result, {
-      success: "Content is ready.",
-      pending: "Sent to human approval.",
-      blocked: "Content could not move forward. Review the content requirements and try again.",
+    const mapped = mapWebhookResult(result, {
+      success: "Sent to G4.",
+      pending: "Sent to G4.",
+      blocked: "G4 could not confirm this handoff. Please try again.",
     });
+    if (mapped.status === "BLOCKED") return mapped;
+
+    const refreshedItem = await getItem(item.itemKey);
+    if (!refreshedItem.isActuallySentToG4) {
+      console.error("[g8] G4 handoff was not confirmed after workflow response", {
+        itemKey: item.itemKey,
+        httpStatus: result.httpStatus,
+        workflowStatus: result.workflowStatus,
+        response: result.raw,
+      });
+      return { status: "BLOCKED", message: "We couldn't confirm that this content reached G4. Please try again." };
+    }
+    return { status: "SUCCESS", message: "Sent to G4." };
   }
 
   if (input.action !== "REVOKE_PERMISSION") throw new Error("This G8 action is not supported.");
